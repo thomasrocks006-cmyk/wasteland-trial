@@ -191,7 +191,7 @@ export class WeaponSystem {
 
     s.mag--;
     this.shotsFired += d.pellets;
-    this.cooldown = 60 / d.rpm;
+    this.cooldown = 60 / (d.rpm * (this.player.fireRateMul || 1));
 
     // where the player is actually pointing
     camera.getWorldDirection(this._dir);
@@ -246,7 +246,7 @@ export class WeaponSystem {
           this.fx.beam(this._muzzlePos, end, 0x7ae4ff, 0.11, 0.26);
         }
         for (const h of hits) {
-          this.ctx.applyDamage(h.enemy, d.dmg * (h.head ? 1.9 : 1), h.point, dir, h.head, d);
+          this.ctx.applyDamage(h.enemy, d.dmg * (this.player.dmgMul || 1) * (h.head ? 1.9 : 1), h.point, dir, h.head, d);
         }
         // impact at the last surface
         const last = hits[hits.length - 1];

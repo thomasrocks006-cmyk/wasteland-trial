@@ -37,7 +37,8 @@ export class World {
 
   build() {
     const scene = this.scene;
-    scene.fog = new THREE.FogExp2(0xd7a878, 0.0062);
+    // linear haze reads as depth; exponential just greys everything out
+    scene.fog = new THREE.Fog(0xdcae84, 30, 620);
 
     this.buildSky();
     this.buildLights();
@@ -45,6 +46,7 @@ export class World {
     this.buildDistantRidges();
     this.buildRocks();
     this.buildRuins();
+    this.buildLandmarks();
     this.buildVegetation();
     this.buildGroundDetail();
     this.buildDust();
@@ -351,23 +353,29 @@ export class World {
     const pillar = (x, z, h, r, tilt = 0) => {
       const y0 = terrainHeight(x, z);
       const segs = 6;
-      let y = y0;
-      let cx = x, cz = z;
+      const leanDir = rnd(0, TAU);
+      const lean = tilt;
       for (let s = 0; s < segs; s++) {
+        const t0 = s / segs, t1 = (s + 1) / segs;
+        const tm = (t0 + t1) * 0.5;
+        // centre each segment on the lean line so the stack stays continuous
+        const off = Math.sin(lean * tm) * h * tm;
+        const ox = Math.cos(leanDir) * off, oz = Math.sin(leanDir) * off;
         const sh = h / segs;
-        const g = new THREE.CylinderGeometry(r * (1 - s * 0.03), r * (1.04 - s * 0.03), sh * 1.01, 8, 1);
+        const g = new THREE.CylinderGeometry(r * (1 - s * 0.03), r * (1.04 - s * 0.03), sh * 1.02, 8, 1);
         b.add(g, pick([PAL.ruin, PAL.ruinDark, PAL.ruinLight]), {
-          pos: [cx, y + sh / 2, cz],
-          rot: [tilt * (s / segs) * 0.5, rnd(0, TAU), tilt * (s / segs)],
+          pos: [x + ox, y0 + Math.cos(lean * tm) * h * tm + sh * 0.5, z + oz],
+          rot: [lean * Math.cos(leanDir) * tm, rnd(0, TAU), lean * Math.sin(leanDir) * tm],
           jitter: 0.05
         });
-        y += sh;
-        cx += Math.sin(tilt * (s / segs)) * sh * 0.4;
       }
-      // broken cap
+      // broken cap, seated on the real top of the leaning stack
       if (rng() > 0.4) {
-        b.add(new THREE.BoxGeometry(r * 2.5, r * 0.5, r * 2.5), PAL.ruinDark,
-          { pos: [x, y0 + h + r * 0.2, z], rot: [rnd(-0.2, 0.2), rnd(0, TAU), rnd(-0.25, 0.25)], jitter: 0.06 });
+        const off = Math.sin(lean) * h;
+        b.add(new THREE.BoxGeometry(r * 2.5, r * 0.55, r * 2.5), PAL.ruinDark, {
+          pos: [x + Math.cos(leanDir) * off, y0 + Math.cos(lean) * h + r * 0.12, z + Math.sin(leanDir) * off],
+          rot: [lean * Math.cos(leanDir), rnd(0, TAU), lean * Math.sin(leanDir)], jitter: 0.06
+        });
       }
       this.obstacles.push({ x, z, r: r * 1.05 });
     };
@@ -380,8 +388,8 @@ export class World {
         const wx = x + Math.cos(rotY) * t, wz = z + Math.sin(rotY) * t;
         const hh = h * rnd(0.55, 1.0);
         b.add(new THREE.BoxGeometry(3.1, hh, 0.85), pick([PAL.ruin, PAL.ruinDark, PAL.ruinLight]), {
-          pos: [wx, terrainHeight(wx, wz) + hh / 2 - 0.2, wz],
-          rot: [0, rotY, rnd(-0.03, 0.03)], jitter: 0.055
+          pos: [wx, terrainHeight(wx, wz) + hh / 2 - 0.45, wz],
+          rot: [0, rotY, 0], jitter: 0.055
         });
         this.obstacles.push({ x: wx, z: wz, r: 1.5 });
       }
@@ -447,6 +455,94 @@ export class World {
     const geo = b.build();
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
     mesh.castShadow = true; mesh.receiveShadow = true;
+    this.scene.add(mesh);
+  }
+
+  /* -------------------------------------------------- horizon landmarks
+     Big silhouettes do more for a sense of scale than any amount of detail on
+     things you can reach. Everything here sits on the outer plain at y = 9. */
+  buildLandmarks() {
+    const b = new Builder();
+    const PLAIN_Y = 9;
+
+    // ---- a colossal arch
+    const arch = (cx, cz, rot, h, w, solid = false) => {
+      const bw = w * 0.34;
+      for (const s of [-1, 1]) {
+        // a Y rotation maps local +X to (cosθ, -sinθ), so the legs must match that
+        const lx = cx + Math.cos(rot) * s * w, lz = cz - Math.sin(rot) * s * w;
+        const gy = solid ? terrainHeight(lx, lz) : PLAIN_Y;
+        b.add(new THREE.BoxGeometry(bw, h, bw * 1.5), PAL.ruinDark, {
+          pos: [lx, gy + h / 2, lz], rot: [0, rot, 0], jitter: 0.05
+        });
+        b.add(new THREE.BoxGeometry(bw * 1.7, h * 0.12, bw * 2.1), PAL.ruinDark, {
+          pos: [lx, gy + h * 0.06, lz], rot: [0, rot, 0], jitter: 0.05
+        });
+        if (solid) this.obstacles.push({ x: lx, z: lz, r: bw * 0.95 });
+      }
+      const baseY = solid ? terrainHeight(cx, cz) : PLAIN_Y;
+      // the span: a half torus is continuous, where a chain of boxes left gaps
+      b.add(new THREE.TorusGeometry(w, bw * 0.63, 6, 16, Math.PI), PAL.ruin, {
+        pos: [cx, baseY + h, cz], rot: [0, rot, 0], jitter: 0.05
+      });
+    };
+    // one arch stands inside the bowl so it is planted, lit and unmistakably close
+    arch(-54, -47, 0.62, 24, 21, true);
+    arch(142, -96, 0.55, 40, 30);
+    arch(118, 62, -1.1, 30, 22);
+
+    // ---- a half-buried colossus
+    const statue = (cx, cz, rot, scale) => {
+      const H = 34 * scale;
+      b.add(new THREE.BoxGeometry(16 * scale, H * 0.62, 11 * scale), PAL.ruinDark, {
+        pos: [cx, PLAIN_Y + H * 0.31, cz], rot: [0, rot, 0], jitter: 0.06
+      });
+      b.add(new THREE.BoxGeometry(10 * scale, 9 * scale, 9 * scale), PAL.ruin, {
+        pos: [cx, PLAIN_Y + H * 0.72, cz], rot: [0, rot, 0], jitter: 0.06
+      });
+      // brow and nose so it reads as a face
+      b.add(new THREE.BoxGeometry(9 * scale, 1.6 * scale, 2.4 * scale), PAL.ruinDark, {
+        pos: [cx + Math.cos(rot) * 4.7 * scale, PLAIN_Y + H * 0.76, cz + Math.sin(rot) * 4.7 * scale], rot: [0, rot, 0]
+      });
+      b.add(new THREE.BoxGeometry(2.2 * scale, 3.4 * scale, 2.2 * scale), PAL.ruin, {
+        pos: [cx + Math.cos(rot) * 5.0 * scale, PLAIN_Y + H * 0.70, cz + Math.sin(rot) * 5.0 * scale], rot: [0, rot, 0]
+      });
+      // one arm breaking out of the sand
+      b.add(new THREE.BoxGeometry(5 * scale, H * 0.5, 5 * scale), PAL.ruin, {
+        pos: [cx + Math.cos(rot + 1.2) * 11 * scale, PLAIN_Y + H * 0.2, cz + Math.sin(rot + 1.2) * 11 * scale],
+        rot: [0, rot, 0.35], jitter: 0.05
+      });
+    };
+    statue(66, -150, 1.9, 2.1);
+    statue(-150, 44, -0.4, 1.7);
+
+    // ---- spires on the skyline
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU + rnd(-0.2, 0.2);
+      const d = rnd(126, 268);
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      const h = rnd(46, 112);
+      b.add(new THREE.CylinderGeometry(rnd(2, 5), rnd(7, 13), h, 5), PAL.rockDark, {
+        pos: [x, PLAIN_Y + h / 2, z], rot: [rnd(-0.04, 0.04), rnd(0, TAU), rnd(-0.04, 0.04)], jitter: 0.05
+      });
+    }
+
+    // ---- a dead city on the far horizon
+    for (let i = 0; i < 34; i++) {
+      const a = rnd(-0.55, 0.75);
+      const d = rnd(380, 620);
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      const w = rnd(14, 38), h = rnd(38, 104), dep = rnd(14, 38);
+      b.add(new THREE.BoxGeometry(w, h, dep), pick([0x6d4a30, 0x7d573a, 0x5c3d26]), {
+        pos: [x, PLAIN_Y + h / 2 - 4, z], rot: [0, rnd(0, TAU), 0], jitter: 0.06
+      });
+    }
+
+    const mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    mesh.name = 'landmarks';
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    mesh.frustumCulled = false;
     this.scene.add(mesh);
   }
 
@@ -689,6 +785,33 @@ export class World {
       }
       pa.needsUpdate = true;
     }
+  }
+
+  /** is this spot clear of every obstacle? */
+  isClear(x, z, pad = 1.0) {
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i];
+      if (Math.hypot(x - o.x, z - o.z) < o.r + pad) return false;
+    }
+    return true;
+  }
+
+  /** find somewhere genuinely open to put the player: clear of props, on flat ground */
+  pickSpawn() {
+    let best = null, bestScore = -1e9;
+    for (let r = 13; r <= 30; r += 1.5) {
+      for (let a = 0; a < 32; a++) {
+        const ang = (a / 32) * TAU;
+        const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
+        if (!this.isClear(x, z, 1.8)) continue;
+        const n = terrainNormal(x, z, _v);
+        if (n.y < 0.93) continue;                       // flat-ish only
+        // prefer standing back from the dais, with it in view
+        const score = (r > 14 ? 2 : 0) + n.y * 3 - Math.abs(r - 17) * 0.1;
+        if (score > bestScore) { bestScore = score; best = [x, z]; }
+      }
+    }
+    return best || [0, 18];
   }
 
   /** push a circle out of world obstacles; returns corrected x,z */

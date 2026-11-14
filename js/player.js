@@ -149,6 +149,28 @@ export class Player {
     this.knock = new THREE.Vector3();
     this.faceLock = 0;
     this.iframe = 0;
+
+    // ---- eco and the two forms
+    this.eco = 0;
+    this.maxEco = 100;
+    this.mode = 'normal';
+    this.modeT = 0;
+    this.dmgMul = 1;
+    this.dmgTakenMul = 1;
+    this.fireRateMul = 1;
+    this.onMode = null;
+
+    const auraMat = new THREE.MeshBasicMaterial({
+      color: 0x66f0ff, transparent: true, opacity: 0.16,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide
+    });
+    this.aura = new THREE.Mesh(new THREE.SphereGeometry(1.05, 12, 10), auraMat);
+    this.aura.position.y = 1.0;
+    this.aura.visible = false;
+    this.model.root.add(this.aura);
+    this.auraLight = new THREE.PointLight(0x66f0ff, 0, 10, 2);
+    this.auraLight.position.y = 1.3;
+    this.model.root.add(this.auraLight);
     this.lookVelX = 0;
     this.lookVelY = 0;
     this.dodging = 0;
@@ -189,7 +211,7 @@ export class Player {
     if (!this.alive) return;
     if (this.iframe > 0) return;
     this.iframe = 0.40;
-    this.hp = Math.max(0, this.hp - amount);
+    this.hp = Math.max(0, this.hp - amount * this.dmgTakenMul);
     this.hurtFlash = 1;
     this.shake = Math.min(2.0, this.shake + 0.45);
     if (fromX !== undefined) {
@@ -200,6 +222,46 @@ export class Player {
   }
 
   heal(n) { this.hp = Math.min(this.maxHp, this.hp + n); }
+
+  addEco(n) { this.eco = Math.min(this.maxEco, this.eco + n); }
+
+  /** Light form: fast, shielded, healing. Dark form: heavy damage, unavoidable. */
+  activateMode(mode) {
+    if (this.modeT > 0 || this.eco < 45 || !this.alive) return false;
+    this.eco -= 45;
+    this.mode = mode;
+    this.modeT = 9;
+    if (mode === 'light') {
+      this.dmgMul = 1;
+      this.dmgTakenMul = 0.42;
+      this.fireRateMul = 1.35;
+      this.aura.material.color.setHex(0x6ef0ff);
+      this.auraLight.color.setHex(0x6ef0ff);
+      this.heal(22);
+    } else {
+      this.dmgMul = 1.75;
+      this.dmgTakenMul = 0.82;
+      this.fireRateMul = 1.0;
+      this.aura.material.color.setHex(0xc06bff);
+      this.auraLight.color.setHex(0xc06bff);
+    }
+    this.aura.visible = true;
+    this.auraLight.intensity = 5;
+    if (this.onMode) this.onMode(mode);
+    return true;
+  }
+
+  endMode() {
+    if (this.mode === 'normal') return;
+    this.mode = 'normal';
+    this.modeT = 0;
+    this.dmgMul = 1;
+    this.dmgTakenMul = 1;
+    this.fireRateMul = 1;
+    this.aura.visible = false;
+    this.auraLight.intensity = 0;
+    if (this.onMode) this.onMode('normal');
+  }
 
   /* input: {mx, my, jump, sprint, lookX, lookY} */
   update(dt, input) {
@@ -222,6 +284,17 @@ export class Player {
     this.shake = Math.max(0, this.shake - dt * 2.6);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
     this.iframe = Math.max(0, this.iframe - dt);
+
+    // ---- form timer and aura
+    if (this.modeT > 0) {
+      this.modeT -= dt;
+      if (this.mode === 'light') this.heal(7 * dt);
+      const p = performance.now();
+      this.aura.material.opacity = 0.13 + Math.sin(p * 0.006) * 0.05;
+      this.aura.scale.setScalar(1 + Math.sin(p * 0.004) * 0.06);
+      this.auraLight.intensity = 4 + Math.sin(p * 0.005) * 1.6;
+      if (this.modeT <= 0) this.endMode();
+    }
 
     // ---- movement in camera space
     const mx = input.mx, my = input.my;

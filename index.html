@@ -45,6 +45,7 @@
     <div id="healthBar"><div id="healthFill"></div></div>
     <div id="healthNum">100</div>
     <div id="shieldFill"></div>
+    <div id="ecoWrap"><div id="ecoFill"></div><span id="ecoLabel">ECO</span></div>
   </div>
 
   <!-- crosshair -->
@@ -74,10 +75,12 @@
   <div id="lookZone"></div>
 
   <div id="buttons">
+    <button id="btnLight" class="tbtn small eco light">LIGHT</button>
+    <button id="btnDark" class="tbtn small eco dark">DARK</button>
+    <button id="btnAim" class="tbtn small">AIM</button>
     <button id="btnJump" class="tbtn small">JUMP</button>
     <button id="btnReload" class="tbtn small">RELOAD</button>
-    <button id="btnAim" class="tbtn small">AIM</button>
-    <button id="btnDodge" class="tbtn dodge">DODGE</button>
+    <button id="btnDodge" class="tbtn small dodge">DODGE</button>
     <button id="btnFire" class="tbtn fire"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="15"/><circle cx="24" cy="24" r="7"/><path d="M24 4v8M24 36v8M4 24h8M36 24h8"/></svg></button>
   </div>
 
@@ -175,6 +178,14 @@
     <div class="loadTitle">WASTELAND TRIAL</div>
     <div class="loadBar"><div id="loadFill"></div></div>
     <div id="loadTxt">BUILDING THE WASTELAND</div>
+  </div>
+</div>
+
+<div id="crash" class="hidden">
+  <div class="crashInner">
+    <b>SOMETHING BROKE</b>
+    <div id="crashMsg"></div>
+    <button id="crashReload">RELOAD</button>
   </div>
 </div>
 

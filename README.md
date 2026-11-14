@@ -15,6 +15,31 @@ GitHub Pages, so the address is stable.
 Local development: `./serve.sh` starts a static server plus a temporary tunnel
 and prints an HTTPS address (that address changes on every restart).
 
+## Eco forms
+
+Kills fill the **ECO** bar under your health. At 45 eco you can take one form for
+nine seconds:
+
+| Form | Effect |
+|---|---|
+| **LIGHT** | Damage taken cut to 42%, heals 7/s, fire rate +35% |
+| **DARK** | Weapon damage ×1.75, damage taken ×0.82 |
+
+Tap LIGHT or DARK again to drop out of the form early. One form at a time.
+
+## Self-test
+
+Add `?smoke=1` to the address. The game then runs a scripted pass over the
+systems that have broken before — loop liveness, stick direction in all four
+directions, look direction at three camera angles, hit registration, spawn
+safety, canvas fit, and both eco forms — and prints PASS/FAIL on screen.
+I run this before every deploy; a build that fails it does not ship.
+
+## Crash reporting
+
+If a frame ever throws, a red bar appears at the bottom with the message and a
+RELOAD button, instead of a frozen screen.
+
 ## Controls
 
 | | |
@@ -26,9 +51,10 @@ and prints an HTTPS address (that address changes on every restart).
 | AIM | aim down sights: tighter spread, less recoil, 52° zoom |
 | RELOAD / JUMP | as labelled |
 | Weapon strip | tap 1-4 |
+| LIGHT / DARK | eco form (needs 45 eco) |
 
 On desktop: WASD, mouse look (click to lock), left click to fire, R reload,
-C dodge, 1-4 weapons, Space jump, Shift aim, Esc pause.
+C dodge, 1-4 weapons, Space jump, Shift aim, L light, K dark, Esc pause.
 
 ## The four gunstaff mods
 

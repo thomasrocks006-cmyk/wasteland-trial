@@ -30,7 +30,7 @@ function pixelRatioFor(q) {
 renderer.setPixelRatio(pixelRatioFor(QUALITY));
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 900);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 2200);
 camera.position.set(0, 4, 8);
 
 function resize() {
@@ -208,6 +208,7 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
 
 /* ================================================================ UI */
 const $ = (id) => document.getElementById(id);
+weapons.onFired = () => audio.duck();
 const ui = {
   hud: $('hud'), score: $('score'), wave: $('waveNum'), combo: $('combo'),
   healthFill: $('healthFill'), healthNum: $('healthNum'), waveBar: $('waveBar'),
@@ -261,6 +262,32 @@ player.onDodge = () => {
   fx.puff(new THREE.Vector3(player.pos.x, player.pos.y + 0.25, player.pos.z), null, 0xb08a62, 0.7, 5, 0.7, 2.4);
 };
 player.onDamageDir = (a) => damageArc(a);
+player.onMode = (m) => {
+  const p = new THREE.Vector3(player.pos.x, player.pos.y + 1.0, player.pos.z);
+  if (m === 'light') {
+    fx.ecoBurst(p, 0x6ef0ff, 26, 1.6);
+    fx.ring(player.pos.clone().setY(player.pos.y + 0.15), 0x6ef0ff, 5, 0.6);
+    audio.pickup('health');
+  } else if (m === 'dark') {
+    fx.ecoBurst(p, 0xc06bff, 30, 1.8);
+    fx.ring(player.pos.clone().setY(player.pos.y + 0.15), 0xc06bff, 6, 0.7);
+    audio.explosion(0.2);
+  } else {
+    fx.ecoBurst(p, 0xffd9a0, 10, 0.8);
+  }
+};
+
+/** try to enter a form; gives audio/UI feedback when refused */
+function tryMode(m) {
+  if (GAME.state !== 'playing') return;
+  if (player.mode === m) { player.endMode(); return; }
+  if (player.activateMode(m)) {
+    showCallout(m === 'light' ? 'LIGHT JAK' : 'DARK JAK');
+  } else if (player.eco < 45 && player.modeT <= 0) {
+    audio.click(0, 0.16, 300);
+    showCallout('NEED ECO');
+  }
+}
 
 /* ================================================================ input */
 const input = {
@@ -458,6 +485,8 @@ function bindHold(el, onDown, onUp) {
 bindHold($('btnFire'), () => { input.fireHeld = true; }, () => { input.fireHeld = false; });
 bindHold($('btnJump'), () => { input.jumpQueued = true; });
 bindHold($('btnDodge'), () => { input.dodgeQueued = true; });
+onPress($('btnLight'), () => tryMode('light'));
+onPress($('btnDark'), () => tryMode('dark'));
 onPress($('btnReload'), () => weapons.tryReload());
 onPress($('btnAim'), () => {
   input.aim = !input.aim;
@@ -477,6 +506,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit2') weapons.switchTo(1);
   if (e.code === 'Digit3') weapons.switchTo(2);
   if (e.code === 'Digit4') weapons.switchTo(3);
+  if (e.code === 'KeyL') tryMode('light');
+  if (e.code === 'KeyK') tryMode('dark');
   if (e.code === 'Escape') togglePause();
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -562,6 +593,7 @@ function startWave(w) {
   ui.waveBar.style.width = '0%';
   audio.waveStart();
   audio.setIntensity(clamp(0.25 + w * 0.08, 0, 1));
+  audio.setMusicIntensity(clamp(0.15 + w * 0.12, 0, 1));
 
   const wi = $('waveIntro');
   $('wiNum').textContent = w;
@@ -614,6 +646,7 @@ function addKillScore(e) {
 
 enemies.onKill = (e) => {
   addKillScore(e);
+  player.addEco(e.type.boss ? 40 : 7);
   // drops
   const r = rng();
   if (e.type.boss) {
@@ -639,13 +672,18 @@ function resetRun() {
 
   player.alive = true;
   player.hp = player.maxHp;
-  player.pos.set(0, terrainHeight(0, 12), 12);
+  const sp = world.pickSpawn();
+  player.pos.set(sp[0], terrainHeight(sp[0], sp[1]), sp[1]);
+  // face the monument from the spawn point
+  player.camYaw = Math.atan2(-sp[0], -sp[1]);
+  player.yaw = player.camYaw;
   player.vel.set(0, 0, 0);
   player.vy = 0;
-  player.camYaw = Math.PI; player.camPitch = -0.05;
-  player.yaw = Math.PI;
+  player.camPitch = -0.05;
   player.recoilPitch = 0; player.recoilYaw = 0;
   player.knock.set(0, 0, 0);
+  player.endMode();
+  player.eco = 0;
 
   weapons.index = 0;
   weapons.state = WEAPONS.map(w => ({ mag: w.mag, reserve: w.reserve }));
@@ -703,6 +741,7 @@ function togglePause() {
 $('btnStart').addEventListener('click', () => {
   audio.init();
   audio.resume();
+  audio.startMusic();
   $('title').classList.add('hidden');
   ui.hud.classList.remove('hidden');
   resetRun();
@@ -741,7 +780,7 @@ $('sens').addEventListener('input', (e) => { sensitivity = parseFloat(e.target.v
 let invX = 1, invY = 1;
 $('invX').addEventListener('change', (e) => { invX = parseFloat(e.target.value); });
 $('invY').addEventListener('change', (e) => { invY = parseFloat(e.target.value); });
-const BUILD = 'b11';
+const BUILD = 'b12';
 $('build').textContent = 'BUILD ' + BUILD;
 $('quality').addEventListener('change', (e) => {
   QUALITY = e.target.value;
@@ -991,6 +1030,20 @@ function updateHud() {
   ui.healthNum.textContent = Math.ceil(player.hp);
   ui.bloodEdge.style.opacity = String(clamp(1 - hpPct / 0.55, 0, 0.95) * 0.85);
 
+  // eco meter and form buttons
+  const ecoPct = clamp(player.eco / player.maxEco, 0, 1);
+  const ecoFill = document.getElementById('ecoFill');
+  if (ecoFill) ecoFill.style.width = (ecoPct * 100) + '%';
+  const ecoWrap = document.getElementById('ecoWrap');
+  if (ecoWrap) ecoWrap.classList.toggle('full', player.eco >= 45);
+  const ready = player.eco >= 45 && player.modeT <= 0;
+  ['btnLight', 'btnDark'].forEach((id) => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    b.classList.toggle('ready', ready);
+    b.classList.toggle('spent', player.modeT > 0);
+  });
+
   // crosshair spread follows bloom
   const spread = weapons.spreadDeg;
   const px = 6 + spread * 3.4;
@@ -1039,8 +1092,30 @@ document.addEventListener('touchend', (e) => {
   lastTap = now;
 }, { passive: false });
 
+/* ================================================================ crash reporting
+   A thrown frame used to look like a frozen game. Now it says so, in the open. */
+let crashShown = false;
+function reportCrash(what) {
+  if (crashShown) return;
+  crashShown = true;
+  document.getElementById('crashMsg').textContent = String(what).slice(0, 240);
+  document.getElementById('crash').classList.remove('hidden');
+}
+window.addEventListener('error', (e) => {
+  reportCrash((e.message || 'error') + ' @ ' + (e.filename || '').split('/').pop() + ':' + (e.lineno || 0));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  reportCrash('promise: ' + ((e.reason && (e.reason.message || e.reason)) || 'unknown'));
+});
+document.getElementById('crashReload').addEventListener('click', () => location.reload());
+
 /* ================================================================ debug hook (harmless in prod) */
-window.__dbg = { GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups };
+window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups };
+
+// ?smoke=1 runs the scripted self-test (see js/smoke.js)
+if (location.search.includes('smoke')) {
+  import('./smoke.js').then((m) => m.runSmoke()).catch((e) => console.error(e));
+}
 if ('serviceWorker' in navigator) {
   const isLocal = ['127.0.0.1', 'localhost', '0.0.0.0'].includes(location.hostname);
   if (!isLocal) {

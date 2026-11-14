@@ -39,8 +39,40 @@ export class Audio {
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = buf;
 
+    this.buildReverb();
     this.startWind();
     this.startDrone();
+  }
+
+  /* ---------------------------------------------------------- canyon reverb
+     A generated impulse: noise decaying with a couple of early reflections.
+     Without this the guns have no tail and the canyon sounds like a closet. */
+  buildReverb() {
+    const rate = this.ctx.sampleRate;
+    const seconds = 2.2;
+    const len = Math.floor(rate * seconds);
+    const ir = this.ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        const t = i / len;
+        // diffuse tail + slight stereo decorrelation
+        const decay = Math.pow(1 - t, 2.7);
+        d[i] = (Math.random() * 2 - 1) * decay * (ch ? 0.92 : 1);
+      }
+      // two slap-backs off canyon walls, 90ms and 210ms
+      [[0.09, 0.5], [0.21, 0.34], [0.36, 0.22]].forEach(([at, amp]) => {
+        const idx = Math.floor(at * rate) + (ch * 37);
+        if (idx < len) d[idx] += amp;
+      });
+    }
+    this.reverb = this.ctx.createConvolver();
+    this.reverb.buffer = ir;
+    this.wet = this.ctx.createGain();
+    this.wet.gain.value = 0.30;
+    this.reverb.connect(this.wet);
+    this.wet.connect(this.master);
+    this.master.connect(this.reverb);
   }
 
   resume() {
@@ -437,6 +469,157 @@ export class Audio {
     g.connect(this.master);
     [o1, o2, o3].forEach(o => o.start(t));
     this.drone = g;
+  }
+
+  /* ---------------------------------------------------------- music
+     A small generative score: one chord progression, four layers, and the
+     layers fade in as the fight intensifies. D minor because it suits ruins. */
+  startMusic() {
+    if (this.musicGain) return;
+    const t = this.t;
+    this.musicGain = this.ctx.createGain();
+    this.musicGain.gain.value = 0.0;
+    this.musicGain.connect(this.master);
+    this.musicGain.connect(this.reverb);
+
+    this.padGain = this.ctx.createGain(); this.padGain.gain.value = 0.55;
+    this.melGain = this.ctx.createGain(); this.melGain.gain.value = 0.0;
+    this.percGain = this.ctx.createGain(); this.percGain.gain.value = 0.0;
+    this.padGain.connect(this.musicGain);
+    this.melGain.connect(this.musicGain);
+    this.percGain.connect(this.musicGain);
+
+    this.bpm = 84;
+    this.musicStep = 0;
+    this.nextTime = t + 0.1;
+    this.musicTimer = setInterval(() => this.scheduleMusic(), 50);
+    this.musicGain.gain.setTargetAtTime(0.5, t, 2.0);
+  }
+
+  scheduleMusic() {
+    if (!this.ctx || this.ctx.state !== 'running') { this.nextTime = this.ctx.currentTime + 0.05; return; }
+    const eighth = (60 / this.bpm) * 0.5;
+    while (this.nextTime < this.ctx.currentTime + 0.4) {
+      this.playStep(this.musicStep, this.nextTime);
+      this.nextTime += eighth;
+      this.musicStep = (this.musicStep + 1) % 32;
+    }
+  }
+
+  playStep(step, t) {
+    const CH = [
+      { pad: [146.83, 174.61, 220.00], root: 73.42 },   // Dm
+      { pad: [116.54, 146.83, 174.61], root: 58.27 },   // Bb
+      { pad: [174.61, 220.00, 261.63], root: 87.31 },   // F
+      { pad: [130.81, 164.81, 196.00], root: 65.41 },   // C
+    ];
+    const bar = Math.floor(step / 8) % 4;
+    const chord = CH[bar];
+    const eighth = (60 / this.bpm) * 0.5;
+
+    if (step % 8 === 0) this.pad(chord.pad, t, eighth * 8 * 1.05);
+    if (step % 8 === 0) this.bassNote(chord.root, t, eighth * 3.6);
+    if (step % 8 === 4) this.bassNote(chord.root * 1.5, t, eighth * 1.6);
+
+    // percussion only once the fight is on
+    if (this.percGain.gain.value > 0.02) {
+      if (step % 4 === 0) this.kick(t);
+      if (step % 2 === 1) this.hat(t, 0.5);
+      if (step % 8 === 7) this.hat(t, 1.0);
+    }
+
+    // a plain melodic motif, pentatonic so it never clashes with the chords
+    const MEL = {
+      16: 587.33, 18: 440.00, 20: 392.00, 22: 440.00,
+      24: 523.25, 26: 440.00, 28: 392.00, 30: 293.66,
+    };
+    if (MEL[step] && this.melGain.gain.value > 0.02) this.pluck(MEL[step], t);
+  }
+
+  pad(freqs, t, dur) {
+    for (const f of freqs) {
+      for (const det of [-4, 4]) {
+        const o = this.ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f * Math.pow(2, det / 1200);
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 620;
+        lp.Q.value = 0.7;
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.026, t + dur * 0.35);
+        g.gain.linearRampToValueAtTime(0.0001, t + dur);
+        o.connect(lp); lp.connect(g); g.connect(this.padGain);
+        o.start(t); o.stop(t + dur + 0.05);
+      }
+    }
+  }
+
+  bassNote(f, t, dur) {
+    const o = this.ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.075, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.connect(g); g.connect(this.musicGain);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+
+  pluck(f, t) {
+    const o = this.ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.value = f;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.045, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0004, t + 0.5);
+    o.connect(g); g.connect(this.melGain);
+    o.start(t); o.stop(t + 0.55);
+  }
+
+  kick(t) {
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(115, t);
+    o.frequency.exponentialRampToValueAtTime(44, t + 0.18);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.10, t);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + 0.2);
+    o.connect(g); g.connect(this.percGain);
+    o.start(t); o.stop(t + 0.22);
+  }
+
+  hat(t, amp) {
+    const n = this.ctx.createBufferSource();
+    n.buffer = this.noiseBuf; n.loop = true;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 7000;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.02 * amp, t);
+    g.gain.exponentialRampToValueAtTime(0.0003, t + 0.05);
+    n.connect(hp); hp.connect(g); g.connect(this.percGain);
+    n.start(t); n.stop(t + 0.06);
+  }
+
+  /** called when the fight is heavy: bring the rhythm in */
+  setMusicIntensity(v) {
+    if (!this.musicGain || !this.ctx) return;
+    const t = this.t;
+    this.padGain.gain.setTargetAtTime(0.45 + v * 0.35, t, 1.2);
+    this.melGain.gain.setTargetAtTime(v > 0.35 ? 0.7 : 0.0, t, 1.0);
+    this.percGain.gain.setTargetAtTime(v > 0.22 ? 0.55 : 0.0, t, 0.9);
+  }
+
+  /** music ducks for a beat under gunfire */
+  duck() {
+    if (!this.musicGain || !this.ctx) return;
+    const t = this.t;
+    this.musicGain.gain.cancelScheduledValues(t);
+    this.musicGain.gain.setTargetAtTime(0.22, t, 0.04);
+    this.musicGain.gain.setTargetAtTime(0.5, t + 0.18, 0.35);
   }
 
   setIntensity(v) {
