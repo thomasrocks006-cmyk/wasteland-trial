@@ -97,9 +97,11 @@ class Pickups {
           audio.pickup('health');
           fx.ecoBurst(new THREE.Vector3(it.x, it.y + 0.6, it.z), 0x37e0c8, 12, 1);
         } else {
+          // used to call a hook nobody set, so crates gave nothing
+          const got = weapons.refill();
           audio.pickup('ammo');
           fx.ecoBurst(new THREE.Vector3(it.x, it.y + 0.6, it.z), 0xf0b23c, 10, 1);
-          if (ui.onAmmoPickup) ui.onAmmoPickup();
+          if (got > 0) showToast('+AMMO');
         }
         this.items.splice(i, 1);
         continue;
@@ -148,6 +150,8 @@ const GAME = {
   objectiveProgress: 0,
   objectiveTarget: 0,
   runStart: 0,
+  perks: [],             // names taken this run, in order
+  drafting: false,
 };
 const SAVE_KEY = 'wasteland-trial-v1';
 const save = (() => {
@@ -188,14 +192,23 @@ function worldHit(from, dir, range) {
 
 const grenades = [];
 
+/** distance to the first hill or solid obstacle along a ray (Infinity if none within range) */
+function wallDist(from, dir, range, minT = 0) {
+  const g = worldHit(from, dir, range);
+  const tg = g ? g.distanceTo(from) : Infinity;
+  return Math.min(tg, world.rayObstacle(from, dir, Math.min(range, tg), minT));
+}
+
 const weapons = new WeaponSystem(scene, player, fx, audio, {
   enemies: () => enemies.list,
   raycast: (o, d, range, pierce) => enemies.raycast(o, d, range, pierce),
   worldHit,
+  wallDist,
   applyDamage: (e, dmg, point, dir, head, def) => {
     enemies.hit(e, dmg, point, dir, head, def);
-    if (head) { GAME.headshots++; }
   },
+  // one report per trigger pull: a scatter blast to the face is one headshot, not nine
+  onShot: (hit, head) => { if (head) GAME.headshots++; },
   spawnProjectile: (pos, vel, ex, dmg) => {
     grenades.push({
       pos, vel, life: 4.5, dmg, ex,
@@ -216,15 +229,49 @@ const ui = {
   ammoRow: $('ammoRow'), crosshair: $('crosshair'), hitmarker: $('hitmarker'),
   reloadRing: $('reloadRing'), callout: $('callout'), bloodEdge: $('bloodEdge'),
   bestScore: $('bestScore'), dmgArcs: $('dmgArcs'),
-  onAmmoPickup: null,
+  comboBar: $('comboBar'), bossBar: $('bossBar'), bossFill: $('bossFill'), bossName: $('bossName'),
+  toast: $('toast'), radar: $('radar'), draft: $('draft'),
 };
+
+/** accuracy over the run: pellets that hit (or blasts that hurt something) / pellets fired */
+function accuracy() {
+  return weapons.shotsFired ? Math.round(Math.min(1, weapons.shotsHit / weapons.shotsFired) * 100) : 0;
+}
+
+let toastTimer = 0;
+function showToast(text) {
+  ui.toast.textContent = text;
+  ui.toast.classList.remove('show');
+  void ui.toast.offsetWidth;
+  ui.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 900);
+}
+
+/* hit markers: the CSS existed but nothing ever triggered it. One restart per frame at most. */
+let markerKind = null;        // null | 'hit' | 'head' | 'kill'
+const MARK_RANK = { hit: 1, head: 2, kill: 3 };
+enemies.onHit = (e, head, killed) => {
+  const k = killed ? 'kill' : head ? 'head' : 'hit';
+  if (!markerKind || MARK_RANK[k] > MARK_RANK[markerKind]) markerKind = k;
+  if (killed) audio.killTick();
+};
+function flushMarker() {
+  if (!markerKind) return;
+  const el = ui.hitmarker;
+  el.className = '';
+  void el.offsetWidth;
+  el.className = 'show ' + markerKind;
+  markerKind = null;
+}
+enemies.onEnrage = () => { showCallout('IRONCOIL ENRAGED'); audio.duck(); };
 
 function syncAmmoUI() {
   const d = weapons.def, s = weapons.ammo;
-  ui.gunName.textContent = d.name + ' · ' + d.mod;
+  ui.gunName.textContent = d.name;
   ui.mag.textContent = s.mag;
   ui.res.textContent = s.reserve === Infinity ? '∞' : s.reserve;
-  ui.ammoRow.classList.toggle('low', s.mag <= Math.max(1, d.mag * 0.25));
+  ui.ammoRow.classList.toggle('low', s.mag <= Math.max(1, weapons.magSize() * 0.25));
   document.querySelectorAll('.wslot').forEach((b, i) => b.classList.toggle('on', i === weapons.index));
 }
 
@@ -282,10 +329,10 @@ function tryMode(m) {
   if (GAME.state !== 'playing') return;
   if (player.mode === m) { player.endMode(); return; }
   if (player.activateMode(m)) {
-    showCallout(m === 'light' ? 'LIGHT JAK' : 'DARK JAK');
+    showCallout(m === 'light' ? 'LIGHT FORM' : 'DARK FORM');
   } else if (player.eco < 45 && player.modeT <= 0) {
     audio.click(0, 0.16, 300);
-    showCallout('NEED ECO');
+    showCallout('NEED CHARGE');
   }
 }
 
@@ -443,13 +490,16 @@ bindZone(lookZone, {
 
 /* buttons — accept pointer OR touch, without double-firing on the same tap */
 function onPress(el, fn) {
-  let last = 0;
+  // one tap can arrive as both a pointerdown and a touchstart: drop the second of a
+  // pair of DIFFERENT types close together, but never a genuine quick second tap
+  let lastT = 0, lastType = '';
   const fire = (e) => {
     if (e.cancelable) e.preventDefault();
     e.stopPropagation();
     const now = performance.now();
-    if (now - last < 350) return;   // the same tap arrives as both pointer and touch
-    last = now;
+    const kind = e.type === 'touchstart' ? 'touch' : 'pointer';
+    if (kind !== lastType && now - lastT < 400) return;
+    lastT = now; lastType = kind;
     fn(e);
   };
   el.addEventListener('pointerdown', fire);
@@ -488,18 +538,18 @@ bindHold($('btnDodge'), () => { input.dodgeQueued = true; });
 onPress($('btnLight'), () => tryMode('light'));
 onPress($('btnDark'), () => tryMode('dark'));
 onPress($('btnReload'), () => weapons.tryReload());
-onPress($('btnAim'), () => {
-  input.aim = !input.aim;
-  $('btnAim').classList.toggle('on', input.aim);
-});
+onPress($('btnAim'), () => setAim(!input.aim));
 document.querySelectorAll('.wslot').forEach((b) => {
   onPress(b, () => weapons.switchTo(parseInt(b.dataset.w, 10)));
 });
+// the AIM toggle survives across runs otherwise
+function setAim(on) { input.aim = on; $('btnAim').classList.toggle('on', on); }
 
 /* keyboard + mouse for testing on desktop */
 const keys = {};
 window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
+  if (GAME.drafting && /^Digit[123]$/.test(e.code)) { pickPerk(+e.code.slice(5) - 1); return; }
   if (e.code === 'KeyR') weapons.tryReload();
   if (e.code === 'KeyQ') weapons.next();
   if (e.code === 'Digit1') weapons.switchTo(0);
@@ -562,7 +612,7 @@ function buildWave(w) {
 }
 
 function objectiveFor(w, queue) {
-  if (w % 5 === 0) return 'KILL THE METALPEDE';
+  if (w % 5 === 0) return 'KILL THE IRONCOIL';
   const brutes = queue.filter(x => x === 'brute').length;
   if (brutes >= 2) return 'BREAK THE BRUTES';
   const shooters = queue.filter(x => x === 'shooter').length;
@@ -572,6 +622,7 @@ function objectiveFor(w, queue) {
   return 'ELIMINATE ALL HOSTILES';
 }
 
+let waveIntroTimer = 0;
 function startWave(w) {
   GAME.wave = w;
   GAME.waveActive = true;
@@ -603,7 +654,8 @@ function startWave(w) {
   wi.querySelector('.wInt').style.animation = 'none';
   void wi.offsetWidth;
   wi.querySelector('.wInt').style.animation = '';
-  setTimeout(() => { if (GAME.state !== 'title') wi.classList.add('hidden'); }, 2400);
+  clearTimeout(waveIntroTimer);   // a stale timer from the last wave used to cut this one short
+  waveIntroTimer = setTimeout(() => wi.classList.add('hidden'), 2400);
 }
 
 function spawnPoint(minD = 15, maxD = 30) {
@@ -641,14 +693,15 @@ function addKillScore(e) {
   ui.combo.textContent = 'x' + GAME.combo.toFixed(1);
   ui.combo.classList.add('pop');
   setTimeout(() => ui.combo.classList.remove('pop'), 110);
-  if (e.type.boss) showCallout('METALPEDE DOWN');
+  if (e.type.boss) showCallout('IRONCOIL DOWN');
 }
 
 enemies.onKill = (e) => {
   addKillScore(e);
-  player.addEco(e.type.boss ? 40 : 7);
+  player.addEco((e.type.boss ? 40 : 7) * RUN.charge);
+  if (RUN.leech) player.heal(RUN.leech);
   // drops
-  const r = rng();
+  const r = rng() / RUN.scav;
   if (e.type.boss) {
     for (let i = 0; i < 4; i++) pickups.spawn(e.pos.x + rnd(-2, 2), e.pos.z + rnd(-2, 2), i < 2 ? 'health' : 'ammo');
   } else if (r < 0.14) {
@@ -659,6 +712,71 @@ enemies.onKill = (e) => {
 };
 
 /* ================================================================ run lifecycle */
+/* ================================================================ perks
+   After every cleared wave you pick one of three. They stack. */
+const RUN = { charge: 1, scav: 1, leech: 0 };
+const PERKS = [
+  { id: 'hide', name: 'THICK HIDE', desc: '+25 max health, fully healed', apply() { player.maxHp += 25; player.hp = player.maxHp; } },
+  { id: 'hot', name: 'HOT LOADS', desc: '+15% weapon damage', apply() { weapons.mods.dmg *= 1.15; } },
+  { id: 'hands', name: 'QUICK HANDS', desc: 'Reload 25% faster', apply() { weapons.mods.reload *= 0.75; } },
+  { id: 'mags', name: 'DEEP MAGS', desc: '+30% magazine size', apply() { weapons.mods.mag *= 1.3; } },
+  { id: 'steady', name: 'STEADY GRIP', desc: '30% less spread and recoil', apply() { weapons.mods.spread *= 0.7; } },
+  { id: 'conduit', name: 'CONDUIT', desc: '+60% charge from kills', apply() { RUN.charge *= 1.6; } },
+  { id: 'burn', name: 'LONG BURN', desc: 'Light and Dark forms last 4 s longer', apply() { player.formDur += 4; } },
+  { id: 'slip', name: 'SLIPSTREAM', desc: 'Dodge recovers twice as fast, longer immunity', apply() { player.dodgeCdBase *= 0.5; player.dodgeIframe += 0.15; } },
+  { id: 'leech', name: 'BLOOD PRICE', desc: 'Every kill heals 3', apply() { RUN.leech += 3; } },
+  { id: 'scav', name: 'SCAVENGER', desc: 'Kills drop supplies 70% more often', apply() { RUN.scav *= 1.7; } },
+  { id: 'bang', name: 'BIG BANG', desc: 'Bomber blast radius +35%', apply() { weapons.mods.blast *= 1.35; } },
+  { id: 'lance', name: 'LANCE', desc: 'Beam pierces 2 more bodies', apply() { weapons.mods.pierce += 2; } },
+  { id: 'wind', name: 'SECOND WIND', desc: 'Regenerate 1.2 health a second', apply() { player.regen += 1.2; } },
+];
+let draftChoices = [], draftOpenedAt = 0;
+function openDraft() {
+  const pool = PERKS.slice();
+  draftChoices = [];
+  while (draftChoices.length < 3 && pool.length) draftChoices.push(pool.splice(Math.floor(rng() * pool.length), 1)[0]);
+  ui.draft.querySelectorAll('.card').forEach((c, i) => {
+    const pk = draftChoices[i];
+    c.querySelector('b').textContent = pk.name;
+    c.querySelector('span').textContent = pk.desc;
+    const n = GAME.perks.filter((x) => x === pk.name).length;
+    c.querySelector('i').textContent = n ? 'TAKEN ×' + n : (i + 1);
+  });
+  GAME.drafting = true;
+  draftOpenedAt = performance.now();
+  ui.draft.classList.remove('hidden');
+}
+function pickPerk(i) {
+  if (!GAME.drafting || !draftChoices[i]) return;
+  if (performance.now() - draftOpenedAt < 450) return;   // a thumb still on FIRE must not pick by accident
+  const pk = draftChoices[i];
+  pk.apply();
+  GAME.perks.push(pk.name);
+  GAME.drafting = false;
+  ui.draft.classList.add('hidden');
+  GAME.breather = 3.5;
+  showCallout(pk.name);
+  audio.pickup('health');
+  syncAmmoUI();
+}
+ui.draft.querySelectorAll('.card').forEach((c, i) => c.addEventListener('click', () => pickPerk(i)));
+
+/** everything a run leaves lying around, cleared for the next one or for the title */
+function clearField() {
+  enemies.clear();
+  pickups.clear();
+  for (const g of activeGrenades) { g.free = true; g.mesh.visible = false; }
+  activeGrenades.length = 0;
+  player.endMode();
+  setAim(false);
+  input.fireHeld = false;
+  GAME.drafting = false;
+  ui.draft.classList.add('hidden');
+  ui.bossBar.classList.add('hidden');
+  clearTimeout(waveIntroTimer);
+  $('waveIntro').classList.add('hidden');
+}
+
 function resetRun() {
   GAME.state = 'playing';
   GAME.wave = 0; GAME.score = 0; GAME.kills = 0; GAME.headshots = 0;
@@ -666,12 +784,16 @@ function resetRun() {
   GAME.time = 0; GAME.waveActive = false; GAME.spawnQueue = []; GAME.breather = 0;
   GAME.shotsFired = 0; GAME.shotsHit = 0;
 
-  enemies.clear();
-  pickups.clear();
-  grenades.length = 0;
+  GAME.perks = [];
+  clearField();
+  RUN.charge = 1; RUN.scav = 1; RUN.leech = 0;
+  weapons.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0 };
+  weapons.shotsFired = 0; weapons.shotsHit = 0;
+  player.maxHp = 100; player.formDur = 9; player.dodgeCdBase = 0.8; player.dodgeIframe = 0.42; player.regen = 0;
 
   player.alive = true;
   player.hp = player.maxHp;
+  player.iframe = 0; player.dodging = 0; player.model.body.rotation.set(0, 0, 0);
   const sp = world.pickSpawn();
   player.pos.set(sp[0], terrainHeight(sp[0], sp[1]), sp[1]);
   // face the monument from the spawn point
@@ -702,7 +824,12 @@ function resetRun() {
 function endRun() {
   GAME.state = 'dead';
   audio.gameOver();
-  const acc = GAME.shotsFired ? Math.round(GAME.shotsHit / GAME.shotsFired * 100) : 0;
+  ui.draft.classList.add('hidden'); GAME.drafting = false;
+  const acc = accuracy();
+  const secs = Math.round((performance.now() - GAME.runStart) / 1000);
+  $('dTime').textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+  $('dUpg').textContent = GAME.perks.length;
+  $('dPerks').textContent = GAME.perks.join(' · ');
   $('dWave').textContent = GAME.wave;
   $('dScore').textContent = GAME.score.toLocaleString('en-AU');
   $('dKills').textContent = GAME.kills;
@@ -727,8 +854,7 @@ function togglePause() {
     $('pause').classList.remove('hidden');
     $('pWave').textContent = GAME.wave;
     $('pScore').textContent = GAME.score.toLocaleString('en-AU');
-    const acc = GAME.shotsFired ? Math.round(GAME.shotsHit / GAME.shotsFired * 100) : 0;
-    $('pAcc').textContent = acc + '%';
+    $('pAcc').textContent = accuracy() + '%';
     $('pKills').textContent = GAME.kills;
     document.exitPointerLock?.();
   } else if (GAME.state === 'paused') {
@@ -752,7 +878,7 @@ $('btnQuit').addEventListener('click', () => {
   GAME.state = 'title';
   $('pause').classList.add('hidden');
   ui.hud.classList.add('hidden');
-  enemies.clear(); pickups.clear();
+  clearField();
   $('title').classList.remove('hidden');
   refreshTitleStats();
   audio.setIntensity(0);
@@ -776,21 +902,30 @@ function refreshTitleStats() {
 }
 refreshTitleStats();
 
-$('sens').addEventListener('input', (e) => { sensitivity = parseFloat(e.target.value); });
 let invX = 1, invY = 1;
-$('invX').addEventListener('change', (e) => { invX = parseFloat(e.target.value); });
-$('invY').addEventListener('change', (e) => { invY = parseFloat(e.target.value); });
-const BUILD = 'b15';
+const BUILD = 'b16';
 $('build').textContent = 'BUILD ' + BUILD;
-$('quality').addEventListener('change', (e) => {
-  QUALITY = e.target.value;
-  renderer.setPixelRatio(pixelRatioFor(QUALITY));
-  resize();
-});
-$('snd').addEventListener('change', (e) => {
-  audio.init();
-  audio.setEnabled(e.target.value === 'on');
-});
+/* settings are kept on the phone; they used to reset on every launch */
+const SET_KEY = 'wasteland-trial-settings';
+const settings = (() => { try { return JSON.parse(localStorage.getItem(SET_KEY) || '{}'); } catch { return {}; } })();
+function saveSettings() { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch { } }
+const SETTERS = {
+  sens: (v) => { sensitivity = parseFloat(v); },
+  invX: (v) => { invX = parseFloat(v); },
+  invY: (v) => { invY = parseFloat(v); },
+  quality: (v) => { QUALITY = v; renderer.setPixelRatio(pixelRatioFor(QUALITY)); resize(); },
+  snd: (v) => { audio.setEnabled(v === 'on'); },
+};
+for (const [id, set] of Object.entries(SETTERS)) {
+  const el = $(id);
+  if (settings[id] !== undefined) { el.value = settings[id]; set(el.value); }
+  el.addEventListener(el.type === 'range' ? 'input' : 'change', () => {
+    if (id === 'snd') audio.init();
+    set(el.value);
+    settings[id] = el.value;
+    saveSettings();
+  });
+}
 
 /* ================================================================ rotate */
 function isTouch() { return 'ontouchstart' in window || navigator.maxTouchPoints > 0; }
@@ -852,7 +987,7 @@ function updateGrenades(dt) {
     if (!boom && g.pos.y < terrainHeight(g.pos.x, g.pos.z) + 0.12) boom = true;
 
     if (boom) {
-      enemies.explode(g.pos.clone(), g.ex.dmg ? g.ex.dmg : g.ex.radius, g.dmg, g.ex.falloff);
+      if (enemies.explode(g.pos.clone(), g.ex.radius, g.dmg, g.ex.falloff) > 0) weapons.shotsHit++;
       g.free = true;
       g.mesh.visible = false;
       activeGrenades.splice(i, 1);
@@ -867,6 +1002,7 @@ weapons.ctx.spawnProjectile = (pos, vel, ex, dmg) => {
 
 /* ================================================================ loop */
 let last = performance.now();
+let kbMoving = false;
 let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, adapted = false;
 
 function frame(now) {
@@ -902,11 +1038,11 @@ function frame(now) {
 
   // ---------- input assembly
   if (GAME.state === 'playing') {
-    // keyboard movement fallback
-    if (keys['KeyW']) input.my = 1;
-    else if (keys['KeyS']) input.my = -1;
-    if (keys['KeyA']) input.mx = -1;
-    else if (keys['KeyD']) input.mx = 1;
+    // keyboard movement: level input, so releasing a key stops you (it used to latch)
+    const kx = (keys['KeyD'] ? 1 : 0) - (keys['KeyA'] ? 1 : 0);
+    const ky = (keys['KeyW'] ? 1 : 0) - (keys['KeyS'] ? 1 : 0);
+    if (kx || ky) { input.mx = kx; input.my = ky; kbMoving = true; }
+    else if (kbMoving) { input.mx = 0; input.my = 0; kbMoving = false; }
     input.jump = input.jumpQueued || keys['Space'];
     input.jumpQueued = false;
     input.dodge = input.dodgeQueued || keys['KeyC'];
@@ -932,7 +1068,7 @@ function frame(now) {
     pickups.update(dt, GAME.time, player);
 
     // combo decay
-    if (GAME.comboTimer > 0) {
+    if (GAME.comboTimer > 0 && !GAME.drafting) {
       GAME.comboTimer -= dt;
       if (GAME.comboTimer <= 0) {
         GAME.combo = 1;
@@ -967,12 +1103,14 @@ function frame(now) {
   fx.update(dt);
   renderer.render(scene, camera);
 
-  if (GAME.state === 'playing' || GAME.state === 'dying') updateHud();
+  if (GAME.state === 'playing' || GAME.state === 'dying') { updateHud(); updateRadar(); flushMarker(); }
+  else if (ui.radar.childElementCount && radarShown) hideRadar();
 }
 
 function updateWaves(dt) {
   if (!GAME.waveActive) {
-    // between waves: count the breather down and start the next wave
+    // between waves: hold while the upgrade draft is open, then count down
+    if (GAME.drafting) return;
     if (GAME.breather > 0) {
       GAME.breather -= dt;
       if (GAME.breather <= 0) startWave(GAME.wave + 1);
@@ -1012,6 +1150,7 @@ function updateWaves(dt) {
       }
       // health trickle
       player.heal(12);
+      openDraft();
     } else {
       const done = GAME.waveKillTarget ? (GAME.waveKillTarget - aliveCount) / GAME.waveKillTarget : 0;
       ui.waveBar.style.width = Math.round(30 + clamp(done, 0, 1) * 70) + '%';
@@ -1056,15 +1195,74 @@ function updateHud() {
   const s = weapons.ammo;
   ui.mag.textContent = s.mag;
   ui.res.textContent = s.reserve === Infinity ? '∞' : s.reserve;
-  ui.ammoRow.classList.toggle('low', s.mag <= Math.max(1, weapons.def.mag * 0.25));
+  ui.ammoRow.classList.toggle('low', s.mag <= Math.max(1, weapons.magSize() * 0.25));
+
+  // the combo drains: show how long is left to keep the chain
+  ui.comboBar.style.transform = `scaleX(${clamp(GAME.comboTimer / 4, 0, 1)})`;
+
+  // boss health
+  let boss = null;
+  for (const e of enemies.list) if (e.alive && e.type.boss) { boss = e; break; }
+  ui.bossBar.classList.toggle('hidden', !boss);
+  if (boss) {
+    ui.bossFill.style.transform = `scaleX(${clamp(boss.hp / boss.maxHp, 0, 1)})`;
+    ui.bossBar.classList.toggle('enraged', !!boss.enraged);
+  }
 
   if (weapons.reloading) {
     ui.reloadRing.classList.remove('hidden');
-    const k = clamp(weapons.reloadT / weapons.def.reload, 0, 1);
+    const k = clamp(weapons.reloadT / weapons.reloadTime, 0, 1);
     ui.reloadRing.querySelector('circle').style.strokeDashoffset = String(107 * (1 - k));
   } else {
     ui.reloadRing.classList.add('hidden');
   }
+}
+
+/* ================================================================ threat radar
+   Off-screen enemies get a pointer at the screen edge. On a phone the view is
+   narrow; before this the first sign of a flanker was the damage arc. */
+const RADAR_N = 12;
+const radarEls = [];
+for (let i = 0; i < RADAR_N; i++) {
+  const el = document.createElement('div');
+  el.className = 'thr';
+  el.style.opacity = '0';
+  ui.radar.appendChild(el);
+  radarEls.push(el);
+}
+let radarShown = false;
+const _rv = new THREE.Vector3(), _rv2 = new THREE.Vector3();
+const RADAR_CLASS = { grunt: 'g', shooter: 's', brute: 'b', wasp: 'w', boss: 'x' };
+function hideRadar() { radarEls.forEach((el) => { el.style.opacity = '0'; }); radarShown = false; }
+function updateRadar() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const cand = [];
+  camera.updateMatrixWorld();
+  for (const e of enemies.list) {
+    if (!e.alive || e.state === 'spawn') continue;
+    _rv.set(e.pos.x, e.pos.y + e.type.height * 0.6, e.pos.z).applyMatrix4(camera.matrixWorldInverse);
+    const behind = _rv.z > -0.5;
+    const ndc = _rv2.copy(_rv).applyMatrix4(camera.projectionMatrix);
+    if (!behind && Math.abs(ndc.x) < 0.94 && Math.abs(ndc.y) < 0.9) continue;   // on screen: you can see it
+    const d = Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z);
+    if (d > 45) continue;
+    cand.push({ e, d, x: _rv.x, y: behind ? Math.min(_rv.y, 0) - 0.001 : _rv.y });
+  }
+  cand.sort((a, b) => a.d - b.d);
+  const rx = W * 0.44, ry = H * 0.40;
+  for (let i = 0; i < RADAR_N; i++) {
+    const el = radarEls[i], c = cand[i];
+    if (!c) { el.style.opacity = '0'; continue; }
+    // direction on the screen plane; anything behind is pushed to the bottom edge
+    const a = Math.atan2(c.x, c.y);
+    const px = W / 2 + Math.sin(a) * rx, py = H / 2 - Math.cos(a) * ry;
+    const near = clamp(1 - c.d / 45, 0, 1);
+    const s = (c.e.type.boss ? 1.6 : 1) * (0.75 + near * 0.55);
+    el.className = 'thr ' + RADAR_CLASS[c.e.key];
+    el.style.transform = `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) rotate(${a.toFixed(3)}rad) scale(${s.toFixed(2)})`;
+    el.style.opacity = (0.35 + near * 0.65).toFixed(2);
+  }
+  radarShown = cand.length > 0;
 }
 
 /* ================================================================ boot */
@@ -1110,7 +1308,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
-window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups };
+window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {

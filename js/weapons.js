@@ -124,6 +124,8 @@ export class WeaponSystem {
     this.triggerHeld = false;
     this.shotsFired = 0;
     this.shotsHit = 0;
+    // run upgrades (perks) scale these; reset at the start of every run
+    this.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0 };
     this._aim = new THREE.Vector3();
     this._dir = new THREE.Vector3();
     this._muzzlePos = new THREE.Vector3();
@@ -140,8 +142,10 @@ export class WeaponSystem {
     return s.reserve === Infinity ? Infinity : s.reserve;
   }
   get spreadDeg() {
-    return this.def.spread + Math.min(this.def.bloomMax, this.bloom);
+    return (this.def.spread + Math.min(this.def.bloomMax, this.bloom)) * this.mods.spread;
   }
+  magSize(i = this.index) { return Math.max(1, Math.round(WEAPONS[i].mag * this.mods.mag)); }
+  get reloadTime() { return this.def.reload * this.mods.reload; }
 
   syncModel() {
     this.models.forEach((m, i) => { m.visible = i === this.index && this.visible; });
@@ -164,10 +168,25 @@ export class WeaponSystem {
 
   next() { this.switchTo((this.index + 1) % WEAPONS.length); }
 
+  /** an ammo crate: every limited weapon gets 40% of its starting reserve (capped at 2x) */
+  refill() {
+    let gained = 0;
+    WEAPONS.forEach((w, i) => {
+      const s = this.state[i];
+      if (s.reserve === Infinity) return;
+      const before = s.reserve;
+      s.reserve = Math.min(w.reserve * 2, s.reserve + Math.ceil(w.reserve * 0.4));
+      gained += s.reserve - before;
+    });
+    if (this.ammo.mag === 0) this.tryReload();
+    if (this.ctx.onAmmo) this.ctx.onAmmo();
+    return gained;
+  }
+
   tryReload() {
     const s = this.ammo;
     const d = this.def;
-    if (this.reloading || s.mag >= d.mag) return false;
+    if (this.reloading || s.mag >= this.magSize()) return false;
     if (s.reserve !== Infinity && s.reserve <= 0) return false;
     this.reloading = true;
     this.reloadT = 0;
@@ -198,24 +217,32 @@ export class WeaponSystem {
     const camPos = camera.position;
 
     // aim-assist: bend toward the closest enemy inside a narrow cone (touch forgiveness)
+    // shots start at the camera, so ignore anything between the camera and the hero
+    const pp = this.player.pos;
+    const minT = Math.max(0, (pp.x - camPos.x) * this._dir.x + (pp.y + 1.2 - camPos.y) * this._dir.y + (pp.z - camPos.z) * this._dir.z - 0.6);
     const assist = this.player.aim ? 1.2 : 3.2;
     let best = null, bestDot = Math.cos(deg(assist));
     const enemies = this.ctx.enemies() || [];
     for (const e of enemies) {
       if (!e.alive) continue;
-      this._tmp.set(e.pos.x, e.pos.y + e.height * 0.6, e.pos.z).sub(camPos);
+      // e.height was never set, so assist used to aim at the feet
+      this._tmp.set(e.pos.x, e.pos.y + e.type.height * 0.6, e.pos.z).sub(camPos);
       const dist = this._tmp.length();
       if (dist > d.range) continue;
       this._tmp.divideScalar(dist);
       const dot = this._tmp.dot(this._dir);
-      if (dot > bestDot) { bestDot = dot; best = this._tmp.clone(); }
+      if (dot <= bestDot) continue;
+      if (this.ctx.wallDist(camPos, this._tmp, dist, minT) < dist - 0.5) continue; // no locking through walls
+      bestDot = dot; best = this._tmp.clone();
     }
     const baseDir = best || this._dir.clone();
 
     this._muzzlePos.setFromMatrixPosition(this.models[this.index].userData.muzzle.matrixWorld);
 
     const spreadRad = deg(this.spreadDeg);
-    const hitsReport = [];
+    let anyHit = false, anyHead = false;
+    const dmg = d.dmg * this.mods.dmg * (this.player.dmgMul || 1);
+    const pierce = (d.pierce || 1) + (d.pierce ? this.mods.pierce : 0);
 
     for (let p = 0; p < d.pellets; p++) {
       // random point in a disc -> cone deviation
@@ -231,13 +258,16 @@ export class WeaponSystem {
         .normalize();
 
       if (d.explosive) {
-        this.ctx.spawnProjectile(this._muzzlePos.clone(), dir.multiplyScalar(d.explosive.speed), d.explosive, d.dmg);
+        const ex = { ...d.explosive, radius: d.explosive.radius * this.mods.blast };
+        this.ctx.spawnProjectile(this._muzzlePos.clone(), dir.multiplyScalar(d.explosive.speed), ex, dmg);
         continue;
       }
 
-      const hits = this.ctx.raycast(camPos.clone(), dir, d.range, d.pierce || 1);
+      // the first wall or hill along the shot ends it: cover is real
+      const wall = this.ctx.wallDist(camPos, dir, d.range, minT);
+      const hits = this.ctx.raycast(camPos.clone(), dir, Math.min(d.range, wall), pierce);
       if (hits.length) {
-        hitsReport.push(hits[0]);
+        anyHit = true;
         this.shotsHit++;
         const maxDist = hits[hits.length - 1].dist;
         const end = camPos.clone().addScaledVector(dir, maxDist);
@@ -246,26 +276,29 @@ export class WeaponSystem {
           this.fx.beam(this._muzzlePos, end, 0x7ae4ff, 0.11, 0.26);
         }
         for (const h of hits) {
-          this.ctx.applyDamage(h.enemy, d.dmg * (this.player.dmgMul || 1) * (h.head ? 1.9 : 1), h.point, dir, h.head, d);
+          if (h.head) anyHead = true;
+          this.ctx.applyDamage(h.enemy, dmg * (h.head ? 1.9 : 1), h.point, dir, h.head, d);
         }
         // impact at the last surface
         const last = hits[hits.length - 1];
         this.fx.spark(last.point, dir.clone().negate(), 0xffc070, 5, 6, 0.09, 0.3);
       } else {
-        // hit the world
-        const end = camPos.clone().addScaledVector(dir, d.range);
-        const hitGround = this.ctx.worldHit(camPos.clone(), dir, d.range);
-        const p = hitGround || end;
+        // hit the world (ground, wall or pillar) or nothing at all
+        const hitWorld = wall < d.range;
+        const p = camPos.clone().addScaledVector(dir, hitWorld ? wall : d.range);
         this.fx.tracer(this._muzzlePos, p, d.tracer, d.id === 'beam' ? 0.10 : 0.035, d.id === 'beam' ? 0.18 : 0.13);
-        if (hitGround) {
-          this.fx.spark(hitGround, new THREE.Vector3(0, 1, 0), 0xd8b080, 5, 4.5, 0.10, 0.35);
-          this.fx.puff(hitGround, null, 0xa07a52, 0.28, 1, 0.55, 0.7);
+        if (hitWorld) {
+          this.fx.spark(p, dir.clone().negate(), 0xd8b080, 5, 4.5, 0.10, 0.35);
+          this.fx.puff(p, null, 0xa07a52, 0.28, 1, 0.55, 0.7);
         }
       }
     }
 
+    if (this.ctx.onShot) this.ctx.onShot(anyHit, anyHead);
+
     // --- the feel: recoil, shake, bloom, model kick
-    this.player.addRecoil(d.recoilPitch * (this.player.aim ? 0.82 : 1), d.recoilYaw * rnd(-1, 1));
+    const steady = 0.5 + this.mods.spread * 0.5;
+    this.player.addRecoil(d.recoilPitch * (this.player.aim ? 0.82 : 1) * steady, d.recoilYaw * rnd(-1, 1) * steady);
     this.player.shake = Math.min(2.0, this.player.shake + d.shake);
     if (d.push) {
       // physical shove backwards along the aim direction
@@ -295,14 +328,14 @@ export class WeaponSystem {
     if (this.reloading) {
       const d = this.def;
       this.reloadT += dt;
-      const k = this.reloadT / d.reload;
+      const k = this.reloadT / this.reloadTime;
       if (k > 0.35 && this.reloadStage === 0) { this.reloadStage = 1; this.audio.reload(1); }
       if (k > 0.8 && this.reloadStage === 1) { this.reloadStage = 2; this.audio.reload(2); }
       if (k >= 1) {
         const s = this.ammo;
-        const need = d.mag - s.mag;
+        const need = this.magSize() - s.mag;
         if (s.reserve === Infinity) {
-          s.mag = d.mag;
+          s.mag = this.magSize();
         } else {
           const take = Math.min(need, s.reserve);
           s.mag += take;
@@ -324,7 +357,7 @@ export class WeaponSystem {
       m.position.set(0, k, -this.kick * 0.02);
       m.rotation.x = this.kickRot * 0.34;
       // reload dip
-      const dip = this.reloading ? Math.sin(clamp(this.reloadT / this.def.reload, 0, 1) * Math.PI) : 0;
+      const dip = this.reloading ? Math.sin(clamp(this.reloadT / this.reloadTime, 0, 1) * Math.PI) : 0;
       m.position.y -= dip * 0.16;
       m.rotation.z = dip * 0.7;
       // switch wobble

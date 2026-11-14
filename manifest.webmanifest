@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Wasteland Trial",
   "short_name": "Wasteland",
-  "description": "A Jak-style third-person arena shooter with four gunstaff mods, heavy kickback and a horde that keeps coming.",
+  "description": "A third-person arena shooter: four weapons, two forms, an upgrade every wave, and a horde that keeps coming.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

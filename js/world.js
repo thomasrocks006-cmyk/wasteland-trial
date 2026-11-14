@@ -28,7 +28,7 @@ export class World {
   constructor(scene, quality = 'balanced') {
     this.scene = scene;
     this.quality = quality;
-    this.obstacles = [];       // {x,z,r,h}
+    this.obstacles = [];       // {x,z,r,h}: h = top above local ground
     this.shadowTarget = new THREE.Vector3();
     this.time = { value: 0 };
     this.sunDir = new THREE.Vector3(0.42, 0.30, -0.86).normalize(); // low sun, long shadows
@@ -337,7 +337,7 @@ export class World {
         mesh.setMatrixAt(n, dummy.matrix);
         col.setHex(pick([0x8b6239, 0x9c7043, 0x74502f, 0xa87c50])).offsetHSL(0, 0, rnd(-0.05, 0.05));
         mesh.setColorAt(n, col);
-        if (s > 1.5) this.obstacles.push({ x, z, r: s * 0.75 });
+        if (s > 1.5) this.obstacles.push({ x, z, r: s * 0.75, h: s * 0.7 });
         n++;
       }
       mesh.count = n;
@@ -377,7 +377,7 @@ export class World {
           rot: [lean * Math.cos(leanDir), rnd(0, TAU), lean * Math.sin(leanDir)], jitter: 0.06
         });
       }
-      this.obstacles.push({ x, z, r: r * 1.05 });
+      this.obstacles.push({ x, z, r: r * 1.05, h });
     };
 
     const wall = (x, z, len, h, rotY) => {
@@ -391,14 +391,14 @@ export class World {
           pos: [wx, terrainHeight(wx, wz) + hh / 2 - 0.45, wz],
           rot: [0, rotY, 0], jitter: 0.055
         });
-        this.obstacles.push({ x: wx, z: wz, r: 1.5 });
+        this.obstacles.push({ x: wx, z: wz, r: 1.5, h: hh - 0.45 });
       }
     };
 
     // --- central dais
     const daisY = terrainHeight(0, 0);
     // the dais is solid: without this the player could stand inside it
-    this.obstacles.push({ x: 0, z: 0, r: 9.3 });
+    this.obstacles.push({ x: 0, z: 0, r: 9.3, h: 1.4 });
     for (let ring = 0; ring < 3; ring++) {
       const rr = 9 - ring * 1.9;
       b.add(new THREE.CylinderGeometry(rr, rr + 0.5, 0.55, 22, 1, true), ring === 0 ? PAL.ruinDark : PAL.ruin, {
@@ -434,7 +434,7 @@ export class World {
             pos: [x, y0 + 0.3 + s * 0.62, z], rot: [0, a, 0], jitter: 0.05
           });
         }
-        this.obstacles.push({ x, z, r: 3 });
+        this.obstacles.push({ x, z, r: 3, h: 2.6 });
       }
     }
 
@@ -449,7 +449,7 @@ export class World {
       b.add(new THREE.CylinderGeometry(0.5, 0.5, 1.2, 7), PAL.metal, {
         pos: [x + Math.cos(rot) * 2.6, y0 + 1.0, z + Math.sin(rot) * 2.6], rot: [Math.PI / 2, rot, 0], jitter: 0.05
       });
-      this.obstacles.push({ x, z, r: 2.6 });
+      this.obstacles.push({ x, z, r: 2.6, h: 2.2 });
     }
 
     const geo = b.build();
@@ -478,7 +478,7 @@ export class World {
         b.add(new THREE.BoxGeometry(bw * 1.7, h * 0.12, bw * 2.1), PAL.ruinDark, {
           pos: [lx, gy + h * 0.06, lz], rot: [0, rot, 0], jitter: 0.05
         });
-        if (solid) this.obstacles.push({ x: lx, z: lz, r: bw * 0.95 });
+        if (solid) this.obstacles.push({ x: lx, z: lz, r: bw * 0.95, h });
       }
       const baseY = solid ? terrainHeight(cx, cz) : PLAIN_Y;
       // the span: a half torus is continuous, where a chain of boxes left gaps
@@ -674,7 +674,7 @@ export class World {
           });
         }
       }
-      this.obstacles.push({ x, z, r: 0.55 });
+      this.obstacles.push({ x, z, r: 0.55, h: 4 });
     }
     const trees = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
     trees.castShadow = true;
@@ -832,6 +832,43 @@ export class World {
     const maxR = ARENA_R - radius - 2;
     if (r > maxR) { x = (x / r) * maxR; z = (z / r) * maxR; }
     return [x, z];
+  }
+
+  /** Distance along a ray (dir normalised) to the first solid obstacle, or Infinity.
+      Obstacles are upright cylinders; thin ones (trees) let shots through.
+      Hits nearer than minT are ignored (the stretch between camera and hero),
+      as is any obstacle the ray starts inside (a camera clipped into a pillar). */
+  rayObstacle(o, d, maxDist, minT = 0) {
+    let best = Infinity;
+    const a = d.x * d.x + d.z * d.z;
+    if (a < 1e-8) return best;
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const ob = this.obstacles[i];
+      if (ob.r < 0.8) continue;
+      const fx = o.x - ob.x, fz = o.z - ob.z;
+      const c = fx * fx + fz * fz - ob.r * ob.r;
+      if (c < 0) continue;
+      const b = fx * d.x + fz * d.z;
+      const disc = b * b - a * c;
+      if (disc < 0) continue;
+      const t = (-b - Math.sqrt(disc)) / a;
+      if (t < minT || t > maxDist || t >= best) continue;
+      if (o.y + d.y * t > (ob.base ?? (ob.base = terrainHeight(ob.x, ob.z))) + (ob.h ?? 3)) continue; // passes over it
+      best = t;
+    }
+    return best;
+  }
+
+  /** is this point inside a solid obstacle? (enemy bolts) */
+  pointSolid(x, y, z) {
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const ob = this.obstacles[i];
+      if (ob.r < 0.8) continue;
+      const dx = x - ob.x, dz = z - ob.z;
+      if (dx * dx + dz * dz > ob.r * ob.r) continue;
+      if (y <= (ob.base ?? (ob.base = terrainHeight(ob.x, ob.z))) + (ob.h ?? 3)) return true;
+    }
+    return false;
   }
 
   /** raycast against obstacles for line of sight (cheap) */

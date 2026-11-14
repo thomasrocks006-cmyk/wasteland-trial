@@ -4,70 +4,63 @@ import {
   terrainHeight, Builder, ARENA_R
 } from './core.js';
 
-/* Jak-like hero, built from chunky low-poly volumes. 15 k triangles, one material per part. */
+/* The runner: a wasteland scout in a navy jacket, red headwrap and a cyan visor.
+   Chunky low-poly volumes, one vertex-coloured material per part. Navy is the
+   complement of the orange sand, so the hero never melts into the ground. */
 export function buildHero() {
   const C = {
-    skin: 0xd9a878,
-    skinDark: 0xc08a5c,
-    hair: 0xe8c86a,
-    hairDark: 0xb99a44,
-    cream: 0xefe0c4,
-    creamDark: 0xd6c4a2,
-    teal: 0x2f7f83,
-    tealDark: 0x1e5b60,
-    olive: 0x6f6a3e,
-    oliveDark: 0x54502c,
-    boot: 0x4a3320,
-    glove: 0x33251a,
+    skin: 0xc98f62,
+    skinDark: 0xa8714a,
+    hair: 0x2b1d15,
+    wrap: 0xb0412a,
+    wrapDark: 0x7c2a19,
+    cream: 0xd8c49a,          // sand scarf and shirt
+    creamDark: 0xbfa77a,
+    teal: 0x2d3d73,           // jacket (key name kept so the limb code below is unchanged)
+    tealDark: 0x1e2952,
+    olive: 0x3d3833,          // trousers
+    oliveDark: 0x2b2723,
+    boot: 0x3a2818,
+    glove: 0x2a1f16,
     metal: 0x8a8478,
+    brass: 0xc0903c,
     lens: 0x37e0c8,
   };
 
   const torso = new Builder();
   // hips
   torso.add(new THREE.BoxGeometry(0.42, 0.24, 0.28), C.olive, { pos: [0, 0.94, 0], jitter: 0.02 });
-  // belt
+  // belt with a brass buckle
   torso.add(new THREE.BoxGeometry(0.46, 0.09, 0.31), C.boot, { pos: [0, 1.06, 0], jitter: 0.02 });
-  // lower torso (cream shirt)
+  torso.add(new THREE.BoxGeometry(0.10, 0.07, 0.03), C.brass, { pos: [0, 1.06, 0.16] });
+  // shirt
   torso.add(new THREE.BoxGeometry(0.44, 0.34, 0.29), C.cream, { pos: [0, 1.20, 0], jitter: 0.025 });
-  // chest / vest
-  torso.add(new THREE.BoxGeometry(0.50, 0.28, 0.32), C.teal, { pos: [0, 1.42, 0], jitter: 0.025 });
-  torso.add(new THREE.BoxGeometry(0.30, 0.16, 0.34), C.tealDark, { pos: [0, 1.44, 0.01], jitter: 0.02 });
-  // shoulder pads
-  torso.add(new THREE.BoxGeometry(0.17, 0.17, 0.30), C.tealDark, { pos: [0.30, 1.50, 0], rot: [0, 0, -0.22], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.17, 0.17, 0.30), C.tealDark, { pos: [-0.30, 1.50, 0], rot: [0, 0, 0.22], jitter: 0.02 });
-  // neck
-  torso.add(new THREE.CylinderGeometry(0.075, 0.09, 0.10, 6), C.skinDark, { pos: [0, 1.60, 0] });
+  // jacket, open at the front
+  torso.add(new THREE.BoxGeometry(0.50, 0.30, 0.32), C.teal, { pos: [0, 1.41, 0], jitter: 0.025 });
+  torso.add(new THREE.BoxGeometry(0.16, 0.42, 0.30), C.teal, { pos: [0.17, 1.26, 0.01], jitter: 0.02 });
+  torso.add(new THREE.BoxGeometry(0.16, 0.42, 0.30), C.teal, { pos: [-0.17, 1.26, 0.01], jitter: 0.02 });
+  // asymmetric shoulders: brass plate on the left, a plain jacket seam on the right
+  torso.add(new THREE.BoxGeometry(0.22, 0.12, 0.34), C.brass, { pos: [-0.31, 1.53, 0], rot: [0, 0, 0.32], jitter: 0.03 });
+  torso.add(new THREE.BoxGeometry(0.16, 0.06, 0.30), C.metal, { pos: [-0.33, 1.47, 0], rot: [0, 0, 0.32], jitter: 0.02 });
+  torso.add(new THREE.BoxGeometry(0.15, 0.13, 0.28), C.tealDark, { pos: [0.29, 1.50, 0], rot: [0, 0, -0.22], jitter: 0.02 });
+  // sand scarf wound at the neck, one end hanging at the back
+  torso.add(new THREE.BoxGeometry(0.32, 0.11, 0.30), C.cream, { pos: [0, 1.61, 0], jitter: 0.03 });
+  torso.add(new THREE.BoxGeometry(0.12, 0.30, 0.04), C.creamDark, { pos: [-0.06, 1.46, -0.17], rot: [0.12, 0, 0.1], jitter: 0.03 });
   // head
   torso.add(new THREE.BoxGeometry(0.26, 0.27, 0.26), C.skin, { pos: [0, 1.76, 0], jitter: 0.02 });
   torso.add(new THREE.BoxGeometry(0.22, 0.10, 0.05), C.skinDark, { pos: [0, 1.70, 0.13], jitter: 0.02 }); // jaw shadow
-  // pointed ears
-  torso.add(new THREE.ConeGeometry(0.055, 0.24, 4), C.skin, { pos: [0.15, 1.80, -0.04], rot: [0, 0, -1.35], jitter: 0.02 });
-  torso.add(new THREE.ConeGeometry(0.055, 0.24, 4), C.skin, { pos: [-0.15, 1.80, -0.04], rot: [0, 0, 1.35], jitter: 0.02 });
-  // hair: a low mass with short back-swept spikes (not a hat)
-  torso.add(new THREE.BoxGeometry(0.30, 0.14, 0.30), C.hair, { pos: [0, 1.90, -0.01], rot: [-0.06, 0, 0], jitter: 0.03 });
-  const spikes = [
-    [0, 2.00, 0.00, 0.115, 0.15, 0],
-    [0.11, 1.99, -0.01, 0.085, 0.13, 0.5],
-    [-0.11, 1.99, -0.01, 0.085, 0.13, -0.5],
-    [0.05, 1.97, 0.13, 0.075, 0.12, 1.15],
-    [-0.06, 1.97, 0.12, 0.075, 0.11, -1.15],
-    [0, 1.97, -0.14, 0.085, 0.14, -0.6],
-    [0.13, 1.96, 0.05, 0.065, 0.11, 1.35],
-    [-0.13, 1.96, 0.04, 0.065, 0.11, -1.35],
-  ];
-  for (const [x, y, z, r, h, rz] of spikes) {
-    torso.add(new THREE.ConeGeometry(r, h, 5), rngHair(), {
-      pos: [x, y, z], rot: [z > 0 ? -0.5 : 0.35, 0, rz], jitter: 0.03
-    });
-  }
-  // goggles on forehead
-  torso.add(new THREE.TorusGeometry(0.085, 0.022, 4, 10), C.metal, { pos: [0, 1.90, 0.15], rot: [1.25, 0, 0], jitter: 0.02 });
-  torso.add(new THREE.TorusGeometry(0.085, 0.022, 4, 10), C.metal, { pos: [0, 1.90, -0.15], rot: [1.25, 0, 0], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.36, 0.05, 0.05), C.boot, { pos: [0, 1.92, 0.0] });
-  // eyes (eco glow)
-  torso.add(new THREE.BoxGeometry(0.045, 0.035, 0.02), C.lens, { pos: [0.065, 1.79, 0.132] });
-  torso.add(new THREE.BoxGeometry(0.045, 0.035, 0.02), C.lens, { pos: [-0.065, 1.79, 0.132] });
+  // dark hair at the sides and nape
+  torso.add(new THREE.BoxGeometry(0.29, 0.12, 0.10), C.hair, { pos: [0, 1.80, -0.11], jitter: 0.02 });
+  torso.add(new THREE.BoxGeometry(0.05, 0.12, 0.16), C.hair, { pos: [0.135, 1.80, 0.02], jitter: 0.02 });
+  torso.add(new THREE.BoxGeometry(0.05, 0.12, 0.16), C.hair, { pos: [-0.135, 1.80, 0.02], jitter: 0.02 });
+  // headwrap with two tails streaming back
+  torso.add(new THREE.BoxGeometry(0.30, 0.13, 0.30), C.wrap, { pos: [0, 1.91, 0], rot: [-0.08, 0, 0], jitter: 0.03 });
+  torso.add(new THREE.BoxGeometry(0.31, 0.05, 0.31), C.wrapDark, { pos: [0, 1.85, 0.005], jitter: 0.02 });
+  torso.add(new THREE.BoxGeometry(0.07, 0.05, 0.30), C.wrap, { pos: [0.05, 1.87, -0.27], rot: [-0.55, 0.12, 0], jitter: 0.03 });
+  torso.add(new THREE.BoxGeometry(0.06, 0.04, 0.24), C.wrapDark, { pos: [-0.04, 1.84, -0.25], rot: [-0.75, -0.15, 0], jitter: 0.03 });
+  // visor across the eyes
+  torso.add(new THREE.BoxGeometry(0.29, 0.065, 0.05), C.metal, { pos: [0, 1.79, 0.125] });
+  torso.add(new THREE.BoxGeometry(0.21, 0.036, 0.02), C.lens, { pos: [0, 1.79, 0.152] });
   // back strap
   torso.add(new THREE.BoxGeometry(0.07, 0.46, 0.02), C.boot, { pos: [0.12, 1.32, -0.17], rot: [0, 0, 0.22] });
 
@@ -114,7 +107,6 @@ export function buildHero() {
   return { root, body, armL, armR, legL, legR, hand, torsoMesh };
 }
 
-function rngHair() { return Math.random() > 0.5 ? 0xe8c86a : 0xd8b656; }
 
 export class Player {
   constructor(scene, world) {
@@ -150,7 +142,7 @@ export class Player {
     this.faceLock = 0;
     this.iframe = 0;
 
-    // ---- eco and the two forms
+    // ---- charge (internally 'eco') and the two forms
     this.eco = 0;
     this.maxEco = 100;
     this.mode = 'normal';
@@ -159,6 +151,10 @@ export class Player {
     this.dmgTakenMul = 1;
     this.fireRateMul = 1;
     this.onMode = null;
+    this.formDur = 9;          // perks can lengthen it
+    this.dodgeCdBase = 0.8;
+    this.dodgeIframe = 0.42;
+    this.regen = 0;            // health per second from perks
 
     const auraMat = new THREE.MeshBasicMaterial({
       color: 0x66f0ff, transparent: true, opacity: 0.26,
@@ -240,7 +236,7 @@ export class Player {
     if (this.modeT > 0 || this.eco < 45 || !this.alive) return false;
     this.eco -= 45;
     this.mode = mode;
-    this.modeT = 9;
+    this.modeT = this.formDur;
     if (mode === 'light') {
       this.dmgMul = 1;
       this.dmgTakenMul = 0.42;
@@ -298,6 +294,8 @@ export class Player {
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
     this.iframe = Math.max(0, this.iframe - dt);
 
+    if (this.regen > 0) this.heal(this.regen * dt);
+
     // ---- form timer and aura
     if (this.modeT > 0) {
       this.modeT -= dt;
@@ -336,8 +334,8 @@ export class Player {
       this.dodgeVX = (dx / l) * 15;
       this.dodgeVZ = (dz / l) * 15;
       this.dodging = 0.34;
-      this.dodgeCd = 0.8;
-      this.iframe = Math.max(this.iframe, 0.42);
+      this.dodgeCd = this.dodgeCdBase;
+      this.iframe = Math.max(this.iframe, this.dodgeIframe);
       this.yaw = Math.atan2(this.dodgeVX, this.dodgeVZ);
       if (this.onDodge) this.onDodge();
     }

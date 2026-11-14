@@ -1,6 +1,7 @@
 # Wasteland Trial
 
-A Jak-style third-person arena shooter, built as an installable iPhone PWA.
+A third-person arena shooter, built as an installable iPhone PWA. Our own
+hero (the runner: navy jacket, red headwrap, cyan visor), our own boss.
 Everything is procedural — no image, model or audio files beyond the three.js
 library and one font, so it loads fast and works offline once installed.
 
@@ -15,9 +16,9 @@ GitHub Pages, so the address is stable.
 Local development: `./serve.sh` starts a static server plus a temporary tunnel
 and prints an HTTPS address (that address changes on every restart).
 
-## Eco forms
+## Forms
 
-Kills fill the **ECO** bar under your health. At 45 eco you can take one form for
+Kills fill the **CHARGE** bar under your health. At 45 charge you can take one form for
 nine seconds:
 
 | Form | Effect |
@@ -27,13 +28,38 @@ nine seconds:
 
 Tap LIGHT or DARK again to drop out of the form early. One form at a time.
 
+## Upgrades between waves
+
+Clearing a wave opens a draft: pick one of three upgrades (tap a card, or 1-3 on
+a keyboard). They stack for the rest of the run and are listed on the death
+screen. Thirteen in the pool: health, damage, reload, magazine, spread, charge
+gain, form length, dodge, heal on kill, supply drops, Bomber radius, Beam
+pierce, regeneration.
+
+## Cover, radar and the boss
+
+- Pillars, walls, wrecks, the dais and hills stop shots both ways, and aim
+  assist will not lock onto anything you cannot see.
+- Enemies off screen get a pointer at the screen edge, coloured by type
+  (orange grunt, cyan sharpshooter, red brute, gold stinger, large orange boss),
+  brighter when closer.
+- Brutes rear up (red flash, ground ring, growl) and then charge in a straight
+  line. Roll through it; if they ram a wall they are stunned for a second.
+- The **Ironcoil** (every fifth wave) is a segmented body that arcs after you.
+  Every segment can be shot. Its health bar sits at the top. Below half it
+  enrages: faster, and it throws a ring of low bolts you jump or roll through.
+
 ## Self-test
 
-Add `?smoke=1` to the address. The game then runs a scripted pass over the
-systems that have broken before — loop liveness, stick direction in all four
-directions, look direction at three camera angles, hit registration, spawn
-safety, canvas fit, and both eco forms — and prints PASS/FAIL on screen.
-I run this before every deploy; a build that fails it does not ship.
+Add `?smoke=1` to the address. The game runs a scripted pass (24 checks) over
+the systems that have broken before and the ones added since: loop liveness,
+stick direction in four directions, look direction at three camera angles, hit
+registration with the hit marker and accuracy, a pillar stopping shots (with a
+control shot that must hit), ammo crates refilling, the boss landing a melee
+hit, shooting the boss's tail, a brute winding up, the edge radar, the upgrade
+draft, spawn safety, canvas fit, and both forms. Waits are counted in rendered
+frames, so it passes on a slow phone too (verified at 4 fps). A build that
+fails it does not ship.
 
 ## Crash reporting
 
@@ -51,12 +77,12 @@ RELOAD button, instead of a frozen screen.
 | AIM | aim down sights: tighter spread, less recoil, 52° zoom |
 | RELOAD / JUMP | as labelled |
 | Weapon strip | tap 1-4 |
-| LIGHT / DARK | eco form (needs 45 eco) |
+| LIGHT / DARK | form (needs 45 charge) |
 
 On desktop: WASD, mouse look (click to lock), left click to fire, R reload,
 C dodge, 1-4 weapons, Space jump, Shift aim, L light, K dark, Esc pause.
 
-## The four gunstaff mods
+## The four weapons
 
 Each is a different weapon, not a reskin — spread, cadence, recoil and feel all
 change:
@@ -74,10 +100,12 @@ do 1.9×. Touch aim-assist is 3.2° unaimed, 1.2° aimed.
 
 ## The run
 
-Endless waves with escalating counts and mixes, a **Metalpede** boss every fifth
-wave, health and ammo eco dropped by kills and between waves, combo multiplier,
-and a score/accuracy/headshot summary at the end. Best wave and score are kept
-in `localStorage`.
+Endless waves with escalating counts and mixes, the **Ironcoil** boss every fifth
+wave, health and ammo crates dropped by kills and between waves (ammo crates add
+40% of each limited weapon's starting reserve), a combo multiplier with a
+draining timer bar, an upgrade draft after every wave, and a summary at the end
+(wave, score, kills, accuracy, best combo, headshots, time, upgrades). Best wave
+and score, and your settings, are kept in `localStorage`.
 
 Enemies: grunts (fast melee), sharpshooters (keep range, lead their shots),
 brutes (four-legged, heavy, stagger only on big hits), stingers (flying divers),
@@ -114,7 +142,12 @@ serve.sh              local server + tunnel
   25 draw calls. Keep it that way: don't add per-enemy meshes.
 - Materials must not set `vertexColors` unless the geometry has a colour
   attribute — instanced tinting alone uses `instanceColor`.
-- The service worker is cache-first and versioned (`CACHE` in `sw.js`). Bump it
+- Obstacles are upright cylinders `{x, z, r, h}`; `h` is the top above local
+  ground. `world.rayObstacle` stops shots, `world.pointSolid` stops enemy bolts.
+  Anything with `r < 0.8` (dead trees) lets shots through.
+- Enemy melee resolves on the game clock (`pendingHit`), never `setTimeout`, so
+  nothing lands while paused or after a restart.
+- The service worker is network-first and versioned (`CACHE` in `sw.js`). Bump it
   whenever you ship changed assets, or phones will keep the old build.
 - It skips service-worker registration on localhost so local edits show up
   immediately.

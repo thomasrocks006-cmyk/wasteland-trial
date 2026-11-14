@@ -20,7 +20,8 @@ export class Audio {
     this.ctx = new AC();
 
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.9;
+    // honour SOUND OFF chosen before the first tap (wind and drone would play otherwise)
+    this.master.gain.value = this.enabled ? 0.9 : 0;
 
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value = -14;
@@ -321,6 +322,31 @@ export class Audio {
     g.gain.exponentialRampToValueAtTime(0.0005, t + 0.11);
     o.connect(g); g.connect(this.master);
     o.start(t); o.stop(t + 0.12);
+  }
+
+  /** low growl with a rising edge: the brute wind-up and the boss enraging */
+  roar(dist = 0, big = false) {
+    if (!this.ctx || !this.enabled) return;
+    const t = this.t;
+    const vol = 1 / (1 + dist * 0.06);
+    const o = this.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(big ? 46 : 70, t);
+    o.frequency.linearRampToValueAtTime(big ? 92 : 128, t + (big ? 0.9 : 0.6));
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = big ? 520 : 680;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0008, t);
+    g.gain.linearRampToValueAtTime((big ? 0.5 : 0.32) * vol, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + (big ? 1.0 : 0.7));
+    o.connect(lp); lp.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 1.05);
+  }
+
+  /** a bright two-note tick when a shot kills */
+  killTick() {
+    this.click(0, 0.16, 1900);
+    this.click(0.045, 0.13, 2600);
   }
 
   playerHurt() {

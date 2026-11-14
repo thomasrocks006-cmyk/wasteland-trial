@@ -38,14 +38,24 @@
   <div class="panel right" id="topRight">
     <div class="scoreRow"><span class="lbl">SCORE</span><span id="score" class="big">0</span></div>
     <div class="subRow"><span id="combo" class="combo">x1.0</span><span id="bestScore" class="dim">BEST 0</span></div>
+    <div id="comboTrack"><div id="comboBar"></div></div>
   </div>
+
+  <!-- boss health -->
+  <div id="bossBar" class="hidden">
+    <div id="bossName">IRONCOIL</div>
+    <div class="bb"><div id="bossFill"></div></div>
+  </div>
+
+  <!-- off-screen threat pointers -->
+  <div id="radar"></div>
 
   <!-- health -->
   <div id="healthWrap">
     <div id="healthBar"><div id="healthFill"></div></div>
     <div id="healthNum">100</div>
     <div id="shieldFill"></div>
-    <div id="ecoWrap"><div id="ecoFill"></div><span id="ecoLabel">ECO</span></div>
+    <div id="ecoWrap"><div id="ecoFill"></div><span id="ecoLabel">CHARGE</span></div>
   </div>
 
   <!-- crosshair -->
@@ -94,15 +104,26 @@
 
   <!-- kill feed / callouts -->
   <div id="callout"></div>
+  <div id="toast"></div>
+
+  <!-- upgrade draft between waves -->
+  <div id="draft" class="hidden">
+    <div class="draftHead">WAVE CLEARED · PICK AN UPGRADE</div>
+    <div class="cards">
+      <button class="card"><i>1</i><b></b><span></span></button>
+      <button class="card"><i>2</i><b></b><span></span></button>
+      <button class="card"><i>3</i><b></b><span></span></button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ TITLE ============ -->
 <div id="title" class="screen">
   <div class="bgGrain"></div>
   <div class="titleInner">
-    <div class="kicker">JAK-STYLE ARENA SHOOTER</div>
+    <div class="kicker">THIRD-PERSON ARENA SHOOTER</div>
     <h1>WASTELAND<span>TRIAL</span></h1>
-    <p class="blurb">Hold the ruins. Four gunstaff mods. The horde keeps coming.</p>
+    <p class="blurb">Hold the ruins. Four weapons, two forms, an upgrade every wave. The horde keeps coming.</p>
     <button id="btnStart" class="cta">ENTER THE WASTELAND</button>
     <div class="titleMeta">
       <div><span class="k">BEST WAVE</span><b id="tBestWave">—</b></div>
@@ -160,7 +181,10 @@
       <div><span>ACCURACY</span><b id="dAcc">0%</b></div>
       <div><span>BEST COMBO</span><b id="dCombo">x1.0</b></div>
       <div><span>HEADSHOTS</span><b id="dHead">0</b></div>
+      <div><span>TIME</span><b id="dTime">0:00</b></div>
+      <div><span>UPGRADES</span><b id="dUpg">0</b></div>
     </div>
+    <div id="dPerks" class="dPerks"></div>
     <div id="newBest" class="newBest hidden">NEW RECORD</div>
     <button id="btnRetry" class="cta">RUN IT AGAIN</button>
     <button id="btnMenu" class="ghostWide">BACK TO TITLE</button>

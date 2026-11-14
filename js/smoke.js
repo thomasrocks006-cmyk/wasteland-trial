@@ -33,7 +33,13 @@ function gesture(el, x0, y0, dx, dy, id) {
   el.dispatchEvent(mk('pointerup', x0 + dx, y0 + dy, id));
 }
 
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/* Waits are in rendered frames, with a floor in milliseconds. Pure millisecond waits
+   failed on slow GPUs (4 fps headless): the camera had not even moved yet. */
+const wait = (ms, minFrames = Math.ceil(ms / 33)) => new Promise((r) => {
+  const t0 = performance.now(); let n = 0;
+  const f = () => { n++; if (n >= minFrames && performance.now() - t0 >= ms) r(); else requestAnimationFrame(f); };
+  requestAnimationFrame(f);
+});
 const camDir = () => {
   const d = new (window.__dbg.camera.position.constructor)();
   window.__dbg.camera.getWorldDirection(d);
@@ -87,7 +93,7 @@ export async function runSmoke() {
   });
 
   // keep the player alive while the test drives things
-  const god = setInterval(() => { d.player.hp = 100; }, 80);
+  let god = setInterval(() => { d.player.hp = 100; }, 80);
 
   // ---- stick moves the player the way the camera faces
   const stickZone = document.getElementById('stickZone');
@@ -121,7 +127,7 @@ export async function runSmoke() {
   for (const yaw of [0.0, 1.6, 3.1]) {
     await check(`look right at yaw ${yaw}`, async () => {
       d.player.camYaw = yaw;
-      await wait(120);
+      await wait(120, 3);
       const f = camDir(), r = rightOf(f);
       gesture(lookZone, 600, 140, 100, 0, 700 + Math.round(yaw * 10));
       await wait(400);
@@ -133,26 +139,156 @@ export async function runSmoke() {
   }
 
   // ---- shots land and kill
-  await check('three shots kill a grunt', async () => {
+  const aimAt = (e) => {
+    const p = d.player;
+    d.camera.position.set(p.pos.x, p.pos.y + 1.6, p.pos.z);
+    d.camera.lookAt(e.pos.x, e.pos.y + e.type.height * 0.55, e.pos.z);
+    d.camera.updateMatrixWorld(true);
+  };
+  const fireAt = (e) => {
+    aimAt(e);
+    d.weapons.cooldown = 0; d.weapons.reloading = false; d.weapons.switchT = 1;
+    d.weapons.fire(d.camera);
+  };
+  await check('three shots kill a grunt (accuracy and hit marker count it)', async () => {
+    d.weapons.shotsFired = 0; d.weapons.shotsHit = 0;
     d.enemies.clear();
     const p = d.player, T = d.camera.position.constructor;
     const f = camDir();
     const e = d.enemies.spawn('grunt', p.pos.x + f[0] * 9, p.pos.z + f[1] * 9);
     e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0;
-    await wait(150);
+    await wait(150, 2);
     let shots = 0;
     for (let i = 0; i < 3; i++) {
-      d.camera.position.set(p.pos.x, p.pos.y + 1.6, p.pos.z);
-      d.camera.lookAt(e.pos.x, e.pos.y + e.type.height * 0.55, e.pos.z);
-      d.camera.updateMatrixWorld(true);
-      d.weapons.cooldown = 0; d.weapons.reloading = false;
-      d.weapons.fire(d.camera);
+      fireAt(e);
       shots++;
-      await wait(120);
+      await wait(120, 1);
       if (!e.alive) break;
     }
     assert(!e.alive, `grunt still alive after ${shots} shots (hp ${e.hp.toFixed(0)})`);
-    return `dead after ${shots}`;
+    assert(d.accuracy() > 0, 'accuracy still reads 0% after hits');
+    await wait(60, 2);
+    assert(/kill|hit|head/.test(document.getElementById('hitmarker').className), 'hit marker never shown');
+    return `dead after ${shots}, accuracy ${d.accuracy()}%`;
+  });
+
+  // ---- cover: a pillar between you and a grunt stops the shot
+  await check('a pillar stops shots', async () => {
+    d.enemies.clear();
+    const px = Math.cos(Math.PI / 4) * 12.5, pz = Math.sin(Math.PI / 4) * 12.5;   // a great pillar
+    const tx = -Math.SQRT1_2, tz = Math.SQRT1_2;                                     // tangent to the dais
+    const p = d.player;
+    p.pos.set(px + tx * 6, 0, pz + tz * 6); p.pos.y = d.terrainHeight(p.pos.x, p.pos.z);
+    const e = d.enemies.spawn('grunt', px - tx * 5, pz - tz * 5);
+    e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0;
+    await wait(80, 2);
+    const hp0 = e.hp;
+    for (let i = 0; i < 3; i++) { fireAt(e); await wait(60, 1); }
+    assert(e.hp === hp0, `shots went through the pillar (hp ${hp0} -> ${e.hp.toFixed(0)})`);
+    // control: same line with the grunt moved in front of the pillar must hit,
+    // otherwise the block above could be the ground or a broken gun
+    e.pos.set(px + tx * 2.4, 0, pz + tz * 2.4); e.pos.y = d.terrainHeight(e.pos.x, e.pos.z);
+    fireAt(e); await wait(60, 1);
+    const hit = e.hp < hp0;
+    d.enemies.clear();
+    assert(hit, 'control shot with a clear line also missed');
+    return 'blocked, control hit';
+  });
+
+  // ---- ammo crates refill limited weapons
+  await check('an ammo crate refills reserves', async () => {
+    const s = d.weapons.state[1];
+    s.reserve = 0;
+    d.pickups.spawn(d.player.pos.x, d.player.pos.z, 'ammo');
+    await wait(200, 4);
+    assert(s.reserve > 0, 'scatter reserve still 0 after the crate');
+    return 'scatter +' + s.reserve;
+  });
+
+  // ---- the boss lands a melee hit up close
+  await check('the boss hurts you in melee', async () => {
+    clearInterval(god);
+    d.enemies.clear();
+    const p = d.player;
+    p.hp = 100; p.iframe = 0; p.endMode();
+    const f = camDir();
+    const e = d.enemies.spawn('boss', p.pos.x + f[0] * 3.2, p.pos.z + f[1] * 3.2);
+    e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.attackCd = 0; e.speed = 0;
+    await wait(900, 14);
+    const hp = p.hp;
+    d.enemies.clear();
+    p.hp = 100; p.alive = true;
+    god = setInterval(() => { d.player.hp = 100; }, 80);
+    assert(hp < 100, 'boss stood next to you and never hit');
+    return `took ${(100 - hp).toFixed(0)}`;
+  });
+
+  await check('the boss has a trailing body you can shoot', async () => {
+    d.enemies.clear();
+    const p = d.player, f = camDir();
+    const e = d.enemies.spawn('boss', p.pos.x + f[0] * 14, p.pos.z + f[1] * 14);
+    e.state = 'chase'; e.spawnT = 1; e.scale = 1;
+    assert(e.segs && e.segs.length >= 5, 'no body segments');
+    const sg = e.segs[3];
+    const T = d.camera.position.constructor;
+    const o = new T(p.pos.x, p.pos.y + 1.6, p.pos.z);
+    const dir = new T(sg.x, sg.y + 1.3, sg.z).sub(o).normalize();
+    const hits = d.enemies.raycast(o, dir, 80, 1);
+    d.enemies.clear();
+    assert(hits.length && hits[0].enemy === e, 'a shot at the tail missed');
+    return `${e.segs.length} segments`;
+  });
+
+  // ---- brutes telegraph a charge
+  await check('a brute winds up a charge at range', async () => {
+    d.enemies.clear();
+    const p = d.player;
+    // a charge needs a clear line: find one, so the test can only fail on the AI
+    let bx = null, bz = null;
+    for (let k = 0; k < 24 && bx === null; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const x = p.pos.x + Math.cos(a) * 12, z = p.pos.z + Math.sin(a) * 12;
+      if (Math.hypot(x, z) < 90 && d.world.isClear(x, z, 1.4) && !d.world.blocked(x, z, p.pos.x, p.pos.z)) { bx = x; bz = z; }
+    }
+    assert(bx !== null, 'test setup: no clear line around the player');
+    const e = d.enemies.spawn('brute', bx, bz);
+    e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.chargeCd = 0;
+    let seen = '';
+    for (let i = 0; i < 30 && !seen; i++) { await wait(40, 1); if (e.state === 'windup' || e.state === 'charge') seen = e.state; }
+    d.enemies.clear();
+    assert(seen, 'no wind-up (state ' + e.state + ')');
+    return seen;
+  });
+
+  // ---- threat radar points at someone behind you
+  await check('an enemy behind you gets an edge pointer', async () => {
+    d.enemies.clear();
+    const p = d.player, f = camDir();
+    const e = d.enemies.spawn('grunt', p.pos.x - f[0] * 10, p.pos.z - f[1] * 10);
+    e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0;
+    await wait(150, 4);
+    const lit = d.radarEls.filter((el) => parseFloat(el.style.opacity) > 0.2).length;
+    d.enemies.clear();
+    assert(lit >= 1, 'no pointer shown');
+    return lit + ' pointer(s)';
+  });
+
+  // ---- clearing a wave opens the upgrade draft, and a pick applies
+  await check('wave clear opens the upgrade draft and a pick applies', async () => {
+    d.enemies.clear();
+    d.GAME.spawnQueue = [];
+    d.GAME.waveActive = true;
+    await wait(200, 4);
+    const draft = document.getElementById('draft');
+    assert(!draft.classList.contains('hidden'), 'draft did not open');
+    assert(d.GAME.drafting, 'GAME.drafting not set');
+    await wait(500, 2);
+    const before = d.GAME.perks.length;
+    draft.querySelector('.card').click();
+    await wait(60, 1);
+    assert(d.GAME.perks.length === before + 1, 'pick did not register');
+    assert(draft.classList.contains('hidden'), 'draft did not close');
+    return d.GAME.perks[d.GAME.perks.length - 1];
   });
 
   // ---- eco forms

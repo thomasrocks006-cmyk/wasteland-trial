@@ -156,14 +156,9 @@ function waspParts() {
 
 function bossParts() {
   const body = new Builder();
-  // segmented carapace body
-  for (let i = 0; i < 5; i++) {
-    const s = 1 - i * 0.10;
-    body.add(new THREE.BoxGeometry(1.5 * s, 1.1 * s, 1.5 * s), i % 2 ? SKIN.plate : SKIN.carapace, {
-      pos: [0, 1.5 * s, -i * 1.35], rot: [i * 0.05, 0, 0], jitter: 0.05
-    });
-    body.add(new THREE.ConeGeometry(0.18 * s, 0.55 * s, 4), SKIN.bone, { pos: [0, 2.05 * s, -i * 1.35], rot: [-0.2, 0, 0], jitter: 0.04 });
-  }
+  // the head segment; the rest of the body is separate segments that trail it
+  body.add(new THREE.BoxGeometry(1.5, 1.1, 1.5), SKIN.carapace, { pos: [0, 1.5, 0], jitter: 0.05 });
+  body.add(new THREE.ConeGeometry(0.18, 0.55, 4), SKIN.bone, { pos: [0, 2.05, 0], rot: [-0.2, 0, 0], jitter: 0.04 });
   body.add(new THREE.BoxGeometry(1.1, 0.9, 0.9), SKIN.plateDark, { pos: [0, 1.55, 1.35], jitter: 0.05 });
   body.add(new THREE.BoxGeometry(0.9, 0.20, 0.3), SKIN.bone, { pos: [0, 1.32, 1.78], jitter: 0.04 });
   body.add(new THREE.BoxGeometry(0.20, 0.10, 0.06), SKIN.eye, { pos: [0.26, 1.72, 1.80] });
@@ -184,6 +179,22 @@ function bossParts() {
   };
   return { body: body.build(), legL: leg(), legR: leg(), legL2: leg(), legR2: leg() };
 }
+
+/** one trailing boss segment, built at full size and tapered per instance */
+function bossSegmentGeo() {
+  const b = new Builder();
+  b.add(new THREE.BoxGeometry(1.5, 1.1, 1.4), SKIN.plate, { pos: [0, 1.5, 0], jitter: 0.05 });
+  b.add(new THREE.BoxGeometry(1.62, 0.22, 1.0), SKIN.plateDark, { pos: [0, 2.0, 0], jitter: 0.04 });
+  b.add(new THREE.ConeGeometry(0.17, 0.55, 4), SKIN.bone, { pos: [0, 2.32, 0], rot: [-0.25, 0, 0], jitter: 0.04 });
+  for (const sx of [-1, 1]) {
+    b.add(new THREE.CylinderGeometry(0.12, 0.16, 1.2, 5), SKIN.carapace, { pos: [sx * 0.95, 0.75, 0], rot: [0, 0, sx * 0.5], jitter: 0.04 });
+    b.add(new THREE.BoxGeometry(0.22, 0.12, 0.34), SKIN.claw, { pos: [sx * 1.22, 0.08, 0], jitter: 0.04 });
+  }
+  return b.build();
+}
+const BOSS_SEGS = 6;
+const SEG_GAP = 1.32;
+const segScale = (i) => 1 - (i + 1) * 0.085;
 
 /* ------------------------------------------------------------------ types */
 export const ENEMY_TYPES = {
@@ -214,7 +225,7 @@ export const ENEMY_TYPES = {
   },
   boss: {
     key: 'boss', hp: 1500, speed: 2.2, radius: 1.9, height: 2.4, headY: 1.7, headR: 0.75,
-    dmg: 26, attackRange: 4.2, attackCd: 1.9, score: 2500, hudName: 'METALPEDE', boss: true, heavy: true,
+    dmg: 26, attackRange: 4.2, attackCd: 1.9, score: 2500, hudName: 'IRONCOIL', boss: true, heavy: true,
     parts: bossParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
     legPivots: { legL: [-0.9, 1.2, 0.9], legR: [0.9, 1.2, 0.9], legL2: [-0.9, 1.2, -1.5], legR2: [0.9, 1.2, -1.5] },
   },
@@ -262,8 +273,10 @@ export class Enemies {
     // enemy projectiles
     const geo = new THREE.SphereGeometry(0.14, 6, 5);
     this.projMesh = new THREE.InstancedMesh(geo, new THREE.MeshBasicMaterial({
-      color: 0x9fd8ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false
-    }), 48);
+      color: 0xffffff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false
+    }), 64);
+    // per-bolt colour: the boss's orange bolts used to render the same blue as everyone's
+    this.projMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(64 * 3), 3);
     this.projMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.projMesh.frustumCulled = false;
     this.projMesh.count = 0;
@@ -281,8 +294,18 @@ export class Enemies {
     this.eyeMesh.count = 0;
     scene.add(this.eyeMesh);
 
+    // trailing boss body: one instanced mesh for every segment of every boss
+    this.segMesh = new THREE.InstancedMesh(bossSegmentGeo(), new THREE.MeshLambertMaterial({ vertexColors: true }), BOSS_SEGS * 2);
+    this.segMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.segMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BOSS_SEGS * 2 * 3), 3);
+    this.segMesh.castShadow = true;
+    this.segMesh.frustumCulled = false;
+    this.segMesh.count = 0;
+    scene.add(this.segMesh);
+
     this.onKill = null;
-    this.onPlayerHit = null;
+    this.onHit = null;         // (enemy, head, killed) for hit markers
+    this.onEnrage = null;
   }
 
   get alive() { return this.list.filter(e => e.alive); }
@@ -307,8 +330,18 @@ export class Enemies {
       strafeDir: rng() > 0.5 ? 1 : -1,
       lungeT: 0, lungeCd: rnd(1, 2),
       targetHeight: t.flying ? t.flyH : 0,
+      chargeCd: rnd(2.5, 5), pendingHit: 0,
     };
-    if (t.boss) e.speed = t.speed;
+    if (t.boss) {
+      e.speed = t.speed;
+      // face the hero from the start, body laid out straight behind
+      if (this.player) e.yaw = Math.atan2(this.player.pos.x - x, this.player.pos.z - z);
+      e.segs = [];
+      for (let i = 0; i < BOSS_SEGS; i++) {
+        const sx = x - Math.sin(e.yaw) * SEG_GAP * (i + 1), sz = z - Math.cos(e.yaw) * SEG_GAP * (i + 1);
+        e.segs.push({ x: sx, z: sz, y: terrainHeight(sx, sz), yaw: e.yaw });
+      }
+    }
     this.list.push(e);
     if (this.fx) {
       this.fx.ring(new THREE.Vector3(x, terrainHeight(x, z) + 0.1, z), 0x9a5cff, 2.4, 0.7);
@@ -328,6 +361,9 @@ export class Enemies {
       this.fx.damageNumber(point, amount, head);
     }
     if (this.audio) this.audio.hitmarker(head);
+    if (this.onHit) this.onHit(e, head, e.hp <= 0);
+    // a big hit breaks a brute's charge; it waits before trying again
+    if ((e.state === 'windup' || e.state === 'charge') && amount > 60) e.chargeCd = rnd(3, 5);
     if (e.type.heavy) {
       // heavy enemies only stagger on big hits
       if (amount > 60) { e.state = 'stagger'; e.stateT = 0.25; }
@@ -358,11 +394,20 @@ export class Enemies {
 
   /* ---------------- explosions ---------------- */
   explode(pos, radius, dmg, falloff = 0.45) {
+    let hurt = 0;
     for (const e of this.list) {
       if (!e.alive) continue;
-      const dx = e.pos.x - pos.x, dy = (e.pos.y + e.type.height * 0.5) - pos.y, dz = e.pos.z - pos.z;
-      const d = Math.hypot(dx, dy, dz);
+      let dx = e.pos.x - pos.x, dy = (e.pos.y + e.type.height * 0.5) - pos.y, dz = e.pos.z - pos.z;
+      let d = Math.hypot(dx, dy, dz);
+      if (e.segs) {
+        // the boss is long: a blast on its tail still lands
+        for (const sg of e.segs) {
+          const sd = Math.hypot(sg.x - pos.x, sg.y + 1.4 - pos.y, sg.z - pos.z);
+          if (sd < d) { d = sd; dx = sg.x - pos.x; dy = sg.y + 1.4 - pos.y; dz = sg.z - pos.z; }
+        }
+      }
       if (d > radius + e.type.radius) continue;
+      hurt++;
       const k = clamp(1 - (d - e.type.radius) / (radius * (1 + falloff)), 0.25, 1);
       const dir = new THREE.Vector3(dx, dy, dz).normalize();
       this.hit(e, dmg * k, new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z), dir, false, null);
@@ -379,6 +424,7 @@ export class Enemies {
         this.player.damage(dmg * 0.28 * f, pos.x, pos.z);
       }
     }
+    return hurt;
   }
 
   /* ---------------- raycast ---------------- */
@@ -399,6 +445,14 @@ export class Enemies {
         const tt = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z,
           e.pos.x, secs[s][0], e.pos.z, secs[s][1], maxDist);
         if (tt >= 0 && (dist < 0 || tt < dist)) { dist = tt; head = secs[s][2]; }
+      }
+      if (e.segs) {
+        for (let i = 0; i < e.segs.length; i++) {
+          const sg = e.segs[i], k = segScale(i);
+          const tt = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z,
+            sg.x, sg.y + 1.45 * k, sg.z, 1.0 * k, maxDist);
+          if (tt >= 0 && (dist < 0 || tt < dist)) { dist = tt; head = false; }
+        }
       }
       if (dist < 0) continue;
       hits.push({
@@ -424,6 +478,7 @@ export class Enemies {
         // sink + shrink
         e.scale = Math.max(0, 1 - e.dying / 0.9);
         e.pos.y -= dt * 1.6;
+        if (e.segs) for (const sg of e.segs) sg.y -= dt * 1.6;
         i++;
         continue;
       }
@@ -439,6 +494,7 @@ export class Enemies {
     const t = e.type;
     e.stateT += dt;
     e.attackCd = Math.max(0, e.attackCd - dt);
+    e.chargeCd -= dt;
     e.flash = Math.max(0, e.flash - dt * 6);
     e.hurtT = Math.max(0, e.hurtT - dt);
     e.spawnT += dt;
@@ -455,8 +511,16 @@ export class Enemies {
     const dist = Math.hypot(dx, dz);
     const dirX = dx / (dist || 1), dirZ = dz / (dist || 1);
 
-    // always face the player unless staggered
-    if (e.state !== 'stagger') {
+    // a swing resolves on the game clock: it used to be a setTimeout, which landed
+    // while paused and could hit the next run after a restart
+    if (e.pendingHit > 0) {
+      e.pendingHit -= dt;
+      if (e.pendingHit <= 0) this.resolveMelee(e);
+    }
+
+    // always face the player unless staggered; a charging brute is committed
+    if (e.state === 'charge') e.yaw = Math.atan2(e.chargeX, e.chargeZ);
+    else if (e.state !== 'stagger') {
       e.yaw = dampAngle(e.yaw, Math.atan2(dx, dz), e.type.boss ? 3.2 : 7, dt);
     }
 
@@ -464,7 +528,30 @@ export class Enemies {
     let speed = e.speed;
 
     if (e.state === 'stagger') {
-      if (e.stateT > 0.22) { e.state = 'chase'; e.stateT = 0; }
+      if (e.stateT > (e.staggerDur || 0.22)) { e.state = 'chase'; e.stateT = 0; e.staggerDur = 0; }
+    } else if (t.key === 'brute' && (e.state === 'windup' || e.state === 'charge' ||
+      (e.chargeCd <= 0 && dist > 7 && dist < 20 && !this.world.blocked(e.pos.x, e.pos.z, pp.x, pp.z)))) {
+      // charge: rear up (tracking you), then commit to a straight line. Dodge through it.
+      if (e.state !== 'windup' && e.state !== 'charge') {
+        e.state = 'windup'; e.stateT = 0;
+        if (this.fx) this.fx.ring(new THREE.Vector3(e.pos.x, e.pos.y + 0.12, e.pos.z), 0xff4a1a, 2.6, 0.8);
+        if (this.audio) this.audio.roar(dist);
+      }
+      if (e.state === 'windup') {
+        if (e.stateT > 0.8) {
+          e.state = 'charge'; e.stateT = 0; e.chargeHit = false;
+          e.chargeX = dirX; e.chargeZ = dirZ;
+        }
+      } else {
+        moveX = e.chargeX; moveZ = e.chargeZ; speed = e.speed * 3.6;
+        if (!e.chargeHit && dist < t.radius + 0.9 && this.player.alive) {
+          e.chargeHit = true;
+          this.player.damage(e.dmg * 1.5, e.pos.x, e.pos.z);
+          if (this.player.onHurt) this.player.onHurt();
+          this.player.knock.add(new THREE.Vector3(e.chargeX, 0, e.chargeZ).multiplyScalar(16));
+        }
+        if (e.stateT > 1.15) { e.state = 'chase'; e.stateT = 0; e.chargeCd = rnd(5, 8); }
+      }
     } else if (t.flying) {
       // hover, then dive
       e.lungeCd -= dt;
@@ -490,10 +577,30 @@ export class Enemies {
         this.fireProjectile(e, pp);
       }
     } else if (t.boss) {
-      if (dist > 8) { moveX = dirX; moveZ = dirZ; }
+      // below half health it enrages: faster, quicker swings, and a ring of low bolts to jump or roll
+      if (!e.enraged && e.hp < e.maxHp * 0.5) {
+        e.enraged = true; e.speed *= 1.35; e.novaCd = 1.2;
+        if (this.fx) this.fx.ring(new THREE.Vector3(e.pos.x, e.pos.y + 0.2, e.pos.z), 0xff5a18, 9, 0.9);
+        if (this.audio) this.audio.roar(dist, true);
+        if (this.onEnrage) this.onEnrage(e);
+      }
+      if (e.enraged) {
+        e.novaCd -= dt;
+        if (e.novaCd <= 0) { this.nova(e); e.novaCd = 5.5; }
+      }
+      // it used to stop at 8 m and only "attack" in place, so it never landed a hit
+      // it walks where its head points while turning toward you, so the body arcs
+      // round instead of the head reversing back through its own segments
+      if (dist > t.attackRange * 0.85) {
+        const k = 0.35 + 0.65 * clamp(Math.cos(angleTo(e.yaw, Math.atan2(dx, dz))), 0, 1);
+        moveX = Math.sin(e.yaw) * k; moveZ = Math.cos(e.yaw) * k;
+      }
       if (e.attackCd <= 0) {
-        if (dist > 12) this.fireProjectile(e, pp, 3);
-        else { e.state = 'attack'; e.stateT = 0; e.attackCd = t.attackCd; }
+        if (dist > 12) this.fireProjectile(e, pp, e.enraged ? 5 : 3);
+        else if (dist < t.attackRange * 1.1) {
+          e.state = 'attack'; e.stateT = 0; e.attackCd = t.attackCd * (e.enraged ? 0.7 : 1);
+          this.dealMelee(e, dist);
+        }
       }
     } else {
       // melee chasers
@@ -537,9 +644,17 @@ export class Enemies {
 
     let nx = e.pos.x + e.vel.x * dt;
     let nz = e.pos.z + e.vel.z * dt;
+    const wantX = nx, wantZ = nz;
     [nx, nz] = this.world.resolveCollisions(nx, nz, t.radius);
-    // keep out of the dais
+    // a charging brute that rams a wall stuns itself: your opening
+    if (e.state === 'charge' && Math.hypot(nx - wantX, nz - wantZ) > 0.04) {
+      e.state = 'stagger'; e.stateT = 0; e.staggerDur = 1.1; e.chargeCd = rnd(5, 8);
+      e.vel.set(0, 0, 0);
+      if (this.fx) this.fx.puff(new THREE.Vector3(nx, e.pos.y + 1, nz), null, 0xa5835c, 1.2, 4, 0.8, 2);
+      if (this.player) this.player.shake = Math.min(2, this.player.shake + 0.4 / (1 + dist * 0.1));
+    }
     e.pos.x = nx; e.pos.z = nz;
+    if (e.segs) this.updateSegments(e, dt);
 
     const gh = terrainHeight(nx, nz);
     if (t.flying) {
@@ -556,28 +671,69 @@ export class Enemies {
     e.limbL = swing;
     e.limbR = -swing;
 
-    // flee/heal not needed; keep simple
     e.scale = damp(e.scale, 1, 10, dt);
+  }
+
+  /** follow-the-leader body: each segment sits a fixed gap behind the one in front */
+  updateSegments(e, dt) {
+    let px = e.pos.x, pz = e.pos.z;
+    const p = this.player;
+    for (let i = 0; i < e.segs.length; i++) {
+      const sg = e.segs[i];
+      let dx = sg.x - px, dz = sg.z - pz;
+      const d = Math.hypot(dx, dz) || 1e-3;
+      sg.x = px + (dx / d) * SEG_GAP;
+      sg.z = pz + (dz / d) * SEG_GAP;
+      sg.yaw = Math.atan2(px - sg.x, pz - sg.z);
+      sg.y = damp(sg.y, terrainHeight(sg.x, sg.z), 12, dt);
+      // the body is solid: shove the hero out rather than let them stand inside it
+      if (p && p.alive) {
+        const r = 0.95 * segScale(i) + 0.42;
+        const ox = p.pos.x - sg.x, oz = p.pos.z - sg.z;
+        const od = Math.hypot(ox, oz);
+        if (od < r && od > 1e-3) { p.pos.x = sg.x + (ox / od) * r; p.pos.z = sg.z + (oz / od) * r; }
+      }
+      px = sg.x; pz = sg.z;
+    }
+  }
+
+  /** enraged boss: a ring of low, flat bolts */
+  nova(e) {
+    const n = 14, y = e.pos.y + 0.55;
+    const off = rnd(0, TAU);
+    for (let i = 0; i < n; i++) {
+      const a = off + (i / n) * TAU;
+      this.projectiles.push({
+        pos: new THREE.Vector3(e.pos.x + Math.sin(a) * 1.6, y, e.pos.z + Math.cos(a) * 1.6),
+        vel: new THREE.Vector3(Math.sin(a) * 13, 0, Math.cos(a) * 13),
+        dmg: e.dmg * 0.6, life: 2.6, color: 0xff5a18, radius: 0.26, grav: 0, low: true
+      });
+    }
+    if (this.fx) this.fx.ring(new THREE.Vector3(e.pos.x, e.pos.y + 0.3, e.pos.z), 0xff5a18, 4, 0.5);
+    if (this.audio) this.audio.enemyShoot(this.player.pos.distanceTo(e.pos));
   }
 
   dealMelee(e, dist) {
     const p = this.player;
     if (!p.alive) return;
     if (dist > e.type.attackRange * 1.15) return;
-    // telegraph then hit
-    setTimeout(() => {
-      if (!e.alive || !p.alive) return;
-      const d = p.pos.distanceTo(e.pos);
-      if (d < e.type.attackRange * 1.3) {
-        p.damage(e.dmg, e.pos.x, e.pos.z);
-        if (p.onHurt) p.onHurt();
-        p.knock.add(new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw)).multiplyScalar(e.type.heavy ? 9 : 4));
-      }
-    }, 180);
+    // telegraph, then the hit resolves 0.18 s of game time later (see updateOne)
+    e.pendingHit = 0.18;
     if (this.fx) {
       this.fx.spark(new THREE.Vector3(
         e.pos.x + Math.sin(e.yaw) * 0.8, e.pos.y + 1.2, e.pos.z + Math.cos(e.yaw) * 0.8
       ), null, 0xff7a30, 5, 5, 0.1, 0.3);
+    }
+  }
+
+  resolveMelee(e) {
+    const p = this.player;
+    if (!e.alive || !p.alive) return;
+    const d = p.pos.distanceTo(e.pos);
+    if (d < e.type.attackRange * 1.3) {
+      p.damage(e.dmg, e.pos.x, e.pos.z);
+      if (p.onHurt) p.onHurt();
+      p.knock.add(new THREE.Vector3(Math.sin(e.yaw), 0, Math.cos(e.yaw)).multiplyScalar(e.type.heavy ? 9 : 4));
     }
   }
 
@@ -616,13 +772,14 @@ export class Enemies {
       const pr = this.projectiles[i];
       pr.life -= dt;
       pr.pos.addScaledVector(pr.vel, dt);
-      pr.vel.y -= 3.2 * dt;
+      pr.vel.y -= (pr.grav ?? 3.2) * dt;
       let dead = pr.life <= 0;
       // hit player
       if (!dead && p.alive) {
         const dx = pr.pos.x - p.pos.x, dz = pr.pos.z - p.pos.z;
         const dy = pr.pos.y - (p.pos.y + 1.0);
-        if (dx * dx + dz * dz < 0.72 && Math.abs(dy) < 1.0) {
+        // low nova bolts pass under a jumping hero
+        if (dx * dx + dz * dz < 0.72 && Math.abs(dy) < (pr.low ? 0.75 : 1.0)) {
           p.damage(pr.dmg, pr.pos.x, pr.pos.z);
           if (p.onHurt) p.onHurt();
           if (this.fx) this.fx.spark(pr.pos, null, pr.color, 8, 5, 0.12, 0.3);
@@ -637,11 +794,16 @@ export class Enemies {
         }
         dead = true;
       }
+      // pillars, walls and wrecks stop bolts: cover works both ways
+      if (!dead && this.world.pointSolid(pr.pos.x, pr.pos.y, pr.pos.z)) {
+        if (this.fx) this.fx.spark(pr.pos, null, pr.color, 6, 4, 0.12, 0.3);
+        dead = true;
+      }
       if (dead) this.projectiles.splice(i, 1);
     }
 
     const m = this.projMesh;
-    const count = Math.min(this.projectiles.length, 48);
+    const count = Math.min(this.projectiles.length, 64);
     for (let i = 0; i < count; i++) {
       const pr = this.projectiles[i];
       _d.position.copy(pr.pos);
@@ -649,9 +811,11 @@ export class Enemies {
       _d.scale.setScalar(pr.radius / 0.14 * (1 + Math.sin(performance.now() * 0.03) * 0.12));
       _d.updateMatrix();
       m.setMatrixAt(i, _d.matrix);
+      m.setColorAt(i, _col.setHex(pr.color));
     }
     m.count = count;
     m.instanceMatrix.needsUpdate = true;
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
   }
 
   /* ---------------- instanced render ---------------- */
@@ -704,6 +868,8 @@ export class Enemies {
           let k = 1 - f * 0.55;
           let cr = k + f, cg = k + f * 0.75, cb = k + f * 0.5;
           if (e.state === 'spawn') { const s = e.scale; cr *= s; cg *= s; cb *= s * 1.2; }
+          if (e.state === 'windup') { const w = 0.5 + 0.5 * Math.sin(e.stateT * 30); cr += 0.9 * w; cg += 0.15 * w; }
+          if (e.enraged) { cr *= 1.25; cg *= 0.85; cb *= 0.8; }
           if (!e.alive) { const fader = clamp(1 - e.dying / 0.9, 0, 1); cr *= fader; cg *= fader; cb *= fader; }
           _col.setRGB(cr, cg, cb);
           part.mesh.setColorAt(n, _col);
@@ -714,6 +880,28 @@ export class Enemies {
         if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
       }
     }
+
+    // boss segments
+    let si = 0;
+    for (const e of this.list) {
+      if (!e.segs) continue;
+      const f = e.flash * 0.9, k = 1 - f * 0.55;
+      const fade = e.alive ? 1 : clamp(1 - e.dying / 0.9, 0, 1);
+      _col.setRGB((k + f) * fade * (e.enraged ? 1.25 : 1), (k + f * 0.75) * fade * (e.enraged ? 0.85 : 1), (k + f * 0.5) * fade * (e.enraged ? 0.8 : 1));
+      for (let i = 0; i < e.segs.length && si < this.segMesh.instanceMatrix.count; i++) {
+        const sg = e.segs[i];
+        _d.position.set(sg.x, sg.y + Math.sin(time * 7 - i * 0.9) * 0.06, sg.z);
+        _d.rotation.set(0, sg.yaw, Math.sin(time * 5 - i * 0.8) * 0.05);
+        _d.scale.setScalar(segScale(i) * e.scale);
+        _d.updateMatrix();
+        this.segMesh.setMatrixAt(si, _d.matrix);
+        this.segMesh.setColorAt(si, _col);
+        si++;
+      }
+    }
+    this.segMesh.count = si;
+    this.segMesh.instanceMatrix.needsUpdate = true;
+    if (this.segMesh.instanceColor) this.segMesh.instanceColor.needsUpdate = true;
   }
 
   placePart(e, name, d, time) {
@@ -729,7 +917,9 @@ export class Enemies {
     const bob = t.flying ? Math.sin(time * 6 + e.phase) * 0.06 : 0;
     const stride = Math.sin(e.phase) * 0.55;
     const stride2 = Math.sin(e.phase + Math.PI) * 0.55;
-    const attackLean = e.state === 'attack' ? Math.sin(clamp(e.stateT / 0.35, 0, 1) * Math.PI) * 0.5 : 0;
+    const attackLean = e.state === 'attack' ? Math.sin(clamp(e.stateT / 0.35, 0, 1) * Math.PI) * 0.5
+      : e.state === 'windup' ? -0.45 * clamp(e.stateT / 0.3, 0, 1)      // rears back
+      : e.state === 'charge' ? 0.3 : 0;
     const staggerLean = e.state === 'stagger' ? -0.35 : 0;
 
     switch (name) {
@@ -777,5 +967,6 @@ export class Enemies {
     }
     this.projMesh.count = 0;
     if (this.eyeMesh) this.eyeMesh.count = 0;
+    this.segMesh.count = 0;
   }
 }
