@@ -32,6 +32,11 @@ html,body{
 body{position:fixed;inset:0;}
 
 canvas#gl{position:absolute;inset:0;width:100%;height:100%;display:block;background:#1a1109;}
+/* static colour grade: warm centre, cool edges. compositor-only, no per-frame cost */
+#grade{position:absolute;inset:0;pointer-events:none;z-index:2;mix-blend-mode:soft-light;
+  background:radial-gradient(ellipse 85% 75% at 50% 38%,rgba(255,186,110,.55),rgba(40,60,110,.42) 78%,rgba(20,26,50,.55) 100%);}
+#grade::after{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 120% 90% at 50% 50%,transparent 55%,rgba(10,6,3,.55) 100%);}
 
 .hidden{display:none !important;}
 

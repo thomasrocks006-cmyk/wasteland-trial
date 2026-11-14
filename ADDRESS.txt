@@ -1,13 +1,15 @@
 PLAY ON THE IPHONE
 ==================
 
-https://chicago-opens-lonely-increased.trycloudflare.com
+https://thomasrocks006-cmyk.github.io/wasteland-trial/
 
-Open in Safari, then Share -> Add to Home Screen. Runs fullscreen and offline
-after the first load.
+This one is permanent — served from GitHub Pages, so the home-screen icon keeps
+working. Open it in Safari, then Share -> Add to Home Screen. Runs fullscreen
+and offline after the first load.
 
-This is a quick-tunnel address: it stays up while the tunnel process runs, and
-changes if the tunnel restarts. To bring it back up with a fresh address:
+Local copy: the same files run from this folder with ./serve.sh (local server +
+a temporary Cloudflare tunnel, whose address changes every restart). That is
+only needed for testing edits — the Pages address above is the one to use.
 
     cd /opt/ironbark-agent-prep/home/Documents/Codex/2026-11-03/new-realtime-voice-chat-3/hermes-phone-lab/jak3-arena
     ./serve.sh

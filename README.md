@@ -6,17 +6,14 @@ library and one font, so it loads fast and works offline once installed.
 
 ## Play
 
-Open the current address on the phone, then **Share → Add to Home Screen**.
-It runs fullscreen, in landscape, and keeps working with no signal.
+**https://thomasrocks006-cmyk.github.io/wasteland-trial/**
 
-Live address and how to bring it back up: see `ADDRESS.txt`, or run:
+Open that on the phone (Safari), then **Share → Add to Home Screen**. It runs
+fullscreen, in landscape, and keeps working with no signal. It is served from
+GitHub Pages, so the address is stable.
 
-```
-./serve.sh
-```
-
-(`serve.sh` starts a static server plus a Cloudflare tunnel and prints the new
-HTTPS address — quick-tunnel addresses change on every restart.)
+Local development: `./serve.sh` starts a static server plus a temporary tunnel
+and prints an HTTPS address (that address changes on every restart).
 
 ## Controls
 
