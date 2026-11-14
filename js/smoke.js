@@ -181,6 +181,18 @@ export async function runSmoke() {
     return 'x' + before;
   });
 
+  await check('LIGHT button actually enters the form', async () => {
+    const p = d.player;
+    p.eco = 100; p.endMode();
+    document.getElementById('btnLight').dispatchEvent(mk('pointerdown', 520, 320, 4242));
+    await wait(300);
+    assert(p.mode === 'light', 'tapping LIGHT did not enter the form (mode=' + p.mode + ')');
+    document.getElementById('btnLight').dispatchEvent(mk('pointerdown', 520, 320, 4243));
+    await wait(200);
+    assert(p.mode === 'normal', 'tapping LIGHT again did not exit the form');
+    return 'wired';
+  });
+
   await check('eco cannot be spent twice at once', async () => {
     const p = d.player;
     p.eco = 100; p.endMode();
