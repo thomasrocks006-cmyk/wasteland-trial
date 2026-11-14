@@ -389,6 +389,8 @@ export class World {
 
     // --- central dais
     const daisY = terrainHeight(0, 0);
+    // the dais is solid: without this the player could stand inside it
+    this.obstacles.push({ x: 0, z: 0, r: 9.3 });
     for (let ring = 0; ring < 3; ring++) {
       const rr = 9 - ring * 1.9;
       b.add(new THREE.CylinderGeometry(rr, rr + 0.5, 0.55, 22, 1, true), ring === 0 ? PAL.ruinDark : PAL.ruin, {

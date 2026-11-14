@@ -166,7 +166,8 @@ export class Player {
     this.camLook = new THREE.Vector3();
     this._camTarget = new THREE.Vector3();
 
-    this.pos.y = terrainHeight(0, 0);
+    this.pos.set(0, 0, 12);          // clear of the central dais, which is solid
+    this.pos.y = terrainHeight(0, 12);
     this.model.root.position.copy(this.pos);
   }
 
@@ -205,9 +206,10 @@ export class Player {
     if (!this.alive) { this.updateCamera(dt); return; }
 
     // ---- camera look (smoothed so touch jitter doesn't snap the aim)
+    // dragging right must turn the view right, which is +yaw here
     this.lookVelX = damp(this.lookVelX, input.lookX, 34, dt);
     this.lookVelY = damp(this.lookVelY, input.lookY, 34, dt);
-    this.camYaw -= this.lookVelX;
+    this.camYaw += this.lookVelX;
     this.camPitch = clamp(this.camPitch - this.lookVelY, -0.95, 0.62);
 
     // ---- recoil spring

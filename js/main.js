@@ -273,101 +273,198 @@ const stickZone = $('stickZone');
 const lookZone = $('lookZone');
 const stick = $('stick');
 const knob = $('stickKnob');
-let stickId = null, stickCX = 0, stickCY = 0, stickRadius = 46;
+let stickCX = 0, stickCY = 0;
 
 function setStickBase(x, y) {
   stick.style.left = (x - 48) + 'px';
   stick.style.top = (y - 48) + 'px';
   stick.style.bottom = 'auto';
 }
-
-stickZone.addEventListener('pointerdown', (e) => {
-  if (GAME.state !== 'playing') return;
-  e.preventDefault();
-  stickId = e.pointerId;
-  stickZone.setPointerCapture(e.pointerId);
-  stickCX = e.clientX; stickCY = e.clientY;
-  stick.classList.add('active');
-  setStickBase(e.clientX, e.clientY);
-  knob.style.transform = 'translate(0,0)';
-});
-stickZone.addEventListener('pointermove', (e) => {
-  if (e.pointerId !== stickId) return;
-  const dx = e.clientX - stickCX, dy = e.clientY - stickCY;
-  const len = Math.hypot(dx, dy);
-  const max = 52;
-  const k = len > max ? max / len : 1;
-  knob.style.transform = `translate(${dx * k}px,${dy * k}px)`;
-  input.mx = clamp((dx * k) / max, -1, 1);
-  input.my = clamp((-dy * k) / max, -1, 1);
-  input.sprint = (dx * k / max) > 0.82 || (dy * k / max) < -0.82;
-});
-function endStick(e) {
-  if (e.pointerId !== stickId) return;
-  stickId = null;
-  input.mx = 0; input.my = 0; input.sprint = false;
+function resetStickVisual() {
   stick.classList.remove('active');
   knob.style.transform = 'translate(0,0)';
   stick.style.left = 'calc(env(safe-area-inset-left,0px) + 34px)';
   stick.style.top = 'auto';
   stick.style.bottom = 'calc(env(safe-area-inset-bottom,0px) + 44px)';
 }
-stickZone.addEventListener('pointerup', endStick);
-stickZone.addEventListener('pointercancel', endStick);
-// iOS can deliver the release to another element (or cancel with a different id).
-// Without this the stick stays latched and the character keeps walking on its own.
-window.addEventListener('pointerup', endStick);
-window.addEventListener('pointercancel', endStick);
-window.addEventListener('blur', () => {
-  stickId = null;
-  input.mx = 0; input.my = 0; input.fireHeld = false;
-  stick.classList.remove('active');
-  knob.style.transform = 'translate(0,0)';
+
+/* One gesture layer that accepts pointer events OR plain touch events.
+   iOS can hand us either (and can cancel a pointer stream mid-drag), so
+   listening to only one of them leaves the stick dead or latched. */
+function bindZone(el, handlers) {
+  let id = null;
+  let mode = null;             // 'pointer' | 'touch'
+  let lastActivity = 0;
+
+  const down = (pid, x, y, m) => {
+    if (id !== null) return;
+    id = pid; mode = m; lastActivity = performance.now();
+    handlers.down(x, y);
+  };
+  const move = (pid, x, y, m) => {
+    if (id === null || id !== pid || mode !== m) return;
+    lastActivity = performance.now();
+    handlers.move(x, y);
+  };
+  const up = (pid, m) => {
+    if (id === null || (pid !== null && (id !== pid || mode !== m))) return;
+    id = null; mode = null;
+    handlers.up();
+  };
+
+  // safety net: a gesture that somehow never receives its release must not
+  // leave the control latched for the rest of the run
+  setInterval(() => {
+    if (id !== null && performance.now() - lastActivity > 3000) { id = null; mode = null; handlers.up(); }
+  }, 1000);
+
+  el.addEventListener('pointerdown', (e) => {
+    if (GAME.state !== 'playing') return;
+    e.preventDefault();
+    try { el.setPointerCapture(e.pointerId); } catch { }
+    down(e.pointerId, e.clientX, e.clientY, 'pointer');
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (mode !== 'pointer') return;
+    move(e.pointerId, e.clientX, e.clientY, 'pointer');
+  });
+  const pUp = (e) => up(e.pointerId, 'pointer');
+  el.addEventListener('pointerup', pUp);
+  el.addEventListener('pointercancel', pUp);
+
+  el.addEventListener('touchstart', (e) => {
+    if (GAME.state !== 'playing') return;
+    // a new finger with no pointer stream behind it means any previous gesture
+    // is stale (iOS cancels pointer streams); clear it rather than ignore the touch
+    if (e.touches.length === 1 && id !== null) { id = null; mode = null; handlers.up(); }
+    if (mode === 'pointer') return;          // pointer path already owns it
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    if (t) down(t.identifier, t.clientX, t.clientY, 'touch');
+  }, { passive: false });
+  el.addEventListener('touchmove', (e) => {
+    if (mode !== 'touch') return;
+    const t = Array.from(e.changedTouches).find((c) => c.identifier === id);
+    if (!t) return;
+    e.preventDefault();
+    move(t.identifier, t.clientX, t.clientY, 'touch');
+  }, { passive: false });
+  const tUp = (e) => {
+    const list = Array.from(e.changedTouches || []);
+    const t = list.find((c) => c.identifier === id);
+    // clear if our finger ended, or if no fingers are left at all — a gesture that
+    // began on the pointer path must also release when the touch stream ends
+    if (t || !e.touches || e.touches.length === 0) {
+      if (id !== null) { id = null; mode = null; handlers.up(); }
+    }
+  };
+  el.addEventListener('touchend', tUp);
+  el.addEventListener('touchcancel', tUp);
+
+  // never let a gesture latch if the release lands somewhere else
+  window.addEventListener('pointerup', pUp);
+  window.addEventListener('pointercancel', pUp);
+  window.addEventListener('touchend', tUp);
+  window.addEventListener('touchcancel', tUp);
+  window.addEventListener('blur', () => { id = null; mode = null; handlers.up(); });
+}
+
+bindZone(stickZone, {
+  down(x, y) {
+    stickCX = x; stickCY = y;
+    stick.classList.add('active');
+    setStickBase(x, y);
+    knob.style.transform = 'translate(0,0)';
+    input.mx = 0; input.my = 0;
+  },
+  move(x, y) {
+    const dx = x - stickCX, dy = y - stickCY;
+    const max = 52;
+    const len = Math.hypot(dx, dy);
+    const k = len > max ? max / len : 1;
+    knob.style.transform = `translate(${dx * k}px,${dy * k}px)`;
+    // deadzone so a resting thumb never drifts, rescaled so it still reaches full tilt
+    let nx = (dx * k) / max, ny = (dy * k) / max;
+    const mag = Math.hypot(nx, ny);
+    const dead = 0.16;
+    if (mag > dead) {
+      const scale = ((mag - dead) / (1 - dead)) / mag;
+      nx *= scale; ny *= scale;
+    } else { nx = 0; ny = 0; }
+    input.mx = clamp(nx, -1, 1);
+    input.my = clamp(-ny, -1, 1);
+    input.sprint = mag > 0.93;
+  },
+  up() {
+    input.mx = 0; input.my = 0; input.sprint = false;
+    resetStickVisual();
+  },
 });
 
 /* look drag */
-let lookId = null, lastLX = 0, lastLY = 0;
-lookZone.addEventListener('pointerdown', (e) => {
-  if (GAME.state !== 'playing') return;
-  e.preventDefault();
-  lookId = e.pointerId;
-  lookZone.setPointerCapture(e.pointerId);
-  lastLX = e.clientX; lastLY = e.clientY;
+let lastLX = 0, lastLY = 0;
+bindZone(lookZone, {
+  down(x, y) { lastLX = x; lastLY = y; },
+  move(x, y) {
+    const dx = x - lastLX, dy = y - lastLY;
+    lastLX = x; lastLY = y;
+    input.lookX += dx * 0.0034 * sensitivity * invX * (player.aim ? 0.62 : 1);
+    input.lookY += dy * 0.0034 * sensitivity * invY * (player.aim ? 0.62 : 1);
+  },
+  up() { },
 });
-lookZone.addEventListener('pointermove', (e) => {
-  if (e.pointerId !== lookId) return;
-  const dx = e.clientX - lastLX, dy = e.clientY - lastLY;
-  lastLX = e.clientX; lastLY = e.clientY;
-  input.lookX += dx * 0.0034 * sensitivity * (player.aim ? 0.62 : 1);
-  input.lookY += dy * 0.0034 * sensitivity * (player.aim ? 0.62 : 1);
-});
-function endLook(e) { if (e.pointerId === lookId) lookId = null; }
-lookZone.addEventListener('pointerup', endLook);
-lookZone.addEventListener('pointercancel', endLook);
-window.addEventListener('pointerup', endLook);
-window.addEventListener('pointercancel', endLook);
 
-/* buttons */
+/* buttons — accept pointer OR touch, without double-firing on the same tap */
+function onPress(el, fn) {
+  let last = 0;
+  const fire = (e) => {
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
+    const now = performance.now();
+    if (now - last < 350) return;   // the same tap arrives as both pointer and touch
+    last = now;
+    fn(e);
+  };
+  el.addEventListener('pointerdown', fire);
+  el.addEventListener('touchstart', fire, { passive: false });
+}
+
 function bindHold(el, onDown, onUp) {
-  el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); onDown(); el.classList.add('on'); });
-  el.addEventListener('pointerup', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.remove('on'); if (onUp) onUp(); });
-  el.addEventListener('pointercancel', () => { el.classList.remove('on'); if (onUp) onUp(); });
-  el.addEventListener('pointerleave', () => { el.classList.remove('on'); if (onUp) onUp(); });
+  let held = false;
+  const down = (e) => {
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
+    if (held) return;
+    held = true;
+    onDown();
+    el.classList.add('on');
+  };
+  const up = (e) => {
+    if (e && e.cancelable) e.preventDefault();
+    if (!held) return;
+    held = false;
+    el.classList.remove('on');
+    if (onUp) onUp();
+  };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('touchstart', down, { passive: false });
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('pointerleave', up);
+  el.addEventListener('touchend', up, { passive: false });
+  el.addEventListener('touchcancel', up);
+  window.addEventListener('blur', () => { if (held) up(); });
 }
 bindHold($('btnFire'), () => { input.fireHeld = true; }, () => { input.fireHeld = false; });
 bindHold($('btnJump'), () => { input.jumpQueued = true; });
 bindHold($('btnDodge'), () => { input.dodgeQueued = true; });
-$('btnReload').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); weapons.tryReload(); });
-$('btnAim').addEventListener('pointerdown', (e) => {
-  e.preventDefault(); e.stopPropagation();
+onPress($('btnReload'), () => weapons.tryReload());
+onPress($('btnAim'), () => {
   input.aim = !input.aim;
   $('btnAim').classList.toggle('on', input.aim);
 });
 document.querySelectorAll('.wslot').forEach((b) => {
-  b.addEventListener('pointerdown', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    weapons.switchTo(parseInt(b.dataset.w, 10));
-  });
+  onPress(b, () => weapons.switchTo(parseInt(b.dataset.w, 10)));
 });
 
 /* keyboard + mouse for testing on desktop */
@@ -397,8 +494,8 @@ window.addEventListener('pointerup', () => { mouseDown = false; if (GAME.state =
 document.addEventListener('mousemove', (e) => {
   if (GAME.state !== 'playing') return;
   if (document.pointerLockElement === canvas) {
-    input.lookX += e.movementX * 0.0022 * sensitivity * (player.aim ? 0.62 : 1);
-    input.lookY += e.movementY * 0.0022 * sensitivity * (player.aim ? 0.62 : 1);
+    input.lookX += e.movementX * 0.0022 * sensitivity * invX * (player.aim ? 0.62 : 1);
+    input.lookY += e.movementY * 0.0022 * sensitivity * invY * (player.aim ? 0.62 : 1);
   }
 });
 document.addEventListener('pointerlockchange', () => {
@@ -485,6 +582,13 @@ function spawnPoint(minD = 15, maxD = 30) {
     const z = player.pos.z + Math.sin(a) * d;
     if (Math.hypot(x, z) > 102) continue;
     if (terrainHeight(x, z) > 30) continue;
+    // never drop an enemy inside the dais, a pillar or a wreck
+    let blocked = false;
+    for (let k = 0; k < world.obstacles.length; k++) {
+      const o = world.obstacles[k];
+      if (Math.hypot(x - o.x, z - o.z) < o.r + 1.2) { blocked = true; break; }
+    }
+    if (blocked) continue;
     return [x, z];
   }
   const a = rnd(0, TAU);
@@ -535,7 +639,7 @@ function resetRun() {
 
   player.alive = true;
   player.hp = player.maxHp;
-  player.pos.set(0, terrainHeight(0, 0), 0);
+  player.pos.set(0, terrainHeight(0, 12), 12);
   player.vel.set(0, 0, 0);
   player.vy = 0;
   player.camYaw = Math.PI; player.camPitch = -0.05;
@@ -624,7 +728,7 @@ $('btnMenu').addEventListener('click', () => {
   $('title').classList.remove('hidden');
   refreshTitleStats();
 });
-$('btnPause').addEventListener('pointerdown', (e) => { e.preventDefault(); togglePause(); });
+onPress($('btnPause'), () => togglePause());
 
 function refreshTitleStats() {
   $('tBestWave').textContent = save.bestWave || '0';
@@ -634,6 +738,11 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 $('sens').addEventListener('input', (e) => { sensitivity = parseFloat(e.target.value); });
+let invX = 1, invY = 1;
+$('invX').addEventListener('change', (e) => { invX = parseFloat(e.target.value); });
+$('invY').addEventListener('change', (e) => { invY = parseFloat(e.target.value); });
+const BUILD = 'b11';
+$('build').textContent = 'BUILD ' + BUILD;
 $('quality').addEventListener('change', (e) => {
   QUALITY = e.target.value;
   renderer.setPixelRatio(pixelRatioFor(QUALITY));
@@ -759,9 +868,6 @@ function frame(now) {
     else if (keys['KeyS']) input.my = -1;
     if (keys['KeyA']) input.mx = -1;
     else if (keys['KeyD']) input.mx = 1;
-    if (!keys['KeyW'] && !keys['KeyS'] && stickId === null && !keys['KeyA'] && !keys['KeyD']) {
-      // stick already zeroes these; don't fight the touch stick
-    }
     input.jump = input.jumpQueued || keys['Space'];
     input.jumpQueued = false;
     input.dodge = input.dodgeQueued || keys['KeyC'];
@@ -938,8 +1044,17 @@ window.__dbg = { GAME, player, enemies, weapons, fx, input, camera, scene, rende
 if ('serviceWorker' in navigator) {
   const isLocal = ['127.0.0.1', 'localhost', '0.0.0.0'].includes(location.hostname);
   if (!isLocal) {
+    // when a new build takes over, reload once so the phone never keeps showing
+    // an old cached version after an update
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !reloaded) { reloaded = true; location.reload(); }
+    });
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => { });
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+        .then((reg) => { reg.update().catch(() => { }); })
+        .catch(() => { });
     });
   }
 }
