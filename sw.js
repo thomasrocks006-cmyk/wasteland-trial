@@ -1,4 +1,4 @@
-const CACHE = 'wasteland-trial-v14';
+const CACHE = 'wasteland-trial-v15';
 const ASSETS = [
   './',
   './index.html',
@@ -39,16 +39,15 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
+  // Network first. Cache-first meant every launch after a fix still ran the
+  // previous build, so fixes looked like they had not landed at all.
   e.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req).then((res) => {
-        if (res && res.status === 200) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => { });
-        }
-        return res;
-      }).catch(() => cached);
-      return cached || network;
-    })
+    fetch(req).then((res) => {
+      if (res && res.status === 200) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => { });
+      }
+      return res;
+    }).catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
   );
 });
