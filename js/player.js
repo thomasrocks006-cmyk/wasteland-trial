@@ -357,7 +357,7 @@ export class Player {
 
     // idle bob / breathing
     const bob = Math.sin(this.walkPhase * 2) * 0.045 * swAmt + Math.sin(performance.now() * 0.0018) * 0.012;
-    m.body.position.y = damp(m.body.position.y, bob, 16, dt);
+    m.body.position.y = damp(m.body.position.y, bob - 0.085, 16, dt);  // 0.085 = sole height, so feet touch
 
     this.updateCamera(dt);
   }

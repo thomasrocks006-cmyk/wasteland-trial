@@ -34,14 +34,26 @@ const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 900);
 camera.position.set(0, 4, 8);
 
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
+  const vv = window.visualViewport;
+  const w = Math.round((vv && vv.width) || document.documentElement.clientWidth || window.innerWidth);
+  const h = Math.round((vv && vv.height) || document.documentElement.clientHeight || window.innerHeight);
+  if (!w || !h) return;
   renderer.setSize(w, h, false);
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
   camera.aspect = w / h;
-  camera.fov = h > w ? 78 : 70;
+  camera.fov = h > w ? 78 : 62;
   camera.updateProjectionMatrix();
 }
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 120));
+/* iOS reports a stale size for a moment after rotation, which leaves the canvas
+   at the old aspect. Re-run the sizing a few times so it always lands right. */
+function scheduleResize() {
+  resize();
+  [60, 160, 320, 640, 1100].forEach((ms) => setTimeout(resize, ms));
+}
+window.addEventListener('resize', scheduleResize);
+window.addEventListener('orientationchange', scheduleResize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
 resize();
 
 /* ================================================================ entities */
@@ -302,6 +314,16 @@ function endStick(e) {
 }
 stickZone.addEventListener('pointerup', endStick);
 stickZone.addEventListener('pointercancel', endStick);
+// iOS can deliver the release to another element (or cancel with a different id).
+// Without this the stick stays latched and the character keeps walking on its own.
+window.addEventListener('pointerup', endStick);
+window.addEventListener('pointercancel', endStick);
+window.addEventListener('blur', () => {
+  stickId = null;
+  input.mx = 0; input.my = 0; input.fireHeld = false;
+  stick.classList.remove('active');
+  knob.style.transform = 'translate(0,0)';
+});
 
 /* look drag */
 let lookId = null, lastLX = 0, lastLY = 0;
@@ -322,6 +344,8 @@ lookZone.addEventListener('pointermove', (e) => {
 function endLook(e) { if (e.pointerId === lookId) lookId = null; }
 lookZone.addEventListener('pointerup', endLook);
 lookZone.addEventListener('pointercancel', endLook);
+window.addEventListener('pointerup', endLook);
+window.addEventListener('pointercancel', endLook);
 
 /* buttons */
 function bindHold(el, onDown, onUp) {
@@ -717,6 +741,15 @@ function frame(now) {
     }
   }
 
+  // self-healing size guard: if the canvas ever drifts from the viewport
+  // (iOS does this around rotation and toolbar changes), snap it back
+  const vvw = window.visualViewport;
+  const sw = Math.round((vvw && vvw.width) || window.innerWidth);
+  const sh = Math.round((vvw && vvw.height) || window.innerHeight);
+  if (Math.abs(renderer.domElement.clientWidth - sw) > 3 || Math.abs(renderer.domElement.clientHeight - sh) > 3) {
+    resize();
+  }
+
   if (GAME.state === 'playing' || GAME.state === 'dead') GAME.time += dt;
 
   // ---------- input assembly
@@ -781,7 +814,7 @@ function frame(now) {
 
   if (GAME.state === 'playing' || GAME.state === 'dying' || GAME.state === 'dead') {
     player.applyToCamera(camera);
-    camera.fov = damp(camera.fov, player.aim ? 52 : (window.innerHeight > window.innerWidth ? 78 : 70), 9, dt);
+    camera.fov = damp(camera.fov, player.aim ? 46 : (window.innerHeight > window.innerWidth ? 78 : 62), 9, dt);
     camera.updateProjectionMatrix();
   }
 

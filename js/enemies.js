@@ -387,13 +387,19 @@ export class Enemies {
     for (const e of this.list) {
       if (!e.alive) continue;
       const t = e.type;
-      const bodyCx = e.pos.x, bodyCy = e.pos.y + t.height * 0.55, bodyCz = e.pos.z;
-      const tb = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, bodyCx, bodyCy, bodyCz, t.radius * 1.12, maxDist);
-      const th = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z, e.pos.x, e.pos.y + t.headY, e.pos.z, t.headR * 1.25, maxDist);
+      // three stacked spheres: legs, torso, head. Matches the silhouette far
+      // better than one small body sphere, which made on-target shots miss.
+      const secs = [
+        [e.pos.y + t.height * 0.26, t.radius * 1.02, false],
+        [e.pos.y + t.height * 0.60, t.radius * 1.12, false],
+        [e.pos.y + t.headY, t.headR * 1.55, true],
+      ];
       let dist = -1, head = false;
-      if (tb >= 0 && th >= 0) { if (th <= tb) { dist = th; head = true; } else dist = tb; }
-      else if (th >= 0) { dist = th; head = true; }
-      else if (tb >= 0) { dist = tb; }
+      for (let s = 0; s < 3; s++) {
+        const tt = raySphere(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z,
+          e.pos.x, secs[s][0], e.pos.z, secs[s][1], maxDist);
+        if (tt >= 0 && (dist < 0 || tt < dist)) { dist = tt; head = secs[s][2]; }
+      }
       if (dist < 0) continue;
       hits.push({
         enemy: e, dist, head,

@@ -76,8 +76,14 @@ serve.sh              local server + tunnel
 
 ## Notes for whoever touches this next
 
-- The terrain height is one function, `terrainHeight(x, z)` in `core.js`, used by
-  the mesh, the physics and the enemy AI. Change it in one place only.
+- The terrain height is one function, `terrainHeight(x, z)` in `core.js`. It
+  interpolates a cached height grid (`GRID_SEG`/`GRID_EXT`) that the mesh is also
+  built from, so what you walk on is exactly what you see. Never sample the raw
+  noise (`terrainRaw`) for physics, and never change the grid size in one place.
+- Terrain triangles are wound so normals point **up**. Inverting the winding makes
+  the ground get lit from below and stops shadows landing on it.
+- Hit volumes are three stacked spheres (legs, torso, head) per enemy. A single
+  body sphere is smaller than the silhouette and makes on-target shots miss.
 - Enemy limbs are `InstancedMesh` per body part, so the whole horde costs about
   25 draw calls. Keep it that way: don't add per-enemy meshes.
 - Materials must not set `vertexColors` unless the geometry has a colour

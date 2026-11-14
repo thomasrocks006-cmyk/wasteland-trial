@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   TAU, clamp, lerp, smoothstep, rnd, rng, fbm, pick,
   terrainHeight, terrainNormal, Builder, ARENA_R, RIM_R,
-  grassTexture, smokeTexture, radialSprite, groundTexture
+  grassTexture, smokeTexture, radialSprite, groundTexture, GRID_SEG, GRID_EXT, gridHeight
 } from './core.js';
 
 const _v = new THREE.Vector3();
@@ -176,8 +176,8 @@ export class World {
 
   /* -------------------------------------------------- terrain */
   buildTerrain() {
-    const SEG = this.quality === 'high' ? 168 : this.quality === 'fast' ? 110 : 140;
-    const EXT = 118;
+    const SEG = GRID_SEG;
+    const EXT = GRID_EXT;
     const TILES = 72;
     const step = (EXT * 2) / SEG;
     const pos = new Float32Array(SEG * SEG * 18);
@@ -187,7 +187,7 @@ export class World {
 
     const hAt = (i, j) => {
       const x = -EXT + i * step, z = -EXT + j * step;
-      return [x, z, terrainHeight(x, z)];
+      return [x, z, gridHeight(i, j)];
     };
     const cc = new THREE.Color();
 
@@ -209,8 +209,9 @@ export class World {
     for (let j = 0; j < SEG; j++) {
       for (let i = 0; i < SEG; i++) {
         const a = hAt(i, j), b = hAt(i + 1, j), c = hAt(i + 1, j + 1), d = hAt(i, j + 1);
-        // two triangles: a-b-c , a-c-d
-        const tris = [a, b, c, a, c, d];
+        // wound so the face normals point UP (they were inverted, which lit the
+        // ground from below and broke shadows landing on it)
+        const tris = [a, c, b, a, d, c];
         // face normal for shading variation
         for (let k = 0; k < 6; k += 3) {
           const v0 = tris[k], v1 = tris[k + 1], v2 = tris[k + 2];

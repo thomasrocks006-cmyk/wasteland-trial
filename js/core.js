@@ -51,19 +51,61 @@ export function fbm(x, y, oct = 4) {
 export const ARENA_R = 96;       // playable radius
 export const RIM_R = 104;
 
-/** Height of the wasteland floor. Used by the mesh AND by all physics. */
-export function terrainHeight(x, z) {
+/* One terrain grid, shared by the mesh and by everything that walks on it.
+   Sampling the analytic function directly made entities float above the drawn
+   triangles on slopes, so physics now interpolates the exact same grid. */
+export const GRID_SEG = 140;
+export const GRID_EXT = 118;
+const GRID_STEP = (GRID_EXT * 2) / GRID_SEG;
+
+/** The raw noise field — only ever evaluated at grid corners. */
+export function terrainRaw(x, z) {
   const r = Math.hypot(x, z);
   let h = (fbm(x * 0.011, z * 0.011, 4) - 0.5) * 13.0;
   h += (fbm(x * 0.048, z * 0.048, 3) - 0.5) * 2.2;
   h += (fbm(x * 0.19, z * 0.19, 2) - 0.5) * 0.55;   // grit
-  // flatten the fighting floor
   const flat = smoothstep(6, 46, r);
   h *= 0.16 + 0.84 * flat;
-  // canyon rim rising into walls
   const rim = smoothstep(66, RIM_R, r);
   h += rim * (26 + (fbm(x * 0.028, z * 0.028, 3) - 0.5) * 22);
   return h;
+}
+
+let HEIGHTS = null;
+function heightTable() {
+  if (HEIGHTS) return HEIGHTS;
+  const n = GRID_SEG + 1;
+  HEIGHTS = new Float32Array(n * n);
+  for (let j = 0; j < n; j++) {
+    const z = -GRID_EXT + j * GRID_STEP;
+    for (let i = 0; i < n; i++) {
+      HEIGHTS[j * n + i] = terrainRaw(-GRID_EXT + i * GRID_STEP, z);
+    }
+  }
+  return HEIGHTS;
+}
+/** height of grid corner (i,j) — the mesh uses these exact numbers */
+export function gridHeight(i, j) {
+  const t = heightTable(), n = GRID_SEG + 1;
+  const ci = i < 0 ? 0 : i > GRID_SEG ? GRID_SEG : i;
+  const cj = j < 0 ? 0 : j > GRID_SEG ? GRID_SEG : j;
+  return t[cj * n + ci];
+}
+
+/** Height of the wasteland floor, exact to the rendered triangles. */
+export function terrainHeight(x, z) {
+  const gx = (x + GRID_EXT) / GRID_STEP;
+  const gz = (z + GRID_EXT) / GRID_STEP;
+  let i = Math.floor(gx), j = Math.floor(gz);
+  i = i < 0 ? 0 : i > GRID_SEG - 1 ? GRID_SEG - 1 : i;
+  j = j < 0 ? 0 : j > GRID_SEG - 1 ? GRID_SEG - 1 : j;
+  const u = clamp(gx - i, 0, 1), v = clamp(gz - j, 0, 1);
+  const n = GRID_SEG + 1, t = heightTable();
+  const hA = t[j * n + i], hB = t[j * n + i + 1];
+  const hD = t[(j + 1) * n + i], hC = t[(j + 1) * n + i + 1];
+  // the mesh splits each cell along the a-c diagonal
+  if (u >= v) return hA * (1 - u) + hB * (u - v) + hC * v;
+  return hA * (1 - v) + hD * (v - u) + hC * u;
 }
 
 export function terrainNormal(x, z, out = new THREE.Vector3()) {
