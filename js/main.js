@@ -780,7 +780,7 @@ $('sens').addEventListener('input', (e) => { sensitivity = parseFloat(e.target.v
 let invX = 1, invY = 1;
 $('invX').addEventListener('change', (e) => { invX = parseFloat(e.target.value); });
 $('invY').addEventListener('change', (e) => { invY = parseFloat(e.target.value); });
-const BUILD = 'b13';
+const BUILD = 'b14';
 $('build').textContent = 'BUILD ' + BUILD;
 $('quality').addEventListener('change', (e) => {
   QUALITY = e.target.value;

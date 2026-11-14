@@ -161,14 +161,24 @@ export class Player {
     this.onMode = null;
 
     const auraMat = new THREE.MeshBasicMaterial({
-      color: 0x66f0ff, transparent: true, opacity: 0.16,
+      color: 0x66f0ff, transparent: true, opacity: 0.26,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide
     });
     this.aura = new THREE.Mesh(new THREE.SphereGeometry(1.05, 12, 10), auraMat);
     this.aura.position.y = 1.0;
     this.aura.visible = false;
     this.model.root.add(this.aura);
-    this.auraLight = new THREE.PointLight(0x66f0ff, 0, 10, 2);
+    // a ring at the feet reads the form far better than a shell alone
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x66f0ff, transparent: true, opacity: 0.75,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    });
+    this.auraRing = new THREE.Mesh(new THREE.RingGeometry(0.75, 1.15, 24), ringMat);
+    this.auraRing.rotation.x = -Math.PI / 2;
+    this.auraRing.position.y = 0.06;
+    this.auraRing.visible = false;
+    this.model.root.add(this.auraRing);
+    this.auraLight = new THREE.PointLight(0x66f0ff, 0, 14, 2);
     this.auraLight.position.y = 1.3;
     this.model.root.add(this.auraLight);
     this.lookVelX = 0;
@@ -246,7 +256,9 @@ export class Player {
       this.auraLight.color.setHex(0xc06bff);
     }
     this.aura.visible = true;
-    this.auraLight.intensity = 5;
+    this.auraRing.visible = true;
+    this.auraRing.material.color.copy(this.aura.material.color);
+    this.auraLight.intensity = 7;
     if (this.onMode) this.onMode(mode);
     return true;
   }
@@ -259,6 +271,7 @@ export class Player {
     this.dmgTakenMul = 1;
     this.fireRateMul = 1;
     this.aura.visible = false;
+    this.auraRing.visible = false;
     this.auraLight.intensity = 0;
     if (this.onMode) this.onMode('normal');
   }
@@ -290,9 +303,11 @@ export class Player {
       this.modeT -= dt;
       if (this.mode === 'light') this.heal(7 * dt);
       const p = performance.now();
-      this.aura.material.opacity = 0.13 + Math.sin(p * 0.006) * 0.05;
+      this.aura.material.opacity = 0.22 + Math.sin(p * 0.006) * 0.08;
       this.aura.scale.setScalar(1 + Math.sin(p * 0.004) * 0.06);
-      this.auraLight.intensity = 4 + Math.sin(p * 0.005) * 1.6;
+      this.auraLight.intensity = 6 + Math.sin(p * 0.005) * 2.5;
+      this.auraRing.rotation.z = p * 0.0009;
+      this.auraRing.scale.setScalar(1 + Math.sin(p * 0.007) * 0.12);
       if (this.modeT <= 0) this.endMode();
     }
 
