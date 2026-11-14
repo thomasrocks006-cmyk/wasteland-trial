@@ -1,0 +1,13 @@
+PLAY ON THE IPHONE
+==================
+
+https://chicago-opens-lonely-increased.trycloudflare.com
+
+Open in Safari, then Share -> Add to Home Screen. Runs fullscreen and offline
+after the first load.
+
+This is a quick-tunnel address: it stays up while the tunnel process runs, and
+changes if the tunnel restarts. To bring it back up with a fresh address:
+
+    cd /opt/ironbark-agent-prep/home/Documents/Codex/2026-11-03/new-realtime-voice-chat-3/hermes-phone-lab/jak3-arena
+    ./serve.sh

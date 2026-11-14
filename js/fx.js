@@ -1,0 +1,377 @@
+import * as THREE from 'three';
+import { clamp, lerp, rnd, rng, radialSprite, smokeTexture, TAU } from './core.js';
+
+const _q = new THREE.Quaternion();
+const _up = new THREE.Vector3(0, 1, 0);
+const _m4 = new THREE.Matrix4();
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _col = new THREE.Color();
+
+/* ------------------------------------------------------------------ spawn pool */
+class Pool {
+  constructor(scene, geo, mat, max) {
+    this.mesh = new THREE.InstancedMesh(geo, mat, max);
+    this.mesh.frustumCulled = false;
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);
+    this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 0;
+    this.max = max;
+    this.items = [];
+    this.dummy = new THREE.Object3D();
+    scene.add(this.mesh);
+  }
+  add(item) {
+    if (this.items.length >= this.max) this.items.shift();
+    this.items.push(item);
+  }
+  /** write items to the instance buffers with a callback that fills the dummy */
+  flush(fn) {
+    const n = this.items.length;
+    for (let i = 0; i < n; i++) {
+      fn(this.items[i], i, this.dummy);
+      this.dummy.updateMatrix();
+      this.mesh.setMatrixAt(i, this.dummy.matrix);
+      _col.setHex(this.items[i].color);
+      this.mesh.setColorAt(i, _col);
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+}
+
+export class FX {
+  constructor(scene, camera, quality = 'balanced') {
+    this.scene = scene;
+    this.camera = camera;
+    this.quality = quality;
+
+    this.sparkTex = radialSprite('rgba(255,255,255,1)', 'rgba(255,180,80,0)', 64);
+    this.smokeTex = smokeTexture();
+
+    // ---- sparks (additive billboards)
+    const quad = new THREE.PlaneGeometry(1, 1);
+    this.sparks = new Pool(scene, quad, new THREE.MeshBasicMaterial({
+      map: this.sparkTex, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, fog: true, vertexColors: false
+    }), quality === 'fast' ? 260 : 520);
+
+    // ---- smoke / dust (soft, normal blend)
+    this.smoke = new Pool(scene, quad, new THREE.MeshBasicMaterial({
+      map: this.smokeTex, transparent: true, depthWrite: false, opacity: 0.9,
+      vertexColors: false, fog: true
+    }), quality === 'fast' ? 120 : 260);
+
+    // ---- tracers (thin additive rods oriented in world space)
+    const rod = new THREE.CylinderGeometry(0.5, 0.5, 1, 5, 1, true);
+    this.tracers = new Pool(scene, rod, new THREE.MeshBasicMaterial({
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      vertexColors: false, fog: true, side: THREE.DoubleSide, opacity: 0.9
+    }), 90);
+
+    // ---- impact decals
+    const disc = new THREE.PlaneGeometry(1, 1);
+    this.decals = new Pool(scene, disc, new THREE.MeshBasicMaterial({
+      map: this.sparkTex, transparent: true, depthWrite: false, opacity: 0.5,
+      blending: THREE.NormalBlending, vertexColors: false, fog: true, opacity: 0.55
+    }), 46);
+
+    // ---- shockwave rings
+    const ringGeo = new THREE.RingGeometry(0.72, 1.0, 20);
+    this.rings = new Pool(scene, ringGeo, new THREE.MeshBasicMaterial({
+      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      side: THREE.DoubleSide, vertexColors: false
+    }), 18);
+
+    // ---- muzzle flash sprite pool
+    this.flashTex = radialSprite('rgba(255,250,225,1)', 'rgba(255,120,30,0)', 128);
+    this.flashes = [];
+    for (let i = 0; i < 8; i++) {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: this.flashTex, transparent: true, blending: THREE.AdditiveBlending,
+        depthWrite: false, depthTest: true, opacity: 0
+      }));
+      s.visible = false;
+      s.scale.setScalar(0.001);
+      scene.add(s);
+      this.flashes.push({ sprite: s, life: 0, max: 1, size: 1 });
+    }
+    this.flashLight = new THREE.PointLight(0xffa040, 0, 12, 2);
+    this.flashLight.visible = false;
+    scene.add(this.flashLight);
+
+    // 3D muzzle cone so the flash reads from behind the shoulder too
+    const coneGeo = new THREE.ConeGeometry(0.11, 0.6, 6, 1, true);
+    coneGeo.translate(0, 0.30, 0);
+    this.flashCone = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+      color: 0xffd0a0, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, opacity: 0
+    }));
+    this.flashCone.visible = false;
+    this.flashCone.frustumCulled = false;
+    scene.add(this.flashCone);
+    this.coneLife = 0;
+
+    // ---- damage numbers (DOM)
+    this.dmgLayer = document.getElementById('dmgLayer');
+    this.numbers = [];
+
+    // ---- world-space points for pickup beams etc
+    this.tmp = new THREE.Vector3();
+  }
+
+  /* ---------------- primitives ---------------- */
+  spark(pos, dir, color = 0xffb040, count = 6, speed = 6, size = 0.12, life = 0.4) {
+    for (let i = 0; i < count; i++) {
+      _v1.set(rnd(-1, 1), rnd(-0.3, 1.2), rnd(-1, 1)).normalize().multiplyScalar(rnd(speed * 0.35, speed));
+      if (dir) _v1.addScaledVector(dir, rnd(0.4, 1.4) * speed * 0.5);
+      this.sparks.add({
+        x: pos.x, y: pos.y, z: pos.z,
+        vx: _v1.x, vy: _v1.y, vz: _v1.z,
+        life, max: life, size: size * rnd(0.6, 1.4), sizeEnd: size * 0.15,
+        color, grav: 9, drag: 3.1, rot: rnd(0, TAU)
+      });
+    }
+  }
+
+  puff(pos, dir, color = 0xb08a62, size = 0.6, count = 1, life = 0.9, speed = 1.2) {
+    for (let i = 0; i < count; i++) {
+      const d = dir ? dir.clone().multiplyScalar(rnd(0.2, 1) * speed) : new THREE.Vector3(rnd(-1, 1), rnd(0, 1), rnd(-1, 1)).multiplyScalar(speed * 0.5);
+      this.smoke.add({
+        x: pos.x + rnd(-0.2, 0.2), y: pos.y + rnd(-0.1, 0.2), z: pos.z + rnd(-0.2, 0.2),
+        vx: d.x, vy: d.y + rnd(0.2, 0.9), vz: d.z,
+        life: life * rnd(0.8, 1.3), max: life, size: size * rnd(0.7, 1.3), sizeEnd: size * rnd(2.2, 3.4),
+        color, grav: -0.4, drag: 1.5, rot: rnd(0, TAU), spin: rnd(-1, 1), alpha: 0.55
+      });
+    }
+  }
+
+  tracer(from, to, color = 0xffc070, width = 0.035, life = 0.075) {
+    const dir = _v2.subVectors(to, from);
+    const len = dir.length();
+    if (len < 0.01) return;
+    // evenly sample the line so long shots stay bright
+    const segs = Math.min(6, Math.max(1, Math.round(len / 14)));
+    const stepV = dir.clone().divideScalar(segs);
+    for (let i = 0; i < segs; i++) {
+      const p0 = from.clone().addScaledVector(stepV, i);
+      const p1 = p0.clone().add(stepV);
+      this.tracers.add({
+        x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2, z: (p0.z + p1.z) / 2,
+        dir: stepV.clone().normalize(), len: stepV.length() * 1.02,
+        width, life: life * 1.6, max: life * 1.6, color
+      });
+    }
+  }
+
+  beam(from, to, color = 0x66e0ff, width = 0.09, life = 0.22) {
+    const dir = _v2.subVectors(to, from);
+    const len = dir.length();
+    if (len < 0.01) return;
+    this.tracers.add({
+      x: (from.x + to.x) / 2, y: (from.y + to.y) / 2, z: (from.z + to.z) / 2,
+      dir: dir.clone().normalize(), len, width,
+      life, max: life, color, beam: true
+    });
+  }
+
+  decal(pos, normal, size = 0.32, color = 0x2a1a10, life = 5) {
+    this.decals.add({
+      x: pos.x + normal.x * 0.03, y: pos.y + normal.y * 0.03, z: pos.z + normal.z * 0.03,
+      n: normal.clone(), size, life, max: life, color
+    });
+  }
+
+  ring(pos, color = 0xffa040, radius = 3, life = 0.4, thickness = 1) {
+    this.rings.add({ x: pos.x, y: pos.y, z: pos.z, r0: radius * 0.25, r1: radius, life, max: life, color, flat: true });
+  }
+
+  muzzleFlash(pos, dir, color = 0xffb060, size = 1) {
+    const f = this.flashes.reduce((a, b) => (a.life > b.life ? b : a));
+    f.sprite.position.copy(pos);
+    f.sprite.material.color.setHex(color);
+    f.sprite.material.rotation = rnd(0, TAU);
+    f.sprite.visible = true;
+    f.life = 0.09;
+    f.max = 0.09;
+    f.size = size * rnd(0.85, 1.3);
+    this.flashLight.position.copy(pos);
+    this.flashLight.color.setHex(color);
+    this.flashLight.intensity = 12 * size;
+    this.flashLight.visible = true;
+    this.flashLightLife = 0.06;
+    // 3D cone along the shot direction
+    if (this.flashCone && dir) {
+      this.flashCone.position.copy(pos);
+      _q.setFromUnitVectors(_up, dir.clone().normalize());
+      this.flashCone.quaternion.copy(_q);
+      this.flashCone.scale.setScalar(size * rnd(0.85, 1.15));
+      this.flashCone.material.color.setHex(color);
+      this.flashCone.material.opacity = 0.9;
+      this.flashCone.visible = true;
+      this.coneLife = 0.07;
+    }
+    // sparks from the barrel
+    this.spark(pos, dir, color, 3, 7, 0.09, 0.18);
+  }
+
+  explosion(pos, radius = 4, color = 0xff8a30) {
+    this.spark(pos, null, 0xffd080, 26, 12, 0.40, 1.0);
+    this.spark(pos, null, color, 18, 8, 0.55, 1.1);
+    this.puff(pos, null, 0x6b5236, radius * 0.5, 9, 1.5, 3.2);
+    this.ring(pos, color, radius * 1.4, 0.42);
+    const f = this.flashes.reduce((a, b) => (a.life > b.life ? b : a));
+    f.sprite.position.copy(pos);
+    f.sprite.material.color.setHex(0xffd0a0);
+    f.sprite.visible = true;
+    f.life = 0.12; f.max = 0.12; f.size = radius * 1.9;
+    this.flashLight.position.copy(pos);
+    this.flashLight.color.setHex(0xffa040);
+    this.flashLight.intensity = 40;
+    this.flashLight.visible = true;
+    this.flashLightLife = 0.14;
+  }
+
+  ecoBurst(pos, color = 0x37e0c8, count = 14, power = 1) {
+    this.spark(pos, null, color, count, 7 * power, 0.2, 0.8);
+    this.spark(pos, null, 0xd8fff4, Math.round(count * 0.4), 4 * power, 0.12, 0.6);
+  }
+
+  hitSpark(pos, dir, crit = false) {
+    this.spark(pos, dir, crit ? 0xffe080 : 0xffa850, crit ? 9 : 5, 7, crit ? 0.16 : 0.1, 0.32);
+    if (crit) this.ring(pos, 0xffd060, 1.1, 0.25);
+  }
+
+  /* ---------------- damage numbers ---------------- */
+  damageNumber(worldPos, amount, crit = false) {
+    const el = document.createElement('div');
+    el.className = 'dmgNum' + (crit ? ' crit' : '');
+    el.textContent = Math.round(amount);
+    this.dmgLayer.appendChild(el);
+    this.numbers.push({
+      el, pos: worldPos.clone().add(new THREE.Vector3(rnd(-0.3, 0.3), rnd(0.1, 0.5), rnd(-0.3, 0.3))),
+      life: 0.75, max: 0.75
+    });
+  }
+
+  /* ---------------- update ---------------- */
+  update(dt) {
+    const cam = this.camera;
+
+    // sparks
+    this.sparks.items = this.sparks.items.filter(p => {
+      p.life -= dt;
+      if (p.life <= 0) return false;
+      p.vy -= p.grav * dt;
+      const damp = Math.exp(-p.drag * dt);
+      p.vx *= damp; p.vz *= damp; p.vy *= damp;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      return true;
+    });
+    this.sparks.flush((p, i, d) => {
+      const t = 1 - p.life / p.max;
+      const s = lerp(p.size, p.sizeEnd, t) * (1 - t * 0.15);
+      d.position.set(p.x, p.y, p.z);
+      d.quaternion.copy(cam.quaternion);
+      d.scale.set(s, s, s);
+    });
+
+    // smoke
+    this.smoke.items = this.smoke.items.filter(p => {
+      p.life -= dt;
+      if (p.life <= 0) return false;
+      p.vy -= p.grav * dt;
+      const damp = Math.exp(-p.drag * dt);
+      p.vx *= damp; p.vz *= damp; p.vy *= damp;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.rot += (p.spin || 0) * dt;
+      return true;
+    });
+    this.smoke.flush((p, i, d) => {
+      const t = 1 - p.life / p.max;
+      const s = lerp(p.size, p.sizeEnd, Math.pow(t, 0.6));
+      d.position.set(p.x, p.y, p.z);
+      d.quaternion.copy(cam.quaternion);
+      d.rotateZ(p.rot);
+      d.scale.set(s, s, s);
+    });
+
+    // tracers
+    this.tracers.items = this.tracers.items.filter(t => {
+      t.life -= dt;
+      return t.life > 0;
+    });
+    this.tracers.flush((t, i, d) => {
+      const k = clamp(t.life / t.max, 0, 1);
+      const shrink = t.beam ? k : 1;
+      d.position.set(t.x, t.y, t.z);
+      _q.setFromUnitVectors(_up, t.dir);
+      d.quaternion.copy(_q);
+      d.scale.set(t.width * (t.beam ? 1.4 : 1) * (0.6 + k * 0.6), t.len * shrink, t.width * (0.6 + k * 0.6));
+    });
+
+    // decals
+    this.decals.items = this.decals.items.filter(dc => {
+      dc.life -= dt;
+      return dc.life > 0;
+    });
+    this.decals.flush((dc, i, d) => {
+      const k = clamp(dc.life / dc.max, 0, 1);
+      d.position.set(dc.x, dc.y, dc.z);
+      _q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dc.n);
+      d.quaternion.copy(_q);
+      const s = dc.size * (0.8 + 0.2 * k);
+      d.scale.set(s, s, s);
+    });
+
+    // rings
+    this.rings.items = this.rings.items.filter(r => {
+      r.life -= dt;
+      return r.life > 0;
+    });
+    this.rings.flush((r, i, d) => {
+      const t = 1 - r.life / r.max;
+      const rad = lerp(r.r0, r.r1, t);
+      d.position.set(r.x, r.y, r.z);
+      d.rotation.set(-Math.PI / 2, 0, 0);
+      d.scale.set(rad, rad, rad);
+    });
+
+    // muzzle flash sprites
+    for (const f of this.flashes) {
+      if (f.life > 0) {
+        f.life -= dt;
+        const k = Math.max(0, f.life / f.max);
+        f.sprite.material.opacity = k;
+        f.sprite.scale.setScalar(f.size * (1.5 - k * 0.6));
+        if (f.life <= 0) f.sprite.visible = false;
+      }
+    }
+    if (this.flashLightLife > 0) {
+      this.flashLightLife -= dt;
+      this.flashLight.intensity *= Math.exp(-22 * dt);
+      if (this.flashLightLife <= 0) { this.flashLight.visible = false; this.flashLight.intensity = 0; }
+    }
+    if (this.coneLife > 0) {
+      this.coneLife -= dt;
+      this.flashCone.material.opacity = Math.max(0, this.coneLife / 0.07) * 0.9;
+      if (this.coneLife <= 0) this.flashCone.visible = false;
+    }
+
+    // damage numbers
+    const w = window.innerWidth, h = window.innerHeight;
+    this.numbers = this.numbers.filter(n => {
+      n.life -= dt;
+      if (n.life <= 0) { n.el.remove(); return false; }
+      _v1.copy(n.pos).project(cam);
+      if (_v1.z > 1) { n.el.style.opacity = 0; return true; }
+      const x = (_v1.x * 0.5 + 0.5) * w;
+      const y = (-_v1.y * 0.5 + 0.5) * h;
+      n.el.style.left = x + 'px';
+      n.el.style.top = y + 'px';
+      return true;
+    });
+  }
+}

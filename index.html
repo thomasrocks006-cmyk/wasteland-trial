@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+<title>WASTELAND TRIAL</title>
+<meta name="theme-color" content="#0d0906" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Wasteland Trial" />
+<meta name="format-detection" content="telephone=no" />
+<link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
+<link rel="stylesheet" href="style.css" />
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<!-- ============ IN GAME HUD ============ -->
+<div id="hud" class="hidden">
+  <div id="vignette"></div>
+  <div id="bloodEdge"></div>
+
+  <!-- top left: wave / objective -->
+  <div class="panel" id="topLeft">
+    <div class="waveRow"><span class="lbl">WAVE</span><span id="waveNum" class="big">1</span></div>
+    <div id="objective">ELIMINATE ALL HOSTILES</div>
+    <div id="waveBarWrap"><div id="waveBar"></div></div>
+  </div>
+
+  <!-- top right: score -->
+  <div class="panel right" id="topRight">
+    <div class="scoreRow"><span class="lbl">SCORE</span><span id="score" class="big">0</span></div>
+    <div class="subRow"><span id="combo" class="combo">x1.0</span><span id="bestScore" class="dim">BEST 0</span></div>
+  </div>
+
+  <!-- health -->
+  <div id="healthWrap">
+    <div id="healthBar"><div id="healthFill"></div></div>
+    <div id="healthNum">100</div>
+    <div id="shieldFill"></div>
+  </div>
+
+  <!-- crosshair -->
+  <div id="crosshair">
+    <div class="ch ch-t"></div><div class="ch ch-b"></div><div class="ch ch-l"></div><div class="ch ch-r"></div>
+    <div id="chDot"></div>
+    <div id="hitmarker"><span></span><span></span><span></span><span></span></div>
+  </div>
+
+  <!-- weapon cluster -->
+  <div id="weaponCluster">
+    <div id="gunName">BLASTER</div>
+    <div id="ammoRow"><span id="ammoMag">24</span><span id="ammoSlash">/</span><span id="ammoRes">∞</span></div>
+    <div id="reloadRing" class="hidden"><svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="17" /></svg><span>RELOAD</span></div>
+  </div>
+
+  <!-- weapon wheel -->
+  <div id="wheel">
+    <button class="wslot" data-w="0"><i>1</i><b>BLASTER</b></button>
+    <button class="wslot" data-w="1"><i>2</i><b>SCATTER</b></button>
+    <button class="wslot" data-w="2"><i>3</i><b>BEAM</b></button>
+    <button class="wslot" data-w="3"><i>4</i><b>BOMBER</b></button>
+  </div>
+
+  <!-- touch controls -->
+  <div id="stickZone"><div id="stick"><div id="stickKnob"></div></div></div>
+  <div id="lookZone"></div>
+
+  <div id="buttons">
+    <button id="btnJump" class="tbtn small">JUMP</button>
+    <button id="btnReload" class="tbtn small">RELOAD</button>
+    <button id="btnAim" class="tbtn small">AIM</button>
+    <button id="btnDodge" class="tbtn dodge">DODGE</button>
+    <button id="btnFire" class="tbtn fire"><svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="15"/><circle cx="24" cy="24" r="7"/><path d="M24 4v8M24 36v8M4 24h8M36 24h8"/></svg></button>
+  </div>
+
+  <button id="btnPause" class="ghost">II</button>
+
+  <!-- damage direction -->
+  <div id="dmgArcs"></div>
+
+  <!-- floating damage numbers -->
+  <div id="dmgLayer"></div>
+
+  <!-- kill feed / callouts -->
+  <div id="callout"></div>
+</div>
+
+<!-- ============ TITLE ============ -->
+<div id="title" class="screen">
+  <div class="bgGrain"></div>
+  <div class="titleInner">
+    <div class="kicker">JAK-STYLE ARENA SHOOTER</div>
+    <h1>WASTELAND<span>TRIAL</span></h1>
+    <p class="blurb">Hold the ruins. Four gunstaff mods. The horde keeps coming.</p>
+    <button id="btnStart" class="cta">ENTER THE WASTELAND</button>
+    <div class="titleMeta">
+      <div><span class="k">BEST WAVE</span><b id="tBestWave">—</b></div>
+      <div><span class="k">BEST SCORE</span><b id="tBestScore">—</b></div>
+      <div><span class="k">TOTAL KILLS</span><b id="tKills">—</b></div>
+    </div>
+    <div class="hintRow">
+      <span>LEFT STICK MOVE</span><span>DRAG RIGHT TO AIM</span><span>FIRE BUTTON TO SHOOT</span>
+    </div>
+    <div class="installHint">ON IPHONE: SHARE → ADD TO HOME SCREEN → FULLSCREEN, OFFLINE</div>
+    <div class="settingsRow">
+      <label>SENS <input id="sens" type="range" min="0.4" max="2.2" step="0.05" value="1" /></label>
+      <label>QUALITY <select id="quality"><option value="high">HIGH</option><option value="balanced" selected>BALANCED</option><option value="fast">FAST</option></select></label>
+      <label>SOUND <select id="snd"><option value="on" selected>ON</option><option value="off">OFF</option></select></label>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PAUSE ============ -->
+<div id="pause" class="screen hidden">
+  <div class="pauseInner">
+    <h2>PAUSED</h2>
+    <button id="btnResume" class="cta">RESUME</button>
+    <button id="btnQuit" class="ghostWide">ABANDON RUN</button>
+    <div class="pauseStats">
+      <div><span>WAVE</span><b id="pWave">1</b></div>
+      <div><span>SCORE</span><b id="pScore">0</b></div>
+      <div><span>ACCURACY</span><b id="pAcc">0%</b></div>
+      <div><span>KILLS</span><b id="pKills">0</b></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ WAVE INTRO ============ -->
+<div id="waveIntro" class="hidden">
+  <div class="wInt">
+    <div class="wKick" id="wiKick">WAVE</div>
+    <div class="wNum" id="wiNum">1</div>
+    <div class="wObj" id="wiObj">ELIMINATE ALL HOSTILES</div>
+  </div>
+</div>
+
+<!-- ============ DEATH ============ -->
+<div id="death" class="screen hidden">
+  <div class="deathInner">
+    <div class="kicker red">YOU FELL</div>
+    <h2 id="dTitle">RUN OVER</h2>
+    <div class="dStats">
+      <div><span>WAVE REACHED</span><b id="dWave">1</b></div>
+      <div><span>SCORE</span><b id="dScore">0</b></div>
+      <div><span>KILLS</span><b id="dKills">0</b></div>
+      <div><span>ACCURACY</span><b id="dAcc">0%</b></div>
+      <div><span>BEST COMBO</span><b id="dCombo">x1.0</b></div>
+      <div><span>HEADSHOTS</span><b id="dHead">0</b></div>
+    </div>
+    <div id="newBest" class="newBest hidden">NEW RECORD</div>
+    <button id="btnRetry" class="cta">RUN IT AGAIN</button>
+    <button id="btnMenu" class="ghostWide">BACK TO TITLE</button>
+  </div>
+</div>
+
+<!-- ============ ROTATE HINT ============ -->
+<div id="rotate" class="hidden">
+  <div class="rotIcon"></div>
+  <div>TURN YOUR PHONE SIDEWAYS</div>
+</div>
+
+<div id="loader">
+  <div class="loadInner">
+    <div class="loadTitle">WASTELAND TRIAL</div>
+    <div class="loadBar"><div id="loadFill"></div></div>
+    <div id="loadTxt">BUILDING THE WASTELAND</div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
