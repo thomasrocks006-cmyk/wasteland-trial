@@ -12,10 +12,14 @@ const PAL = {
   sandLight: 0xc9a273,
   sandDark: 0x9a6f47,
   sandTop: 0xe6c79b,
+  sandPale: 0xe3cbab,
+  sandCool: 0xa29491,
+  copper: 0x9a5a33,
+  verdigris: 0x5f8f7c,
   rock: 0x7a4a2e,
   rockDark: 0x53311c,
-  ruin: 0xbda181,
-  ruinDark: 0x8b7154,
+  ruin: 0xc3ab93,
+  ruinDark: 0x7f6d62,
   ruinLight: 0xdcc6a6,
   metal: 0x4a4038,
   metalRust: 0x7d4426,
@@ -38,7 +42,7 @@ export class World {
   build() {
     const scene = this.scene;
     // linear haze reads as depth; exponential just greys everything out
-    scene.fog = new THREE.Fog(0xdcae84, 30, 620);
+    scene.fog = new THREE.Fog(0xbaaea3, 42, 600);
 
     this.buildSky();
     this.buildLights();
@@ -46,6 +50,7 @@ export class World {
     this.buildDistantRidges();
     this.buildRocks();
     this.buildRuins();
+    this.buildMidfield();
     this.buildLandmarks();
     this.buildVegetation();
     this.buildGroundDetail();
@@ -141,7 +146,7 @@ export class World {
   /* -------------------------------------------------- lights */
   buildLights() {
     const scene = this.scene;
-    const hemi = new THREE.HemisphereLight(0xffd3a3, 0x6b4526, 0.98);
+    const hemi = new THREE.HemisphereLight(0xffdcbb, 0x4e4468, 0.82);
     scene.add(hemi);
 
     const sun = new THREE.DirectionalLight(0xffe0b0, 2.95);
@@ -165,11 +170,11 @@ export class World {
     bounce.position.set(-0.5, 0.45, 0.7);
     scene.add(bounce);
 
-    this.ambient = new THREE.AmbientLight(0xffc9a0, 0.14);
+    this.ambient = new THREE.AmbientLight(0x3a4463, 0.22);
     scene.add(this.ambient);
 
     // camera-side fill so the hero and enemies never fall into silhouette
-    const fill = new THREE.DirectionalLight(0xffe2c0, 0.85);
+    const fill = new THREE.DirectionalLight(0xb9cdf0, 0.62);
     fill.castShadow = false;
     scene.add(fill);
     scene.add(fill.target);
@@ -180,7 +185,7 @@ export class World {
   buildTerrain() {
     const SEG = GRID_SEG;
     const EXT = GRID_EXT;
-    const TILES = 72;
+    const TILES = 30;
     const step = (EXT * 2) / SEG;
     const pos = new Float32Array(SEG * SEG * 18);
     const col = new Float32Array(SEG * SEG * 18);
@@ -195,16 +200,29 @@ export class World {
 
     const colorFor = (h, ny, x, z) => {
       const rockAmt = smoothstep(0.88, 0.58, ny);
-      const n1 = fbm(x * 0.038, z * 0.038, 3);
-      const n2 = fbm(x * 0.14 + 11, z * 0.14 - 7, 2);
-      _c1.setHex(PAL.sandDark).lerp(_c2.setHex(PAL.sandLight), clamp(n1 * 1.9 - 0.35, 0, 1));
-      _c1.lerp(_c3.setHex(PAL.sandTop), smoothstep(3, 22, h) * 0.5);
-      const rk = _c3.setHex(PAL.rock).lerp(_c2.setHex(PAL.rockDark), n1);
+      // three scales: regional patches, drifts, grain
+      const patch = fbm(x * 0.021, z * 0.021, 3);
+      const drift = fbm(x * 0.085 + 11, z * 0.085 - 7, 3);
+      const grain = fbm(x * 0.42 - 5, z * 0.42 + 3, 2);
+
+      _c1.setHex(PAL.sandDark).lerp(_c2.setHex(PAL.sandLight), clamp(drift * 1.7 - 0.25, 0, 1));
+      _c1.lerp(_c3.setHex(PAL.sandPale), smoothstep(2, 20, h) * 0.55);
+      // regional cool patches — the thing that stops the whole world being orange
+      _c1.lerp(_c2.setHex(PAL.sandCool), clamp((patch - 0.52) * 2.2, 0, 1) * 0.42);
+
+      // rock, broken up with copper seams and verdigris staining
+      const rk = _c3.setHex(PAL.rock).lerp(_c2.setHex(PAL.rockDark), drift);
       _c1.lerp(rk, rockAmt * 0.92);
-      // dry scrub tint on flats
-      const scrub = clamp((n2 - 0.58) * 2.4, 0, 1) * (1 - rockAmt) * smoothstep(0.6, 4, h);
-      _c1.lerp(_c2.setHex(0x7d7a4a), scrub * 0.35);
-      _c1.offsetHSL(0, 0, (n2 - 0.5) * 0.055);
+      _c1.lerp(_c2.setHex(PAL.copper), clamp((patch - 0.66) * 3.0, 0, 1) * rockAmt * 0.55);
+      _c1.lerp(_c2.setHex(PAL.verdigris), clamp((0.44 - patch) * 2.6, 0, 1) * rockAmt * 0.36);
+
+      // dry scrub on flats
+      const scrub = clamp((grain - 0.6) * 2.6, 0, 1) * (1 - rockAmt) * smoothstep(0.6, 4, h);
+      _c1.lerp(_c2.setHex(0x7d7a4a), scrub * 0.3);
+
+      // hollows sit darker and cooler; crests stay pale
+      const dip = 1 - clamp((h - 1) / 9, 0, 1);
+      _c1.offsetHSL(0.003 * (patch - 0.5), 0.015 * (drift - 0.5), (grain - 0.5) * 0.05 - dip * 0.035);
       return cc.copy(_c1);
     };
 
@@ -456,6 +474,150 @@ export class World {
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
     mesh.castShadow = true; mesh.receiveShadow = true;
     this.scene.add(mesh);
+  }
+
+  /* -------------------------------------------------- mid-field
+     The band between the player and the hills used to be bare ground, which read
+     as a diorama. These props give the eye something to travel across, and the
+     big ones double as cover. Everything merges into one mesh. */
+  buildMidfield() {
+    const b = new Builder();   // big props: cast shadows
+    const small = new Builder(); // debris: shadow pass stays cheap
+    const sand = [PAL.sandLight, PAL.sandPale, PAL.sandCool];
+    const stone = [PAL.ruin, PAL.ruinDark, PAL.ruinLight];
+    const bone = 0xd9ccb3;
+
+    const spot = (minR, maxR, pad) => {
+      for (let k = 0; k < 40; k++) {
+        const a = rnd(0, TAU), d = minR + rnd(0, maxR - minR);
+        const x = Math.cos(a) * d, z = Math.sin(a) * d;
+        if (this.isClear(x, z, pad)) return [x, z];
+      }
+      return null;
+    };
+
+    // ---- dune ridges are part of the height field now (see core.js), so the
+    //      floor undulates without any prop the player can stand inside.
+
+    // ---- broken wall stubs: cover with a silhouette
+    for (let i = 0; i < 9; i++) {
+      const s = spot(12, 46, 3.6);
+      if (!s) continue;
+      const rotY = rnd(0, TAU), n = 2 + Math.floor(rnd(0, 3.99));
+      for (let k = 0; k < n; k++) {
+        const t = (k - (n - 1) / 2) * 2.5;
+        const wx = s[0] + Math.cos(rotY) * t, wz = s[1] + Math.sin(rotY) * t;
+        const hh = rnd(0.7, 2.1);
+        b.add(new THREE.BoxGeometry(2.4, hh, 0.8), pick(stone), {
+          pos: [wx, terrainHeight(wx, wz) + hh / 2 - 0.32, wz],
+          rot: [0, rotY, 0], jitter: 0.05
+        });
+        this.obstacles.push({ x: wx, z: wz, r: 1.2 });
+      }
+    }
+
+    // ---- dead trunks
+    for (let i = 0; i < 10; i++) {
+      const s = spot(12, 44, 2.6);
+      if (!s) continue;
+      const y0 = terrainHeight(s[0], s[1]);
+      const hh = rnd(2.4, 5.2), r0 = rnd(0.16, 0.3);
+      b.add(new THREE.CylinderGeometry(r0 * 0.55, r0, hh, 5), 0x574130, {
+        pos: [s[0], y0 + hh / 2 - 0.12, s[1]],
+        rot: [rnd(-0.07, 0.07), rnd(0, TAU), rnd(-0.09, 0.09)], jitter: 0.05
+      });
+      for (let k = 0; k < 2; k++) {
+        const a = rnd(0, TAU), bl = rnd(0.8, 1.7), tilt = rnd(0.7, 1.2);
+        b.add(new THREE.CylinderGeometry(r0 * 0.28, r0 * 0.5, bl, 4), 0x4d3a2b, {
+          pos: [s[0] + Math.cos(a) * bl * 0.35, y0 + hh * rnd(0.6, 0.9) + bl * 0.2, s[1] + Math.sin(a) * bl * 0.35],
+          rot: [tilt * Math.sin(a), rnd(0, TAU), -tilt * Math.cos(a)], jitter: 0.05
+        });
+      }
+      this.obstacles.push({ x: s[0], z: s[1], r: 0.55 });
+    }
+
+    // ---- fallen columns
+    for (let i = 0; i < 7; i++) {
+      const s = spot(12, 42, 3.2);
+      if (!s) continue;
+      const rotY = rnd(0, TAU), segsN = 3 + Math.floor(rnd(0, 2.99));
+      for (let k = 0; k < segsN; k++) {
+        const t = (k - (segsN - 1) / 2) * 1.9;
+        const wx = s[0] + Math.cos(rotY) * t, wz = s[1] + Math.sin(rotY) * t;
+        b.add(new THREE.CylinderGeometry(0.62, 0.66, 1.85, 7), pick(stone), {
+          pos: [wx, terrainHeight(wx, wz) + 0.46, wz],
+          rot: [Math.PI / 2, rotY, 0], jitter: 0.05
+        });
+        this.obstacles.push({ x: wx, z: wz, r: 0.8 });
+      }
+    }
+
+    // ---- rock clusters
+    for (let i = 0; i < 14; i++) {
+      const s = spot(11, 50, 2.2);
+      if (!s) continue;
+      const n = 3 + Math.floor(rnd(0, 3.99));
+      for (let k = 0; k < n; k++) {
+        const a = rnd(0, TAU), d = rnd(0, 1.9), sz = rnd(0.3, 0.95);
+        const wx = s[0] + Math.cos(a) * d, wz = s[1] + Math.sin(a) * d;
+        b.add(new THREE.DodecahedronGeometry(sz, 0), pick([PAL.rock, PAL.rockDark, 0x8a5a3a]), {
+          pos: [wx, terrainHeight(wx, wz) + sz * 0.32, wz],
+          rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.06
+        });
+      }
+      this.obstacles.push({ x: s[0], z: s[1], r: 1.0 });
+    }
+
+    // ---- near-field debris: small stones are how the eye judges distance
+    for (let i = 0; i < 520; i++) {
+      const a = rnd(0, TAU), d = 3.5 + rnd(0, 31);
+      const x = Math.cos(a) * d, z = Math.sin(a) * d;
+      if (!this.isClear(x, z, 0.35)) continue;
+      const sz = rnd(0.1, 0.33);
+      small.add(new THREE.DodecahedronGeometry(sz, 0), pick([PAL.rock, PAL.rockDark, PAL.sandCool]), {
+        pos: [x, terrainHeight(x, z) + sz * 0.28, z],
+        rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.06
+      });
+    }
+
+    // ---- bones: an old ribcage, half sunk
+    for (let i = 0; i < 5; i++) {
+      const s = spot(14, 48, 2.8);
+      if (!s) continue;
+      const y0 = terrainHeight(s[0], s[1]);
+      const rotY = rnd(0, TAU), rr = rnd(0.7, 1.4);
+      for (let k = 0; k < 4; k++) {
+        const t = k * 0.55;
+        small.add(new THREE.TorusGeometry(rr, 0.07, 3, 7, Math.PI), bone, {
+          pos: [s[0] + Math.cos(rotY) * t, y0 - 0.05, s[1] + Math.sin(rotY) * t],
+          rot: [0, rotY + Math.PI / 2, 0], jitter: 0.05
+        });
+      }
+    }
+
+    // ---- broken slabs, half buried
+    for (let i = 0; i < 8; i++) {
+      const s = spot(12, 44, 2.6);
+      if (!s) continue;
+      small.add(new THREE.BoxGeometry(rnd(1.4, 3.4), rnd(0.18, 0.34), rnd(1.0, 2.4)), pick(stone), {
+        pos: [s[0], terrainHeight(s[0], s[1]) + 0.06, s[1]],
+        rot: [rnd(-0.12, 0.12), rnd(0, TAU), rnd(-0.12, 0.12)], jitter: 0.05
+      });
+    }
+
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const mesh = new THREE.Mesh(b.build(), mat);
+    mesh.receiveShadow = true;
+    // without a cast shadow these props read as stickers on the sand
+    mesh.castShadow = true;
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+
+    const deb = new THREE.Mesh(small.build(), mat);
+    deb.receiveShadow = true;
+    deb.castShadow = false;
+    deb.frustumCulled = false;
+    this.scene.add(deb);
   }
 
   /* -------------------------------------------------- horizon landmarks

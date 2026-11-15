@@ -58,6 +58,40 @@ export const GRID_SEG = 140;
 export const GRID_EXT = 118;
 const GRID_STEP = (GRID_EXT * 2) / GRID_SEG;
 
+/** Wind-blown dunes. These are part of the height field, not props, so the mesh
+ *  and the collision agree and you never stand inside one. */
+const DUNES = (() => {
+  const r = mulberry32(90210);
+  const out = [];
+  for (let i = 0; i < 34; i++) {
+    const a = r() * TAU, d = 17 + r() * 45;
+    const rad = 4.5 + r() * 8.5;
+    if (d - rad < 13) continue;        // keep the monument plinth clear
+    out.push({
+      x: Math.cos(a) * d, z: Math.sin(a) * d,
+      rad,
+      h: 0.55 + r() * 1.65,
+      ax: 0.72 + r() * 0.55,   // squashed on one axis: a ridge, not a bubble
+      rot: r() * TAU
+    });
+  }
+  return out;
+})();
+
+function duneHeight(x, z) {
+  let h = 0;
+  for (let i = 0; i < DUNES.length; i++) {
+    const d = DUNES[i];
+    const dx = x - d.x, dz = z - d.z;
+    const c = Math.cos(d.rot), s = Math.sin(d.rot);
+    const lx = (dx * c - dz * s) * d.ax;
+    const lz = dx * s + dz * c;
+    const q = Math.sqrt(lx * lx + lz * lz) / d.rad;
+    if (q < 1) { const t = 1 - q * q; h += d.h * t * t; }
+  }
+  return h;
+}
+
 /** The raw noise field — only ever evaluated at grid corners. */
 export function terrainRaw(x, z) {
   const r = Math.hypot(x, z);
@@ -68,6 +102,7 @@ export function terrainRaw(x, z) {
   h *= 0.16 + 0.84 * flat;
   const rim = smoothstep(66, RIM_R, r);
   h += rim * (26 + (fbm(x * 0.028, z * 0.028, 3) - 0.5) * 22);
+  h += duneHeight(x, z);
   return h;
 }
 
@@ -243,14 +278,16 @@ export function flashTexture() {
 }
 
 export function groundTexture() {
-  const S = 256;
+  // Detail only. Anything large-scale and repeating reads as a checkerboard once
+  // the tile is mirrored dozens of times, so the macro variation lives in the
+  // terrain's vertex colours instead — that can never tile.
+  const S = 512;
   const cv = document.createElement('canvas');
   cv.width = cv.height = S;
   const ctx = cv.getContext('2d');
   const img = ctx.createImageData(S, S);
   const r = mulberry32(4242);
 
-  // periodic value-noise grids so the tile repeats without seams
   const grid = (per) => {
     const g = new Float32Array(per * per);
     for (let i = 0; i < g.length; i++) g[i] = r();
@@ -261,36 +298,71 @@ export function groundTexture() {
     const fx = x - xi, fy = y - yi;
     const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
     const at = (a, b) => g[((b % per) + per) % per * per + ((a % per) + per) % per];
-    const a = at(xi, yi), b = at(xi + 1, yi), c = at(xi, yi + 1), d = at(xi + 1, yi + 1);
-    return lerp(lerp(a, b, u), lerp(c, d, u), v);
+    return lerp(lerp(at(xi, yi), at(xi + 1, yi), u), lerp(at(xi, yi + 1), at(xi + 1, yi + 1), u), v);
   };
-  const g1 = grid(6), g2 = grid(13), g3 = grid(29), g4 = grid(61);
+  const g1 = grid(16), g2 = grid(64);
 
+  // base: fine grain over a near-neutral bed, very low amplitude
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const u = x / S, v = y / S;
-      let n = sample(g1, 6, u * 6, v * 6) * 0.5
-        + sample(g2, 13, u * 13, v * 13) * 0.28
-        + sample(g3, 29, u * 29, v * 29) * 0.15
-        + sample(g4, 61, u * 61, v * 61) * 0.07;
-      // grain + pebbles
-      const g = (r() - 0.5) * 0.07;
-      let v01 = 0.76 + (n - 0.5) * 0.46 + g;
-      if (r() > 0.958) v01 -= 0.20;      // pebble shadow
-      if (r() > 0.976) v01 += 0.17;      // quartz glint
-      const c = clamp(Math.round(v01 * 255), 0, 255);
+      const n = sample(g1, 16, u * 16, v * 16) * 0.6
+        + sample(g2, 64, u * 64, v * 64) * 0.4;
+      const grain = (r() - 0.5) * 0.055;
+      const l = 0.95 + (n - 0.5) * 0.045 + grain;
+      const c = clamp(Math.round(l * 255), 0, 255);
       const i = (y * S + x) * 4;
       img.data[i] = c;
-      img.data[i + 1] = c * 0.985;
-      img.data[i + 2] = c * 0.95;
+      img.data[i + 1] = c * 0.992;
+      img.data[i + 2] = c * 0.972;
       img.data[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
+
+  // pebbles: the size cue. Sparse, varied, never aligned to a grid.
+  const pebble = (x, y, rad, dark) => {
+    ctx.beginPath();
+    ctx.ellipse(x, y, rad, rad * (0.62 + r() * 0.5), r() * Math.PI, 0, Math.PI * 2);
+    ctx.fillStyle = dark
+      ? `rgba(70,56,44,${0.35 + r() * 0.4})`
+      : `rgba(255,248,232,${0.3 + r() * 0.45})`;
+    ctx.fill();
+    if (dark) {  // a lit edge sells the relief
+      ctx.beginPath();
+      ctx.ellipse(x + rad * 0.25, y - rad * 0.25, rad * 0.62, rad * 0.42, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,244,220,${0.16 + r() * 0.2})`;
+      ctx.fill();
+    }
+  };
+  for (let i = 0; i < 3200; i++) pebble(r() * S, r() * S, 2.0 + r() * 2.6, r() > 0.34);
+  for (let i = 0; i < 240; i++) pebble(r() * S, r() * S, 5.5 + r() * 6.5, r() > 0.45);
+
+  // cracks and wind ripples, short and broken
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 45; i++) {
+    const x = r() * S, y = r() * S, len = 40 + r() * 130, a = r() * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    ctx.strokeStyle = `rgba(58,44,34,${0.09 + r() * 0.1})`;
+    ctx.stroke();
+  }
+  for (let i = 0; i < 40; i++) {
+    const y = r() * S, x = r() * S, len = 90 + r() * 190;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.bezierCurveTo(x + len * 0.35, y - 6, x + len * 0.7, y + 6, x + len, y);
+    ctx.strokeStyle = `rgba(255,246,228,${0.08 + r() * 0.1})`;
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   return tex;
 }
 

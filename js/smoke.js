@@ -154,8 +154,18 @@ export async function runSmoke() {
     d.weapons.shotsFired = 0; d.weapons.shotsHit = 0;
     d.enemies.clear();
     const p = d.player, T = d.camera.position.constructor;
-    const f = camDir();
-    const e = d.enemies.spawn('grunt', p.pos.x + f[0] * 9, p.pos.z + f[1] * 9);
+    // the world has cover now, so find a lane that is actually clear before firing
+    let spot = null;
+    for (let k = 0; k < 24 && !spot; k++) {
+      const a = (k / 24) * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
+      let clear = true;
+      for (let s = 2; s <= 9; s += 1) {
+        if (!d.world.isClear(p.pos.x + dx * s, p.pos.z + dz * s, 0.45)) { clear = false; break; }
+      }
+      if (clear) spot = [p.pos.x + dx * 9, p.pos.z + dz * 9];
+    }
+    assert(spot, 'no clear firing lane in any direction');
+    const e = d.enemies.spawn('grunt', spot[0], spot[1]);
     e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0;
     await wait(150, 2);
     let shots = 0;
