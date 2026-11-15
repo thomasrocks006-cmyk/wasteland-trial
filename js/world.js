@@ -1355,6 +1355,7 @@ export class World {
     const bark = new MeshBuilder(), leaves = new MeshBuilder(), needles = new MeshBuilder(), ferns = new MeshBuilder();
     const stones = new Builder(), shrooms = new Builder({ smooth: true });
     const PLANE = new THREE.PlaneGeometry(1, 1);
+    this.forestCount = { broadleaf: 0, fir: 0 };
     const LEAF_TINTS = [0xffffff, 0xe6f5d6, 0xd2e8bc, 0xf2f0c8, 0xdfeeb4];
 
     const cyl = (a, b, r0, r1, col, seg = 8) => {
@@ -1385,10 +1386,11 @@ export class World {
         const az = rng() < 0.6 ? toward + rnd(-0.8, 0.8) : rnd(0, TAU), el = rnd(0.45, 0.95), len = rnd(3, 5.6) * s;
         const end = start.clone().add(new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)).multiplyScalar(len));
         cyl(start, end, 0.17 * s, 0.05 * s, col, 6);
-        cards(leaves, end, crown, 11, 2.7 * s, 1.5 * s);
+        cards(leaves, end, crown, 9, 2.8 * s, 1.5 * s);
       }
-      cards(leaves, top.clone().addScaledVector(UP, 0.6), crown, 16, 3.0 * s, 2.0 * s);
+      cards(leaves, top.clone().addScaledVector(UP, 0.6), crown, 13, 3.1 * s, 2.0 * s);
       this.obstacles.push({ x, z, r: 0.6 * s, h: H });
+      this.forestCount.broadleaf++;
     };
 
     const fir = (x, y, z, s) => {
@@ -1410,6 +1412,7 @@ export class World {
         }
       }
       this.obstacles.push({ x, z, r: 0.45 * s, h: H });
+      this.forestCount.fir++;
     };
 
     const fern = (x, y, z, s) => {
@@ -1431,13 +1434,22 @@ export class World {
       let tx = c.x - a.x, tz = c.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
       for (const side of [-1, 1]) {
         const nx = -tz * side, nz = tx * side;          // out from the path on this side
-        if (rng() < 0.42) {
-          const d = rnd(4.2, 8), x = TRAIL[i].x + nx * d + rnd(-0.6, 0.6), z = TRAIL[i].z + nz * d + rnd(-0.6, 0.6);
-          if (ok(x, z, 1.3) && trailDist(x, z) > 3.4) broadleaf(x, terrainHeight(x, z), z, rnd(0.9, 1.25), -nx, -nz);
+        // rows of trees, dense at the path edge and deep behind: a wall of trunks either side
+        if (rng() < 0.85) {                                                         // front row
+          const d = rnd(3.3, 6), x = TRAIL[i].x + nx * d + rnd(-0.5, 0.5), z = TRAIL[i].z + nz * d + rnd(-0.5, 0.5);
+          if (ok(x, z, 1.1) && trailDist(x, z) > 3.0) broadleaf(x, terrainHeight(x, z), z, rnd(0.9, 1.25), -nx, -nz);
         }
-        if (rng() < 0.3) {
-          const d = rnd(8, 16), x = TRAIL[i].x + nx * d, z = TRAIL[i].z + nz * d;
-          if (ok(x, z, 1.2)) fir(x, terrainHeight(x, z), z, rnd(0.85, 1.2));
+        if (rng() < 0.7) {                                                          // second row
+          const d = rnd(6, 10), x = TRAIL[i].x + nx * d + rnd(-0.8, 0.8), z = TRAIL[i].z + nz * d + rnd(-0.8, 0.8);
+          if (ok(x, z, 1.1)) { if (rng() < 0.5) broadleaf(x, terrainHeight(x, z), z, rnd(0.85, 1.2), -nx, -nz); else fir(x, terrainHeight(x, z), z, rnd(0.85, 1.2)); }
+        }
+        if (rng() < 0.6) {                                                          // firs behind
+          const d = rnd(10, 16), x = TRAIL[i].x + nx * d + rnd(-1, 1), z = TRAIL[i].z + nz * d + rnd(-1, 1);
+          if (ok(x, z, 1.1)) fir(x, terrainHeight(x, z), z, rnd(0.9, 1.3));
+        }
+        if (rng() < 0.4) {                                                          // backdrop
+          const d = rnd(16, 24), x = TRAIL[i].x + nx * d + rnd(-1.5, 1.5), z = TRAIL[i].z + nz * d + rnd(-1.5, 1.5);
+          if (ok(x, z, 1.2)) fir(x, terrainHeight(x, z), z, rnd(1.0, 1.4));
         }
         for (let k = 0; k < 2; k++) {
           const d = rnd(1.8, 7), x = TRAIL[i].x + nx * d + rnd(-0.5, 0.5), z = TRAIL[i].z + nz * d + rnd(-0.5, 0.5);

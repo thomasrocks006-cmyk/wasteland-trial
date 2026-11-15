@@ -1042,7 +1042,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b23';
+const BUILD = 'b24';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
