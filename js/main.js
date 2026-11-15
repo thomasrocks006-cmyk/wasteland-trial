@@ -32,6 +32,20 @@ function pixelRatioFor(q) {
 renderer.setPixelRatio(pixelRatioFor(QUALITY));
 
 const scene = new THREE.Scene();
+// a soft sky for physically based materials (the hero) to reflect: blue above, warm
+// horizon, green ground below. Lambert-lit world materials ignore it.
+{
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 128;
+  const ctx = cv.getContext('2d'), g = ctx.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, '#5f86bf'); g.addColorStop(0.42, '#a8c2d8'); g.addColorStop(0.5, '#ece0c8');
+  g.addColorStop(0.54, '#6f7e4c'); g.addColorStop(1, '#3a4630');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 128);
+  const sky = new THREE.CanvasTexture(cv);
+  sky.mapping = THREE.EquirectangularReflectionMapping; sky.colorSpace = THREE.SRGBColorSpace;
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromEquirectangular(sky).texture;
+  sky.dispose(); pm.dispose();
+}
 const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 2200);
 camera.position.set(0, 4, 8);
 
@@ -1042,7 +1056,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b26';
+const BUILD = 'b27';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';

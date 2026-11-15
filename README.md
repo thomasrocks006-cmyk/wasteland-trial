@@ -1,8 +1,8 @@
 # Wasteland Trial
 
 A third-person arena shooter, built as an installable iPhone PWA. Our own
-hero (the runner: navy jacket, red headwrap, cyan visor), our own boss.
-Everything is procedural — no image, model or audio files beyond the three.js
+hero (the runner: navy coat, swept brown hair, red headband), our own boss.
+Everything you see is procedural — no image or model files beyond the three.js
 library and one font, so it loads fast and works offline once installed.
 
 ## Play
@@ -119,6 +119,20 @@ blade-wings; the Ironcoil with a domed, spiked head and segments. Eyes glow in
 each helm's slit (they used to sit inside the old box heads). Ivy climbs the
 shrine's pillars, the towers and the arch. The hero gains a belt pouch, a
 buckled baldric and leather bracers.
+
+## b27: the hero, sculpted
+
+The head is one sculpted surface instead of glued-on parts: brow ridge, eye
+sockets, nose, lips, cheekbones and a square jaw are shaped into a single mesh,
+and its skin is painted texel by texel from the same shape (warm cheeks and
+nose, shadowed sockets, brows, stubble that stops at the lips). The eyes are
+hazel and sit in the sockets under almond lids with dark lash lines and a small
+catchlight. Swept brown hair with loose locks replaces the beanie-like wrap; the
+red band is tied round the hair, and its tails still stream back. The head is
+10% larger than life so it reads at play distance. The cloak drapes round the
+shoulders with pleats and a ragged hem instead of hanging as a flat board, and
+the scarf, fur collar and hips are slimmer. Materials are physically based, lit
+by a sky environment. Building the hero takes about 0.3 s once at load.
 
 ## Music and sound
 
