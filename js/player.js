@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, deg,
-  terrainHeight, Builder, ARENA_R, addRim, fabricTexture
+  terrainHeight, Builder, ARENA_R, addRim, fabricTexture, waterLevel
 } from './core.js';
 
 /* The runner: an original wasteland scout. Rounded, smooth-shaded volumes in an
@@ -51,8 +51,19 @@ export function buildHero() {
   t.add(CAP(0.035, 0.22), C.creamDark, { pos: [0.05, 0.47, -0.16], rot: [0.25, 0, 0.1] });          // scarf end
   t.add(S(0.11), C.brass, { pos: [-0.235, 0.555, 0], scale: [1.15, 0.55, 1.05] });                  // shoulder plate
   t.add(CAP(0.03, 0.4), C.boot, { pos: [-0.08, 0.35, -0.16], rot: [0, 0, -0.45] });                 // back strap
+  t.add(new THREE.TorusGeometry(0.15, 0.068, 10, 22), 0x6b5440, { pos: [0, 0.585, -0.035], rot: [Math.PI / 2, 0, 0], scale: [1.18, 1, 0.92] }); // fur collar
   const torsoMesh = mesh(t);
   torso.add(torsoMesh);
+
+  // the cloak: a cloth panel hung from the shoulders, shaped every frame (see update)
+  const cg = new THREE.PlaneGeometry(0.62, 1.05, 4, 10);
+  cg.translate(0, -0.525, 0);
+  // no rim light here: a thin cloth seen edge-on is all 'edge' and washed out pale
+  const cloak = new THREE.Mesh(cg, new THREE.MeshLambertMaterial({ color: 0x35503d, map: cloth, side: THREE.DoubleSide }));
+  cloak.position.set(0, 0.6, -0.2);
+  cloak.castShadow = true;
+  cloak.userData.base = Float32Array.from(cg.attributes.position.array);
+  torso.add(cloak);
   const nk = B();
   nk.add(CYL(0.058, 0.065, 0.1), C.skinDark, { pos: [0, 0.68, 0] });                                 // neck
   torso.add(mesh(nk, skinMat));
@@ -95,6 +106,7 @@ export function buildHero() {
   // ---- arms: shoulder -> elbow -> wrist. Total reach 0.58 to the hand mount.
   const arm = (side) => {
     const sh = G(side * 0.245, 0.53, 0);
+    sh.rotation.order = 'YXZ';      // pitch the arm first, then sweep it round: what a slash needs
     const u = B();
     u.add(S(0.078), C.jacket, { pos: [0, -0.01, 0] });
     u.add(CAP(0.064, 0.18), C.jacket, { pos: [0, -0.15, 0] });
@@ -140,7 +152,7 @@ export function buildHero() {
   body.add(LR.hip, LL.hip);
 
   return {
-    root, body, torso, head, tails, torsoMesh,
+    root, body, torso, head, tails, torsoMesh, cloak,
     armR: R.sh, armL: L.sh, elbowR: R.elbow, elbowL: L.elbow, hand: R.hand, handL: L.hand,
     legR: LR.hip, legL: LL.hip, kneeR: LR.knee, kneeL: LL.knee, footR: LR.foot, footL: LL.foot,
   };
@@ -196,6 +208,10 @@ export class Player {
     this.dodgeCdBase = 0.8;
     this.dodgeIframe = 0.42;
     this.regen = 0;            // health per second from perks
+    this.weaponKind = 'melee';  // melee | thrown | spell, set by the weapon system
+    this.swingAnim = null;
+    this._swingTwist = 0;
+    this.inWater = 0;          // wading depth in metres
 
     const auraMat = new THREE.MeshBasicMaterial({
       color: 0x66f0ff, transparent: true, opacity: 0.26,
@@ -269,6 +285,9 @@ export class Player {
   }
 
   heal(n) { this.hp = Math.min(this.maxHp, this.hp + n); }
+
+  /** R / L horizontal slashes, O overhead chop, T spear throw, C rune cast */
+  startSwing(style, dur) { this.swingAnim = { style, dur, t: 0 }; }
 
   addEco(n) { this.eco = Math.min(this.maxEco, this.eco + n); }
 
@@ -355,7 +374,8 @@ export class Player {
     // ---- movement in camera space
     const mx = input.mx, my = input.my;
     const mag = Math.min(1, Math.hypot(mx, my));
-    const spd = this.speed * (input.sprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1);
+    const spd = this.speed * (input.sprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1)
+      * (1 - Math.min(0.4, this.inWater * 0.45));      // wading through the river is slower
     let wishX = 0, wishZ = 0;
     if (mag > 0.06) {
       const cy = this.camYaw;
@@ -437,6 +457,9 @@ export class Player {
       if (this.grounded) this.pos.y = gh;
     }
 
+    const wl = waterLevel(this.pos.x, this.pos.z);
+    this.inWater = wl > this.pos.y ? Math.min(1.2, wl - this.pos.y) : 0;
+
     // ---- facing
     this.faceLock = Math.max(0, this.faceLock - dt);
     let targetYaw = this.yaw;
@@ -507,26 +530,80 @@ export class Player {
     this.readyBlend = damp(this.readyBlend || 0, ready, 12, dt);
     const r = this.readyBlend;
     const aimX = -(Math.PI / 2 + clamp(this.camPitch + this.recoilPitch, -0.7, 0.7));
-    m.armR.rotation.x = damp(m.armR.rotation.x, lerp(-1.12 - legSwing * 0.12, aimX, r), 16, dt);
-    m.armR.rotation.z = damp(m.armR.rotation.z, lerp(0.30, 0.20, r), 12, dt);
-    m.armR.rotation.y = 0;
-    m.armL.rotation.x = damp(m.armL.rotation.x, lerp(-1.02 - legSwing * 0.10, aimX + 0.22, r), 16, dt);
-    m.armL.rotation.z = damp(m.armL.rotation.z, lerp(-0.62, -0.72, r), 12, dt);
+    // stance by weapon: the spear two-handed and levelled, a blade up in guard with
+    // the off hand free for balance, the rune staff one-handed toward the aim
+    const kind = this.weaponKind || 'thrown';
+    let tRx, tRz, tLx, tLz, tER, tEL, handX = null;
+    if (kind === 'thrown') {
+      tRx = lerp(-1.12 - legSwing * 0.12, aimX, r); tRz = lerp(0.30, 0.20, r);
+      tLx = lerp(-1.02 - legSwing * 0.10, aimX + 0.22, r); tLz = lerp(-0.62, -0.72, r);
+      tER = lerp(-0.45, -0.28, r); tEL = lerp(-0.55, -0.85, r);
+    } else if (kind === 'melee') {
+      tRx = lerp(-0.7 - legSwing * 0.2, -1.1, r); tRz = lerp(0.14, 0.26, r);
+      tLx = lerp(-0.2 + legSwing * 0.5, -0.7, r); tLz = 0.16;
+      tER = lerp(-0.75, -1.05, r); tEL = lerp(-0.4, -0.6, r);
+      handX = 0.3;
+    } else {
+      tRx = lerp(-0.9 - legSwing * 0.15, aimX + 0.1, r); tRz = 0.2;
+      tLx = lerp(-0.2 + legSwing * 0.5, -0.6, r); tLz = 0.16;
+      tER = lerp(-0.5, -0.2, r); tEL = -0.45;
+    }
+    m.armR.rotation.x = damp(m.armR.rotation.x, tRx, 16, dt);
+    m.armR.rotation.z = damp(m.armR.rotation.z, tRz, 12, dt);
+    m.armR.rotation.y = damp(m.armR.rotation.y, 0, 14, dt);
+    m.armL.rotation.x = damp(m.armL.rotation.x, tLx, 16, dt);
+    m.armL.rotation.z = damp(m.armL.rotation.z, tLz, 12, dt);
     // elbows: relaxed bend at low ready, tighter support hand when shouldered.
     // The gun hand counter-rotates, so the barrel stays on the upper arm's aim line.
-    m.elbowR.rotation.x = damp(m.elbowR.rotation.x, lerp(-0.45, -0.28, r), 16, dt);
-    m.elbowL.rotation.x = damp(m.elbowL.rotation.x, lerp(-0.55, -0.85, r), 16, dt);
-    m.hand.rotation.x = -m.elbowR.rotation.x;
+    m.elbowR.rotation.x = damp(m.elbowR.rotation.x, tER, 16, dt);
+    m.elbowL.rotation.x = damp(m.elbowL.rotation.x, tEL, 16, dt);
+    m.hand.rotation.x = handX !== null ? handX : -m.elbowR.rotation.x;
+
+    // a swing, throw or cast plays over the stance: wind-up, fast strike, recovery
+    this._swingTwist = 0;
+    const sa = this.swingAnim;
+    if (sa && sa.t < sa.dur) {
+      sa.t += dt;
+      const k = clamp(sa.t / sa.dur, 0, 1);
+      const w = smoothstep(0, 0.12, k) * (1 - smoothstep(0.7, 1, k));
+      const e = smoothstep(0.08, 0.5, k);
+      let ax = m.armR.rotation.x, ay = 0, er = m.elbowR.rotation.x, tw = 0, hx = m.hand.rotation.x;
+      if (sa.style === 'R') { ax = -1.45; ay = lerp(-1.3, 1.1, e); er = -0.2; tw = lerp(-0.5, 0.45, e); hx = 0.1; }
+      else if (sa.style === 'L') { ax = -1.45; ay = lerp(1.1, -1.3, e); er = -0.2; tw = lerp(0.45, -0.5, e); hx = 0.1; }
+      else if (sa.style === 'O') { ax = lerp(-3.0, -0.5, e); ay = 0.1; er = lerp(-0.7, -0.05, e); hx = 0.15; }
+      else if (sa.style === 'T') { ax = lerp(-2.8, -1.25, e); ay = -0.15; er = lerp(-1.2, -0.1, e); }
+      else if (sa.style === 'C') { ax = lerp(-1.0, -1.75, e); er = lerp(-0.8, -0.05, e); }
+      m.armR.rotation.x = lerp(m.armR.rotation.x, ax, w);
+      m.armR.rotation.y = lerp(m.armR.rotation.y, ay, w);
+      m.elbowR.rotation.x = lerp(m.elbowR.rotation.x, er, w);
+      m.hand.rotation.x = lerp(m.hand.rotation.x, hx, w);
+      this._swingTwist = tw * w;
+      if (sa.style === 'O' || sa.style === 'T') m.body.rotation.x += 0.1 * e * w;
+    }
 
     // spine counter-twists with the stride (not while aiming), head follows the aim,
     // breathing, and the headwrap tails stream back with speed
     const now = performance.now();
-    m.torso.rotation.y = damp(m.torso.rotation.y, sw * 0.14 * swAmt * (1 - r), 12, dt);
+    m.torso.rotation.y = damp(m.torso.rotation.y, sw * 0.14 * swAmt * (1 - r) + this._swingTwist, 18, dt);
     m.torso.scale.y = 1 + Math.sin(now * 0.0018) * 0.012;
     m.head.rotation.x = damp(m.head.rotation.x, -clamp(this.camPitch, -0.5, 0.5) * 0.55 * r + Math.sin(this.walkPhase * 2) * 0.03 * swAmt, 10, dt);
     m.head.rotation.y = damp(m.head.rotation.y, -m.torso.rotation.y * 0.8, 10, dt);
     m.tails.rotation.x = damp(m.tails.rotation.x, 0.25 + horiz * 0.09 + Math.sin(now * 0.009) * 0.08 * (0.3 + swAmt), 6, dt);
     m.tails.rotation.z = Math.sin(now * 0.006) * 0.12;
+
+    // cloak: hangs and sways at rest, streams back with speed, lifts in the air
+    const ck = m.cloak;
+    if (ck) {
+      const pa = ck.geometry.attributes.position, base = ck.userData.base;
+      const flow = clamp(horiz / 8, 0, 1), lift = flow * 0.5 + (this.grounded ? 0 : 0.3), ts = now * 0.001;
+      for (let i = 0; i < pa.count; i++) {
+        const x = base[i * 3], y = base[i * 3 + 1], v = -y / 1.05;
+        const sway = Math.sin(ts * 2.2 + v * 2.5 + x * 3) * 0.04 * (0.4 + flow);
+        pa.setXYZ(i, x * (1 + v * 0.25), y * (1 - lift * 0.35 * v), -(v * v * (0.12 + lift) + sway));
+      }
+      pa.needsUpdate = true;
+      ck.geometry.computeVertexNormals();
+    }
 
     // idle bob / breathing
     const bob = Math.sin(this.walkPhase * 2) * 0.045 * swAmt + Math.sin(performance.now() * 0.0018) * 0.012;

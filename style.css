@@ -383,3 +383,6 @@ h1 span{display:block;color:transparent;-webkit-text-stroke:1.5px rgba(255,170,9
 @keyframes cardIn{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:none}}
 
 .dPerks{font-size:8.5px;letter-spacing:.12em;line-height:1.7;color:rgba(244,231,210,.55);font-weight:700;margin:-8px 0 16px;}
+
+/* blades carry no ammunition */
+#ammoRow.melee{visibility:hidden;}

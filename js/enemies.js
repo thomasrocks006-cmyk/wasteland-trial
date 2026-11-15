@@ -13,12 +13,13 @@ const DEATH_HOLD = 1.3;   // seconds a body lies there before sinking
 const DEATH_T = 2.1;      // seconds until it is gone
 
 /* ------------------------------------------------------------------ palettes */
+/* bronze sentinels: mythic constructs of old bronze and marble, furnace-lit eyes */
 const SKIN = {
-  carapace: 0x4b3d68,
-  plate: 0x6b5891,
-  plateDark: 0x352b49,
-  claw: 0xa296b8,
-  bone: 0xd6c6a4,
+  carapace: 0x5b4a36,
+  plate: 0x9c7a44,
+  plateDark: 0x3d3226,
+  claw: 0xc9ad78,
+  bone: 0xe0d6c2,
   eye: 0xff7a1a,
   eyeCold: 0x6fe0ff,
   metal: 0x8d8880,
@@ -152,8 +153,8 @@ function waspParts() {
     }
   }
   const wing = new Builder();
-  wing.add(new THREE.BoxGeometry(0.62, 0.02, 0.26), 0x9fd8e8, { pos: [0.34, 0, 0], jitter: 0.02 });
-  wing.add(new THREE.BoxGeometry(0.20, 0.02, 0.18), 0x7fb8c8, { pos: [0.72, 0, 0.04] });
+  wing.add(new THREE.BoxGeometry(0.62, 0.02, 0.26), 0xd8b870, { pos: [0.34, 0, 0], jitter: 0.02 });
+  wing.add(new THREE.BoxGeometry(0.20, 0.02, 0.18), 0xb89850, { pos: [0.72, 0, 0.04] });
   return { body: body.build(), wingL: wing.build(), wingR: wing.build() };
 }
 
@@ -243,7 +244,7 @@ class TypeRender {
     this.geos = type.parts();
     this.parts = [];
     // cool violet rim: hostiles read as a silhouette even against bright ground
-    const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), type.boss ? 0xff7a40 : 0xb08cff, 0.5, 2.4);
+    const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), type.boss ? 0xff7a40 : 0xffd9a0, 0.45, 2.4);
     for (const name of type.partList) {
       const geo = this.geos[name];
       if (!geo) continue;
@@ -288,7 +289,7 @@ export class Enemies {
     this.projectiles = [];
 
     // glowing eyes so a threat is readable at range
-    const eyeGeo = new THREE.SphereGeometry(0.13, 6, 5);
+    const eyeGeo = new THREE.SphereGeometry(0.075, 8, 6);   // small furnace-lit eyes; 0.13 read as white blobs up close
     this.eyeMesh = new THREE.InstancedMesh(eyeGeo, new THREE.MeshBasicMaterial({
       transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false
     }), 72);
@@ -348,8 +349,9 @@ export class Enemies {
     }
     this.list.push(e);
     if (this.fx) {
-      this.fx.ring(new THREE.Vector3(x, terrainHeight(x, z) + 0.1, z), 0x9a5cff, 2.4, 0.7);
-      this.fx.ecoBurst(new THREE.Vector3(x, terrainHeight(x, z) + 0.8, z), 0xb878ff, 12, 0.8);
+      // summoned in a ring of rune light
+      this.fx.ring(new THREE.Vector3(x, terrainHeight(x, z) + 0.1, z), 0x7ff3ff, 2.4, 0.7);
+      this.fx.ecoBurst(new THREE.Vector3(x, terrainHeight(x, z) + 0.8, z), 0x9ff4ff, 12, 0.8);
     }
     return e;
   }
@@ -367,6 +369,7 @@ export class Enemies {
     if (this.audio) this.audio.hitmarker(head);
     if (dir) e.lastDir = dir;
     e.lastAmount = amount;
+    if (e.passive && !e.aggro) this.alert(e);         // strike a patrol and it fights back
     if (this.onHit) this.onHit(e, head, e.hp <= 0);
     // a big hit breaks a brute's charge; it waits before trying again
     if ((e.state === 'windup' || e.state === 'charge') && amount > 60) e.chargeCd = rnd(3, 5);
@@ -382,6 +385,19 @@ export class Enemies {
       e.vel.addScaledVector(new THREE.Vector3(dir.x, 0, dir.z).normalize(), amount * 0.05 * kb);
     }
     if (e.hp <= 0) this.kill(e);
+  }
+
+  /** a patrol has seen you: it and its group turn to fight */
+  alert(e) {
+    for (const o of this.list) {
+      if (!o.alive || !o.passive || o.aggro) continue;
+      if (o !== e && (o.group !== e.group || Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z) > 28)) continue;
+      o.aggro = true;
+      o.attackCd = Math.max(o.attackCd, 0.6);
+      if (this.fx) this.fx.ring(new THREE.Vector3(o.pos.x, o.pos.y + 0.1, o.pos.z), 0xff9a40, 1.8, 0.5);
+    }
+    if (this.audio) this.audio.roar(Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z) * 0.6);
+    if (this.onAlert) this.onAlert(e);
   }
 
   kill(e) {
@@ -403,7 +419,7 @@ export class Enemies {
     if (this.fx) {
       const p = new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z);
       this.fx.ecoBurst(p, e.type.boss ? 0xff8040 : (e.key === 'wasp' ? 0xffd060 : 0x37e0c8), e.type.boss ? 40 : 16, e.type.boss ? 2 : 1);
-      this.fx.puff(p, null, 0x4a3a58, e.type.boss ? 2.2 : 0.7, e.type.boss ? 8 : 2, 1.1, 1.6);
+      this.fx.puff(p, null, 0x6a5a48, e.type.boss ? 2.2 : 0.7, e.type.boss ? 8 : 2, 1.1, 1.6);
     }
     if (this.audio) this.audio.enemyDeath(0);
     if (this.onKill) this.onKill(e);
@@ -540,7 +556,8 @@ export class Enemies {
     }
 
     // always face the player unless staggered; a charging brute is committed
-    if (e.state === 'charge') e.yaw = Math.atan2(e.chargeX, e.chargeZ);
+    if (e.passive && !e.aggro) { /* a patrol faces where it walks (below) */ }
+    else if (e.state === 'charge') e.yaw = Math.atan2(e.chargeX, e.chargeZ);
     else if (e.state !== 'stagger') {
       e.yaw = dampAngle(e.yaw, Math.atan2(dx, dz), e.type.boss ? 3.2 : 7, dt);
     }
@@ -548,7 +565,16 @@ export class Enemies {
     let moveX = 0, moveZ = 0;
     let speed = e.speed;
 
-    if (e.state === 'stagger') {
+    if (e.passive && !e.aggro) {
+      // on patrol: amble between points near home, watching for the hero
+      if (!e.wp || Math.hypot(e.wp.x - e.pos.x, e.wp.z - e.pos.z) < 1.2 || e.stateT > 10) {
+        e.wp = { x: e.home.x + rnd(-10, 10), z: e.home.z + rnd(-10, 10) }; e.stateT = 0;
+      }
+      const wx = e.wp.x - e.pos.x, wz = e.wp.z - e.pos.z, wl = Math.hypot(wx, wz) || 1;
+      e.yaw = dampAngle(e.yaw, Math.atan2(wx, wz), 3, dt);
+      moveX = wx / wl; moveZ = wz / wl; speed = e.speed * 0.3;
+      if (dist < (t.key === 'shooter' ? 24 : 16)) this.alert(e);
+    } else if (e.state === 'stagger') {
       if (e.stateT > (e.staggerDur || 0.22)) { e.state = 'chase'; e.stateT = 0; e.staggerDur = 0; }
     } else if (t.key === 'brute' && (e.state === 'windup' || e.state === 'charge' ||
       (e.chargeCd <= 0 && dist > 7 && dist < 20 && !this.world.blocked(e.pos.x, e.pos.z, pp.x, pp.z)))) {
@@ -679,7 +705,8 @@ export class Enemies {
 
     const gh = terrainHeight(nx, nz);
     if (t.flying) {
-      const targetY = gh + t.flyH + Math.sin(time * 2.2 + e.phase) * 0.35;
+      // stingers dive to head height when they strike, so a blade can reach them
+      const targetY = gh + (e.lungeT > 0 ? 1.4 : t.flyH) + Math.sin(time * 2.2 + e.phase) * 0.35;
       e.pos.y = damp(e.pos.y, targetY, 5, dt);
     } else {
       e.pos.y = damp(e.pos.y, gh, 14, dt);
@@ -866,7 +893,7 @@ export class Enemies {
       if (!e.alive || ei + 2 > 72) continue;
       const t = e.type;
       const cosY = Math.cos(e.yaw), sinY = Math.sin(e.yaw);
-      const col = t.boss ? 0xff5a18 : (e.key === 'wasp' ? 0xffc040 : (e.key === 'shooter' ? 0x6fe0ff : 0xff8a2a));
+      const col = t.boss ? 0xff5a18 : (e.key === 'wasp' ? 0xffb030 : (e.key === 'shooter' ? 0xffc860 : 0xff7a20));
       _col.setHex(col).multiplyScalar(1 + Math.sin(time * 5 + e.phase) * 0.18);
       for (let s = -1; s <= 1; s += 2) {
         const ox = s * t.headR * 0.55, oz = t.headR * 0.95;
@@ -876,7 +903,7 @@ export class Enemies {
           e.pos.z - ox * sinY + oz * cosY
         );
         _d.rotation.set(0, 0, 0);
-        _d.scale.setScalar(e.scale * (t.boss ? 2.2 : 1) * (1 + Math.sin(time * 6 + e.phase) * 0.1));
+        _d.scale.setScalar(e.scale * (t.boss ? 3.6 : 1) * (1 + Math.sin(time * 6 + e.phase) * 0.1));
         _d.updateMatrix();
         this.eyeMesh.setMatrixAt(ei, _d.matrix);
         this.eyeMesh.setColorAt(ei, _col);

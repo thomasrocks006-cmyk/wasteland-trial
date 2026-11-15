@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import {
-  clamp, lerp, damp, rnd, rng, pick, terrainHeight, TAU, radialSprite, Builder
+  clamp, lerp, damp, rnd, rng, pick, terrainHeight, TAU, radialSprite, Builder, waterLevel, RIVER,
+  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R
 } from './core.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -8,6 +9,7 @@ import { FX } from './fx.js';
 import { Audio } from './audio.js';
 import { WeaponSystem, WEAPONS } from './weapons.js';
 import { Enemies, ENEMY_TYPES } from './enemies.js';
+import { Wildlife } from './wildlife.js';
 
 /* ================================================================ setup */
 const canvas = document.getElementById('gl');
@@ -62,6 +64,7 @@ const world = new World(scene, QUALITY);
 const player = new Player(scene, world);
 const fx = new FX(scene, camera, QUALITY);
 const enemies = new Enemies(scene, world, fx, audio, player);
+const wildlife = new Wildlife(scene, world);
 
 /* ---------------- pickups ---------------- */
 class Pickups {
@@ -235,8 +238,9 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
       pos, vel, life: 4.5, dmg, ex,
       mesh: null
     });
-    audio.shot('bomber', 0);
   },
+  // a blade connecting: a short freeze, longer on a finisher
+  onMeleeHit: (n, finisher) => timeWarp(0.08, finisher ? 0.09 : 0.045),
   onAmmo: () => syncAmmoUI(),
 });
 
@@ -292,7 +296,8 @@ function syncAmmoUI() {
   ui.gunName.textContent = d.name;
   ui.mag.textContent = s.mag;
   ui.res.textContent = s.reserve === Infinity ? '∞' : s.reserve;
-  ui.ammoRow.classList.toggle('low', s.mag <= Math.max(1, weapons.magSize() * 0.25));
+  ui.ammoRow.classList.toggle('low', !d.melee && s.mag <= Math.max(1, weapons.magSize() * 0.25));
+  ui.ammoRow.classList.toggle('melee', !!d.melee);     // blades have no ammunition to count
   document.querySelectorAll('.wslot').forEach((b, i) => b.classList.toggle('on', i === weapons.index));
 }
 
@@ -313,11 +318,17 @@ function damageArc(angle) {
 }
 
 player.onFootstep = (speed) => {
-  if (audio.enabled) audio.step();
-  if (speed > 3) {
-    const p = new THREE.Vector3(player.pos.x, player.pos.y + 0.1, player.pos.z);
-    fx.puff(p, null, 0xa5835c, 0.28, 1, 0.55, 0.5);
+  const p = new THREE.Vector3(player.pos.x, player.pos.y + 0.1, player.pos.z);
+  if (player.inWater > 0.05) {
+    // wading: a splash and spray instead of dust
+    if (audio.enabled) audio.splash();
+    p.y += player.inWater;
+    fx.puff(p, null, 0xe4f0f2, 0.35, 2, 0.45, 1.2);
+    fx.spark(p, new THREE.Vector3(0, 1, 0), 0xdff4ff, 4, 2.5, 0.08, 0.35);
+    return;
   }
+  if (audio.enabled) audio.step();
+  if (speed > 3) fx.puff(p, null, 0x8c7d5c, 0.28, 1, 0.55, 0.5);
 };
 player.onLand = (v) => {
   audio.land();
@@ -732,6 +743,7 @@ let streak = 0, lastKillT = -9;
 
 enemies.onKill = (e) => {
   addKillScore(e);
+  if (GAME.mode === 'wander' && GAME.kills % 6 === 0 && !GAME.drafting) setTimeout(() => { if (GAME.state === 'playing') openDraft(); }, 600);
   if (e.type.boss) timeWarp(0.22, 1.6);
   else timeWarp(0.06, 0.05);
   streak = GAME.time - lastKillT < 1.4 ? streak + 1 : 1;
@@ -761,17 +773,18 @@ enemies.onKill = (e) => {
 const RUN = { charge: 1, scav: 1, leech: 0 };
 const PERKS = [
   { id: 'hide', name: 'THICK HIDE', desc: '+25 max health, fully healed', apply() { player.maxHp += 25; player.hp = player.maxHp; } },
-  { id: 'hot', name: 'HOT LOADS', desc: '+15% weapon damage', apply() { weapons.mods.dmg *= 1.15; } },
-  { id: 'hands', name: 'QUICK HANDS', desc: 'Reload 25% faster', apply() { weapons.mods.reload *= 0.75; } },
-  { id: 'mags', name: 'DEEP MAGS', desc: '+30% magazine size', apply() { weapons.mods.mag *= 1.3; } },
-  { id: 'steady', name: 'STEADY GRIP', desc: '30% less spread and recoil', apply() { weapons.mods.spread *= 0.7; } },
-  { id: 'conduit', name: 'CONDUIT', desc: '+60% charge from kills', apply() { RUN.charge *= 1.6; } },
+  { id: 'hot', name: 'KEEN EDGE', desc: '+15% damage with every weapon', apply() { weapons.mods.dmg *= 1.15; } },
+  { id: 'reach', name: 'LONG REACH', desc: 'Blades reach 25% further and sweep wider', apply() { weapons.mods.reach *= 1.25; } },
+  { id: 'hands', name: 'QUICK DRAW', desc: 'Spears and runes ready 25% faster', apply() { weapons.mods.reload *= 0.75; } },
+  { id: 'mags', name: 'FULL QUIVER', desc: '+30% spears and runes per load', apply() { weapons.mods.mag *= 1.3; } },
+  { id: 'steady', name: 'TRUE AIM', desc: '30% tighter throws and casts', apply() { weapons.mods.spread *= 0.7; } },
+  { id: 'conduit', name: 'SPIRIT WELL', desc: '+60% charge from kills', apply() { RUN.charge *= 1.6; } },
   { id: 'burn', name: 'LONG BURN', desc: 'Light and Dark forms last 4 s longer', apply() { player.formDur += 4; } },
   { id: 'slip', name: 'SLIPSTREAM', desc: 'Dodge recovers twice as fast, longer immunity', apply() { player.dodgeCdBase *= 0.5; player.dodgeIframe += 0.15; } },
   { id: 'leech', name: 'BLOOD PRICE', desc: 'Every kill heals 3', apply() { RUN.leech += 3; } },
   { id: 'scav', name: 'SCAVENGER', desc: 'Kills drop supplies 70% more often', apply() { RUN.scav *= 1.7; } },
-  { id: 'bang', name: 'BIG BANG', desc: 'Bomber blast radius +35%', apply() { weapons.mods.blast *= 1.35; } },
-  { id: 'lance', name: 'LANCE', desc: 'Beam pierces 2 more bodies', apply() { weapons.mods.pierce += 2; } },
+  { id: 'bang', name: 'WILDFIRE', desc: 'Fire rune blast radius +35%', apply() { weapons.mods.blast *= 1.35; } },
+  { id: 'lance', name: 'IMPALER', desc: 'Spears pierce 2 more bodies', apply() { weapons.mods.pierce += 2; } },
   { id: 'wind', name: 'SECOND WIND', desc: 'Regenerate 1.2 health a second', apply() { player.regen += 1.2; } },
 ];
 let draftChoices = [], draftOpenedAt = 0;
@@ -821,7 +834,83 @@ function clearField() {
   $('waveIntro').classList.add('hidden');
 }
 
-function resetRun() {
+/* ================================================================ wander mode
+   The valley as an open world: no waves. A few sentinel patrols roam and leave
+   you be until you come close or strike one; new patrols appear out of sight.
+   Health returns while nothing hunts you, and an upgrade is offered every six kills. */
+const PATROL_TARGET = 4;
+const PATROLS = [['grunt', 'grunt'], ['shooter'], ['grunt', 'shooter'], ['brute'], ['wasp', 'wasp'], ['grunt', 'grunt', 'shooter']];
+let patrolTimer = 0, patrolId = 0, calmT = 0;
+function spawnPatrol() {
+  for (let k = 0; k < 50; k++) {
+    const a = rnd(0, TAU), r = rnd(24, ARENA_R - 10);
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    if (Math.hypot(x - player.pos.x, z - player.pos.z) < 40) continue;   // never in your face
+    if (!world.isClear(x, z, 2.2) || waterDist(x, z) < 2) continue;
+    const lvl = GAME.kills / 25;                                          // the vale stiffens slowly
+    patrolId++;
+    for (const kind of pick(PATROLS)) {
+      const e = enemies.spawn(kind, x + rnd(-3, 3), z + rnd(-3, 3), { hpScale: 1 + lvl * 0.15, dmgScale: 1 + lvl * 0.08 });
+      e.passive = true; e.aggro = false; e.home = { x, z }; e.group = patrolId;
+    }
+    return true;
+  }
+  return false;
+}
+function startWander() {
+  GAME.wave = 0; GAME.waveActive = false; GAME.breather = 0; GAME.spawnQueue = [];
+  ui.wave.textContent = '';
+  ui.objective.textContent = 'WANDER THE VALE';
+  ui.waveBar.style.width = '0%';
+  audio.setIntensity(0.15);
+  audio.setMusicIntensity(0.5);
+  audio.setMood('explore');
+  for (let i = 0; i < 3; i++) spawnPatrol();
+  patrolTimer = 20; calmT = 10;
+}
+function updateWander(dt) {
+  const groups = new Set();
+  let hunting = false;
+  for (const e of enemies.list) {
+    if (!e.alive) continue;
+    if (e.passive) groups.add(e.group);
+    if (e.aggro && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 45) hunting = true;
+  }
+  patrolTimer -= dt;
+  if (groups.size < PATROL_TARGET && patrolTimer <= 0) { spawnPatrol(); patrolTimer = 24; }
+  calmT = hunting ? 0 : calmT + dt;
+  audio.setMood(hunting ? 'combat' : calmT > 4 ? 'explore' : audio.nextMood);
+  if (calmT > 5 && player.alive) player.heal(5 * dt);
+  ui.objective.textContent = hunting ? 'SENTINELS HUNT YOU' : 'WANDER THE VALE';
+}
+
+/* the valley's sound follows you: river by distance and side, the cascade, wind up high */
+const CASCADE = (() => { let k = 0; for (let i = 1; i < RIVER.length - 1; i++) if (RIVER[i - 1].wy - RIVER[i + 1].wy > 0.8) k = i; return RIVER[k]; })();
+function updateAmbience(dt) {
+  if (!audio.ctx) return;
+  const L = GAME.state === 'title' ? camera.position : player.pos;
+  const rn = riverNearest(L.x, L.z);
+  const lakeD = Math.hypot(L.x - LAKE.x, L.z - LAKE.z) - LAKE.r;
+  const useLake = lakeD < rn.d - RIVER_W;
+  const wd = Math.max(0, useLake ? lakeD : rn.d - RIVER_W);
+  const wx = useLake ? LAKE.x : RIVER[rn.i].x, wz = useLake ? LAKE.z : RIVER[rn.i].z;
+  const m = camera.matrixWorld.elements;                     // camera right = column 0
+  const side = (dx, dz) => { const l = Math.hypot(dx, dz) || 1; return (dx * m[0] + dz * m[2]) / l; };
+  const cd = Math.hypot(L.x - CASCADE.x, L.z - CASCADE.z);
+  let hunting = false;
+  for (const e of enemies.list) if (e.alive && e.aggro) { hunting = true; break; }
+  audio.setAmbience({
+    river: Math.pow(clamp(1 - wd / 34, 0, 1), 1.6) * (useLake ? 0.55 : 1),
+    riverPan: side(wx - L.x, wz - L.z) * clamp(wd / 4, 0, 1),
+    roar: Math.pow(clamp(1 - cd / 75, 0, 1), 2),
+    roarPan: side(CASCADE.x - L.x, CASCADE.z - L.z),
+    wind: clamp((L.y - 2) / 22, 0, 1),
+    birds: GAME.state === 'title' ? 0.8 : (hunting || (GAME.mode === 'trial' && GAME.waveActive)) ? 0.15 : 0.75,
+  }, dt);
+}
+
+function resetRun(mode = GAME.mode || 'wander') {
+  GAME.mode = mode;
   GAME.state = 'playing';
   GAME.wave = 0; GAME.score = 0; GAME.kills = 0; GAME.headshots = 0;
   GAME.combo = 1; GAME.comboTimer = 0; GAME.bestCombo = 1;
@@ -831,7 +920,7 @@ function resetRun() {
   GAME.perks = [];
   clearField();
   RUN.charge = 1; RUN.scav = 1; RUN.leech = 0;
-  weapons.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0 };
+  weapons.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0, reach: 1 };
   weapons.shotsFired = 0; weapons.shotsHit = 0;
   player.maxHp = 100; player.formDur = 9; player.dodgeCdBase = 0.8; player.dodgeIframe = 0.42; player.regen = 0;
 
@@ -858,7 +947,8 @@ function resetRun() {
   weapons.syncModel();
 
   GAME.runStart = performance.now();
-  startWave(1);
+  document.querySelector('.waveRow .lbl').textContent = GAME.mode === 'trial' ? 'WAVE' : 'THE VALE';
+  if (GAME.mode === 'trial') startWave(1); else startWander();
   syncAmmoUI();
   ui.score.textContent = '0';
   ui.combo.textContent = 'x1.0';
@@ -875,7 +965,7 @@ function endRun() {
   $('dTime').textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
   $('dUpg').textContent = GAME.perks.length;
   $('dPerks').textContent = GAME.perks.join(' · ');
-  $('dWave').textContent = GAME.wave;
+  $('dWave').textContent = GAME.mode === 'trial' ? GAME.wave : '—';
   $('dScore').textContent = GAME.score.toLocaleString('en-AU');
   $('dKills').textContent = GAME.kills;
   $('dAcc').textContent = acc + '%';
@@ -909,15 +999,17 @@ function togglePause() {
 }
 
 /* ================================================================ buttons */
-$('btnStart').addEventListener('click', () => {
+function startMode(mode) {
   audio.init();
   audio.resume();
   audio.startMusic();
   $('title').classList.add('hidden');
   ui.hud.classList.remove('hidden');
-  resetRun();
+  resetRun(mode);
   if (isTouch() && window.innerHeight > window.innerWidth) showRotate();
-});
+}
+$('btnStart').addEventListener('click', () => startMode('wander'));
+$('btnTrial').addEventListener('click', () => startMode('trial'));
 $('btnResume').addEventListener('click', togglePause);
 $('btnQuit').addEventListener('click', () => {
   GAME.state = 'title';
@@ -949,7 +1041,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b20';
+const BUILD = 'b21';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
@@ -989,8 +1081,9 @@ window.addEventListener('resize', checkOrientation);
 window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 200));
 
 /* ================================================================ grenades */
-const grenadeMeshGeo = new THREE.SphereGeometry(0.16, 6, 5);
-const grenadeMeshMat = new THREE.MeshLambertMaterial({ color: 0xc8301f, emissive: 0x8a1a08, emissiveIntensity: 0.8 });
+// the fire rune's orb: self-lit, trailing sparks (see updateGrenades)
+const grenadeMeshGeo = new THREE.SphereGeometry(0.22, 10, 8);
+const grenadeMeshMat = new THREE.MeshBasicMaterial({ color: 0xffb050, toneMapped: false });
 for (let i = 0; i < 12; i++) {
   const m = new THREE.Mesh(grenadeMeshGeo, grenadeMeshMat);
   m.visible = false;
@@ -1025,6 +1118,8 @@ function updateGrenades(dt) {
     g.mesh.position.copy(g.pos);
     g.mesh.rotation.x += dt * 8;
     g.mesh.rotation.z += dt * 5;
+    g.mesh.scale.setScalar(1 + Math.sin(performance.now() * 0.03) * 0.15);
+    fx.spark(g.pos, null, 0xffa040, 1, 1.2, 0.2, 0.3);
 
     let boom = g.life <= 0;
     // enemy contact
@@ -1037,7 +1132,7 @@ function updateGrenades(dt) {
     const gy = terrainHeight(g.pos.x, g.pos.z) + 0.12;
     if (!boom && g.pos.y < gy) {
       // first touch skips off the ground; the second (or a short fuse) sets it off
-      if (!g.bounced) {
+      if (!g.bounced && g.ex.bounce !== false) {
         g.bounced = true; g.pos.y = gy;
         g.vel.y = Math.abs(g.vel.y) * 0.42; g.vel.x *= 0.62; g.vel.z *= 0.62;
         g.life = Math.min(g.life, 0.6);
@@ -1056,8 +1151,7 @@ function updateGrenades(dt) {
 }
 // route weapon spawns into the grenade pool
 weapons.ctx.spawnProjectile = (pos, vel, ex, dmg) => {
-  spawnGrenade(pos, vel, ex, dmg);
-  audio.shot('bomber', 0);
+  spawnGrenade(pos, vel, ex, dmg);       // the weapon already played its own cast sound
 };
 
 /* ================================================================ loop */
@@ -1123,7 +1217,7 @@ function frame(now) {
     }
 
     // ---------- waves
-    updateWaves(dt);
+    if (GAME.mode === 'trial') updateWaves(dt); else updateWander(dt);
 
     // ---------- enemies
     enemies.update(dt, GAME.time);
@@ -1164,6 +1258,8 @@ function frame(now) {
   }
 
   world.update(dt, GAME.time, player.pos, camera);
+  wildlife.update(dt, GAME.time, player);
+  updateAmbience(dt);
   fx.update(dt);
   renderer.render(scene, camera);
 
@@ -1374,7 +1470,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
-window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight };
+window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {

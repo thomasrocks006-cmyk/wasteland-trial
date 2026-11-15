@@ -49,6 +49,28 @@ pierce, regeneration.
   Every segment can be shot. Its health bar sits at the top. Below half it
   enrages: faster, and it throws a ring of low bolts you jump or roll through.
 
+## The vale (b21)
+
+A green mythic valley under snowy peaks: a river falls off the rim as a cascade
+between two hooded stone colossi, winds round the rune-ringed shrine and ends in
+a lake. Stone watchtowers with lit windows, pine stands, reeds and lily pads,
+spirit motes in the air. The river is carved into the height field: you wade
+through it (slower, with splashes).
+
+**Two ways to play.** *Wander the Vale* (main): no waves. Sentinel patrols roam
+and leave you be until you come close or strike one; new patrols appear out of
+sight. Deer graze and bolt, rabbits scatter, birds wheel overhead. Health returns
+when nothing hunts you; an upgrade is offered every six kills. *The Trial*:
+the endless waves, as before.
+
+**Arsenal.** Sword (three-strike combo, overhead finisher), war axe (one slow wide
+chop), thrown spear (pierces three), fire rune (arcing orb, bursts on contact).
+Strikes step you toward the nearest foe in front.
+
+**Recorded music.** Put `music/explore.mp3`, `music/combat.mp3` and
+`music/boss.mp3` in the game folder and they replace the synthesised score
+(looping, crossfading by mood). With any missing, the synth score plays.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

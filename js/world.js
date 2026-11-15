@@ -3,7 +3,7 @@ import {
   TAU, clamp, lerp, smoothstep, rnd, rng, fbm, pick,
   terrainHeight, terrainNormal, Builder, ARENA_R, RIM_R,
   grassTexture, smokeTexture, radialSprite, groundTexture, stoneTexture, clothTexture,
-  GRID_SEG, GRID_EXT, gridHeight
+  GRID_SEG, GRID_EXT, gridHeight, RIVER, RIVER_W, LAKE, LAKE_Y, waterDist, needleTexture, meadowTexture
 } from './core.js';
 
 const _v = new THREE.Vector3();
@@ -14,24 +14,33 @@ function stoneMat() {
 }
 const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color();
 
+/* A green valley of old stone. The keys kept their desert-era names so every
+   builder below picks up the new world without being rewritten. */
 const PAL = {
-  sandLight: 0xc9a273,
-  sandDark: 0x9a6f47,
-  sandTop: 0xe6c79b,
-  sandPale: 0xe3cbab,
-  sandCool: 0xa29491,
-  copper: 0x9a5a33,
-  verdigris: 0x5f8f7c,
-  rock: 0x7a4a2e,
-  rockDark: 0x53311c,
-  ruin: 0xc3ab93,
-  ruinDark: 0x7f6d62,
-  ruinLight: 0xdcc6a6,
-  metal: 0x4a4038,
-  metalRust: 0x7d4426,
-  scrub: 0x6b7238,
-  scrubDry: 0x8a7f3e,
-  wood: 0x6b4a2e,
+  sandLight: 0x6f9445,   // meadow
+  sandDark: 0x456a2f,    // deep grass
+  sandTop: 0x9ab25e,     // sunlit grass
+  sandPale: 0xa9b073,    // dry meadow on crests
+  sandCool: 0x5b7d68,    // cool blue-green patches
+  copper: 0xa47e4c,      // lichen
+  verdigris: 0x5e7f3a,   // moss
+  rock: 0x7d8284,        // granite
+  rockDark: 0x52585c,
+  ruin: 0xa9aca7,        // weathered grey stone
+  ruinDark: 0x6c7270,
+  ruinLight: 0xc9cbc3,
+  metal: 0x4a4b50,
+  metalRust: 0x8a6a3a,   // old bronze
+  scrub: 0x4b7a32,
+  scrubDry: 0x6b8b3a,
+  wood: 0x5a4330,
+  snow: 0xeef3f6,
+  mud: 0x4a3f30,
+  path: 0x8c7d5c,
+  pine: 0x2f4f2a,
+  pineDark: 0x223b22,
+  slate: 0x3d4a5c,
+  rune: 0x7ff3ff,
 };
 
 export class World {
@@ -48,7 +57,7 @@ export class World {
   build() {
     const scene = this.scene;
     // linear haze reads as depth; exponential just greys everything out
-    scene.fog = new THREE.Fog(0xbaaea3, 42, 600);
+    scene.fog = new THREE.Fog(0xb4c6cc, 44, 560);   // cool valley haze
 
     this.buildSky();
     this.buildLights();
@@ -59,6 +68,9 @@ export class World {
     this.buildMidfield();
     this.buildLandmarks();
     this.buildOrnaments();
+    this.buildTowers();
+    this.buildColossi();
+    this.buildWater();
     this.buildVegetation();
     this.buildGroundDetail();
     this.buildDust();
@@ -73,10 +85,10 @@ export class World {
       uniforms: {
         uSun: { value: this.sunDir.clone() },
         uTime: this.time,
-        uZenith: { value: new THREE.Color(0x3d5f86) },
-        uMid: { value: new THREE.Color(0xb98455) },
-        uHorizon: { value: new THREE.Color(0xf2cf9d) },
-        uGround: { value: new THREE.Color(0x8f6039) },
+        uZenith: { value: new THREE.Color(0x3f6fae) },
+        uMid: { value: new THREE.Color(0x9ec0d6) },
+        uHorizon: { value: new THREE.Color(0xf4dfc0) },
+        uGround: { value: new THREE.Color(0x56704a) },
       },
       vertexShader: /* glsl */`
         varying vec3 vDir;
@@ -125,8 +137,8 @@ export class World {
             float f2 = fbm(pp * 2.3 - vec2(t*0.7, 0.0));
             float band = smoothstep(0.42, 0.86, f*0.7 + f2*0.45);
             band *= smoothstep(-0.01, 0.20, y) * (1.0 - smoothstep(0.42, 0.95, y));
-            vec3 cc = mix(vec3(0.98,0.86,0.70), vec3(1.0,0.95,0.86), f2);
-            col = mix(col, cc, band * 0.62);
+            vec3 cc = mix(vec3(0.93,0.90,0.88), vec3(1.0,0.98,0.95), f2);
+            col = mix(col, cc, band * 0.7);
           }
 
           // slight dither to kill banding
@@ -153,10 +165,10 @@ export class World {
   /* -------------------------------------------------- lights */
   buildLights() {
     const scene = this.scene;
-    const hemi = new THREE.HemisphereLight(0xffdcbb, 0x4e4468, 0.82);
+    const hemi = new THREE.HemisphereLight(0xd4e6ff, 0x4d5a36, 0.9);
     scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xffe0b0, 2.95);
+    const sun = new THREE.DirectionalLight(0xfff0d2, 2.7);
     sun.position.copy(this.sunDir).multiplyScalar(90);
     sun.castShadow = true;
     const size = this.quality === 'high' ? 2048 : 1024;
@@ -177,7 +189,7 @@ export class World {
     bounce.position.set(-0.5, 0.45, 0.7);
     scene.add(bounce);
 
-    this.ambient = new THREE.AmbientLight(0x3a4463, 0.22);
+    this.ambient = new THREE.AmbientLight(0x40506a, 0.24);
     scene.add(this.ambient);
 
     // camera-side fill so the hero and enemies never fall into silhouette
@@ -206,30 +218,35 @@ export class World {
     const cc = new THREE.Color();
 
     const colorFor = (h, ny, x, z) => {
-      const rockAmt = smoothstep(0.88, 0.58, ny);
-      // three scales: regional patches, drifts, grain
+      const rockAmt = smoothstep(0.86, 0.6, ny);
       const patch = fbm(x * 0.021, z * 0.021, 3);
       const drift = fbm(x * 0.085 + 11, z * 0.085 - 7, 3);
       const grain = fbm(x * 0.42 - 5, z * 0.42 + 3, 2);
 
+      // meadow: deep and sunlit grass in drifts, dry on the crests, cool patches
       _c1.setHex(PAL.sandDark).lerp(_c2.setHex(PAL.sandLight), clamp(drift * 1.7 - 0.25, 0, 1));
-      _c1.lerp(_c3.setHex(PAL.sandPale), smoothstep(2, 20, h) * 0.55);
-      // regional cool patches — the thing that stops the whole world being orange
-      _c1.lerp(_c2.setHex(PAL.sandCool), clamp((patch - 0.52) * 2.2, 0, 1) * 0.42);
+      _c1.lerp(_c3.setHex(PAL.sandTop), clamp((grain - 0.55) * 2.2, 0, 1) * 0.5);
+      _c1.lerp(_c3.setHex(PAL.sandPale), smoothstep(4, 16, h) * 0.35);
+      _c1.lerp(_c2.setHex(PAL.sandCool), clamp((patch - 0.55) * 2.2, 0, 1) * 0.4);
 
-      // rock, broken up with copper seams and verdigris staining
+      // the trodden ring round the shrine
+      const r = Math.hypot(x, z);
+      _c1.lerp(_c2.setHex(PAL.path), (1 - smoothstep(10.5, 15.5, r)) * smoothstep(8.5, 10, r) * 0.75);
+
+      // granite on slopes, with moss and lichen
       const rk = _c3.setHex(PAL.rock).lerp(_c2.setHex(PAL.rockDark), drift);
-      _c1.lerp(rk, rockAmt * 0.92);
-      _c1.lerp(_c2.setHex(PAL.copper), clamp((patch - 0.66) * 3.0, 0, 1) * rockAmt * 0.55);
-      _c1.lerp(_c2.setHex(PAL.verdigris), clamp((0.44 - patch) * 2.6, 0, 1) * rockAmt * 0.36);
+      _c1.lerp(rk, rockAmt * 0.95);
+      _c1.lerp(_c2.setHex(PAL.verdigris), clamp((0.46 - patch) * 2.6, 0, 1) * rockAmt * 0.5);
+      _c1.lerp(_c2.setHex(PAL.copper), clamp((patch - 0.7) * 3.0, 0, 1) * rockAmt * 0.35);
 
-      // dry scrub on flats
-      const scrub = clamp((grain - 0.6) * 2.6, 0, 1) * (1 - rockAmt) * smoothstep(0.6, 4, h);
-      _c1.lerp(_c2.setHex(0x7d7a4a), scrub * 0.3);
+      // snow on the high rim
+      _c1.lerp(_c2.setHex(PAL.snow), smoothstep(27, 35, h + (patch - 0.5) * 6) * (0.55 + 0.45 * (1 - rockAmt)));
 
-      // hollows sit darker and cooler; crests stay pale
-      const dip = 1 - clamp((h - 1) / 9, 0, 1);
-      _c1.offsetHSL(0.003 * (patch - 0.5), 0.015 * (drift - 0.5), (grain - 0.5) * 0.05 - dip * 0.035);
+      // wet dark earth and stone along the water
+      const wd = waterDist(x, z);
+      _c1.lerp(_c2.setHex(PAL.mud), (1 - smoothstep(-0.5, 3.5, wd)) * 0.85);
+
+      _c1.offsetHSL(0.004 * (patch - 0.5), 0.02 * (drift - 0.5), (grain - 0.5) * 0.05);
       return cc.copy(_c1);
     };
 
@@ -274,8 +291,8 @@ export class World {
     geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geo.computeVertexNormals();
     geo.computeBoundingSphere();
-    const gt = groundTexture();
-    gt.repeat.set(TILES, TILES);
+    const gt = meadowTexture();      // blades, clover and soil; hue still from the vertex colours
+    gt.repeat.set(TILES * 1.6, TILES * 1.6);
     const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: gt });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
@@ -289,22 +306,35 @@ export class World {
     // outer plain so the horizon reads as ground, not a void behind the rim
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(96, 660, 40, 1),
-      new THREE.MeshLambertMaterial({ color: 0x8d5f3b })
+      new THREE.MeshLambertMaterial({ color: 0x4f6e3c })
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 9;
     this.scene.add(ring);
 
+    // a mountain range all round, snow on the tops
     const b = new Builder();
-    for (let i = 0; i < 46; i++) {
-      const a = (i / 46) * TAU + rnd(-0.06, 0.06);
-      const dist = 190 + rnd(0, 120);
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * TAU + rnd(-0.07, 0.07);
+      const dist = 230 + rnd(0, 170);
       const x = Math.cos(a) * dist, z = Math.sin(a) * dist;
-      const w = rnd(42, 96), h = rnd(16, 40), d = rnd(38, 80);
-      const g = new THREE.CylinderGeometry(w * 0.55, w, h, 5 + Math.floor(rng() * 3), 1);
-      b.add(g, pick([0x8a5c3a, 0x9a6a44, 0x764c2e]), {
-        pos: [x, 9 + h * 0.46, z],
-        rot: [0, rnd(0, TAU), 0], scale: [1, 1, d / w], jitter: 0.07
+      const r0 = rnd(48, 105), h = rnd(70, 165);
+      const seg = 6 + Math.floor(rng() * 3), rot = rnd(0, TAU);
+      b.add(new THREE.ConeGeometry(r0, h, seg, 1), pick([0x5d666c, 0x6b7378, 0x535b62]), {
+        pos: [x, 9 + h / 2, z], rot: [0, rot, 0], jitter: 0.06
+      });
+      const cap = rnd(0.28, 0.42);
+      b.add(new THREE.ConeGeometry(r0 * cap * 1.04, h * cap, seg, 1), PAL.snow, {
+        pos: [x, 9 + h - (h * cap) / 2 + 0.4, z], rot: [0, rot, 0], jitter: 0.03
+      });
+    }
+    // forested foothills in front of them
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * TAU + rnd(-0.1, 0.1);
+      const dist = 170 + rnd(0, 50);
+      const w = rnd(40, 80), h = rnd(14, 34);
+      b.add(new THREE.CylinderGeometry(w * 0.45, w, h, 6, 1), pick([0x34502c, 0x2c4527, 0x3d5a32]), {
+        pos: [Math.cos(a) * dist, 9 + h * 0.46, Math.sin(a) * dist], rot: [0, rnd(0, TAU), 0], jitter: 0.05
       });
     }
     const mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
@@ -348,6 +378,7 @@ export class World {
         const s = rnd(0.7, 3.4) * (1 + smoothstep(40, 90, r) * 0.8);
         const hx = x, hz = z;
         if (terrainNormal(hx, hz, _v).y < 0.82) continue;   // no boulders on cliffs
+        if (waterDist(hx, hz) < s) continue;                  // nor in the river
         const selfR = s * 0.55;
         // seat the boulder on the lowest ground it covers so it never floats
         let ground = terrainHeight(hx, hz);
@@ -360,7 +391,7 @@ export class World {
         dummy.scale.set(s * rnd(0.85, 1.5), s * rnd(0.6, 1.05), s * rnd(0.85, 1.5));
         dummy.updateMatrix();
         mesh.setMatrixAt(n, dummy.matrix);
-        col.setHex(pick([0x8b6239, 0x9c7043, 0x74502f, 0xa87c50])).offsetHSL(0, 0, rnd(-0.05, 0.05));
+        col.setHex(pick([0x7d8284, 0x6c7274, 0x8e8f8a, 0x66705c])).offsetHSL(0, 0, rnd(-0.05, 0.05));
         mesh.setColorAt(n, col);
         if (s > 1.5) this.obstacles.push({ x, z, r: s * 0.75, h: s * 0.7 });
         n++;
@@ -463,19 +494,35 @@ export class World {
       }
     }
 
-    // wrecked metal husks (KG tech debris)
-    for (let i = 0; i < 7; i++) {
-      const a = rnd(0, TAU), r = rnd(20, ARENA_R - 14);
+    // standing rune-stones: tall slabs with carved, faintly glowing runes
+    const glow = new Builder();
+    for (let i = 0; i < 9; i++) {
+      const a = rnd(0, TAU), r = rnd(20, ARENA_R - 16);
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      const y0 = terrainHeight(x, z);
-      const rot = rnd(0, TAU);
-      b.add(new THREE.BoxGeometry(3.6, 1.5, 5.4), PAL.metal, { pos: [x, y0 + 0.7, z], rot: [rnd(-0.1, 0.1), rot, rnd(-0.12, 0.12)], jitter: 0.06 });
-      b.add(new THREE.BoxGeometry(3.0, 1.0, 2.0), PAL.metalRust, { pos: [x, y0 + 1.7, z], rot: [0.1, rot, 0], jitter: 0.08 });
-      b.add(new THREE.CylinderGeometry(0.5, 0.5, 1.2, 7), PAL.metal, {
-        pos: [x + Math.cos(rot) * 2.6, y0 + 1.0, z + Math.sin(rot) * 2.6], rot: [Math.PI / 2, rot, 0], jitter: 0.05
+      if (waterDist(x, z) < 3 || !this.isClear(x, z, 2)) continue;
+      const y0 = terrainHeight(x, z), rot = rnd(0, TAU), hh = rnd(3.2, 5.4);
+      b.add(new THREE.BoxGeometry(1.5, hh, 0.55), pick([PAL.ruinDark, PAL.rockDark]), {
+        pos: [x, y0 + hh / 2 - 0.3, z], rot: [rnd(-0.05, 0.05), rot, rnd(-0.06, 0.06)], jitter: 0.05
       });
-      this.obstacles.push({ x, z, r: 2.6, h: 2.2 });
+      for (let k = 0; k < 4; k++) {
+        const yy = y0 + 0.9 + k * (hh - 1.4) / 3.2;
+        glow.add(new THREE.BoxGeometry(0.62 - (k % 2) * 0.22, 0.09, 0.6), PAL.rune, {
+          pos: [x, yy, z], rot: [0, rot, (k % 2 ? 0.5 : -0.3)]
+        });
+      }
+      this.obstacles.push({ x, z, r: 0.95, h: hh });
     }
+    // rune bands round the four great pillars
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU + Math.PI / 4;
+      const x = Math.cos(a) * 12.5, z = Math.sin(a) * 12.5, y0 = terrainHeight(x, z);
+      for (const yy of [2.2, 5.6]) {
+        glow.add(new THREE.TorusGeometry(1.2, 0.05, 4, 20), PAL.rune, { pos: [x, y0 + yy, z], rot: [Math.PI / 2, 0, 0] });
+      }
+    }
+    const runeMesh = new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true }));
+    this.scene.add(runeMesh);
+    this.runes = runeMesh;
 
     const geo = b.buildUV(0.4);
     const mesh = new THREE.Mesh(geo, stoneMat());
@@ -527,19 +574,9 @@ export class World {
     for (let i = 0; i < 10; i++) {
       const s = spot(12, 44, 2.6);
       if (!s) continue;
+      if (waterDist(s[0], s[1]) < 2) continue;
       const y0 = terrainHeight(s[0], s[1]);
-      const hh = rnd(2.4, 5.2), r0 = rnd(0.16, 0.3);
-      b.add(new THREE.CylinderGeometry(r0 * 0.55, r0, hh, 5), 0x574130, {
-        pos: [s[0], y0 + hh / 2 - 0.12, s[1]],
-        rot: [rnd(-0.07, 0.07), rnd(0, TAU), rnd(-0.09, 0.09)], jitter: 0.05
-      });
-      for (let k = 0; k < 2; k++) {
-        const a = rnd(0, TAU), bl = rnd(0.8, 1.7), tilt = rnd(0.7, 1.2);
-        b.add(new THREE.CylinderGeometry(r0 * 0.28, r0 * 0.5, bl, 4), 0x4d3a2b, {
-          pos: [s[0] + Math.cos(a) * bl * 0.35, y0 + hh * rnd(0.6, 0.9) + bl * 0.2, s[1] + Math.sin(a) * bl * 0.35],
-          rot: [tilt * Math.sin(a), rnd(0, TAU), -tilt * Math.cos(a)], jitter: 0.05
-        });
-      }
+      pineInto(b, s[0], y0, s[1], rnd(0.45, 0.75));
       this.obstacles.push({ x: s[0], z: s[1], r: 0.55 });
     }
 
@@ -581,25 +618,10 @@ export class World {
       const x = Math.cos(a) * d, z = Math.sin(a) * d;
       if (!this.isClear(x, z, 0.35)) continue;
       const sz = rnd(0.1, 0.33);
-      small.add(new THREE.DodecahedronGeometry(sz, 0), pick([PAL.rock, PAL.rockDark, PAL.sandCool]), {
+      small.add(new THREE.DodecahedronGeometry(sz, 0), pick([PAL.rock, PAL.rockDark, 0x8a8d84]), {
         pos: [x, terrainHeight(x, z) + sz * 0.28, z],
         rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.06
       });
-    }
-
-    // ---- bones: an old ribcage, half sunk
-    for (let i = 0; i < 5; i++) {
-      const s = spot(14, 48, 2.8);
-      if (!s) continue;
-      const y0 = terrainHeight(s[0], s[1]);
-      const rotY = rnd(0, TAU), rr = rnd(0.7, 1.4);
-      for (let k = 0; k < 4; k++) {
-        const t = k * 0.55;
-        small.add(new THREE.TorusGeometry(rr, 0.07, 3, 7, Math.PI), bone, {
-          pos: [s[0] + Math.cos(rotY) * t, y0 - 0.05, s[1] + Math.sin(rotY) * t],
-          rot: [0, rotY + Math.PI / 2, 0], jitter: 0.05
-        });
-      }
     }
 
     // ---- broken slabs, half buried
@@ -788,17 +810,6 @@ export class World {
       });
     }
 
-    // ---- a dead city on the far horizon
-    for (let i = 0; i < 34; i++) {
-      const a = rnd(-0.55, 0.75);
-      const d = rnd(380, 620);
-      const x = Math.cos(a) * d, z = Math.sin(a) * d;
-      const w = rnd(14, 38), h = rnd(38, 104), dep = rnd(14, 38);
-      b.add(new THREE.BoxGeometry(w, h, dep), pick([0x6d4a30, 0x7d573a, 0x5c3d26]), {
-        pos: [x, PLAIN_Y + h / 2 - 4, z], rot: [0, rnd(0, TAU), 0], jitter: 0.06
-      });
-    }
-
     const mesh = new THREE.Mesh(b.buildUV(0.35), stoneMat());
     mesh.name = 'landmarks';
     mesh.castShadow = false;
@@ -841,7 +852,7 @@ export class World {
       `);
     };
 
-    const COUNT = this.quality === 'fast' ? 700 : this.quality === 'high' ? 2200 : 1500;
+    const COUNT = this.quality === 'fast' ? 1100 : this.quality === 'high' ? 3600 : 2600;
     const grass = new THREE.InstancedMesh(quad, mat, COUNT);
     const d = new THREE.Object3D();
     const col = new THREE.Color();
@@ -852,15 +863,21 @@ export class World {
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
       const h = terrainHeight(x, z);
       const nrm = terrainNormal(x, z, _v);
-      if (nrm.y < 0.86) continue;               // no grass on cliffs
-      if (fbm(x * 0.05, z * 0.05, 2) < 0.42) continue; // clumping
+      if (nrm.y < 0.84) continue;               // no grass on cliffs
+      if (waterDist(x, z) < 0.6) continue;      // nor in the water
+      if (Math.hypot(x, z) < 15 && Math.hypot(x, z) > 9) continue; // the trodden ring
+      if (fbm(x * 0.05, z * 0.05, 2) < 0.3) continue; // clumping
       const s = rnd(0.45, 1.05);
       d.position.set(x, h - 0.05, z);
       d.rotation.set(0, rnd(0, TAU), 0);
       d.scale.set(s * rnd(0.8, 1.2), s * rnd(0.75, 1.5), s);
       d.updateMatrix();
       grass.setMatrixAt(n, d.matrix);
-      col.setHSL(rnd(0.09, 0.14), rnd(0.35, 0.55), rnd(0.32, 0.5));
+      // greens, with the odd tuft of late-summer gold and a few flower heads
+      const f = rng();
+      if (f < 0.05) col.setHSL(pick([0.75, 0.13, 0.0, 0.58]), 0.55, 0.62);
+      else if (f < 0.18) col.setHSL(rnd(0.12, 0.16), rnd(0.4, 0.55), rnd(0.42, 0.55));
+      else col.setHSL(rnd(0.22, 0.31), rnd(0.38, 0.6), rnd(0.28, 0.44));
       grass.setColorAt(n, col);
       n++;
     }
@@ -891,14 +908,14 @@ export class World {
     while (sn < SHRUBS && guard++ < SHRUBS * 10) {
       const a = rnd(0, TAU), r = Math.sqrt(rng()) * (ARENA_R - 6) + 4;
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (Math.hypot(x, z) < 15) continue;
+      if (Math.hypot(x, z) < 15 || waterDist(x, z) < 1.5) continue;
       const s = rnd(0.6, 1.5);
       d.position.set(x, terrainHeight(x, z) - s * 0.12, z);
       d.rotation.set(rnd(-0.1, 0.1), rnd(0, TAU), rnd(-0.1, 0.1));
       d.scale.set(s, s * rnd(0.78, 1.15), s);
       d.updateMatrix();
       shrubs.setMatrixAt(sn, d.matrix);
-      col.setHex(pick([PAL.scrub, PAL.scrubDry, 0x5d6630, 0x7a6a34])).offsetHSL(0, 0, rnd(-0.04, 0.04));
+      col.setHex(pick([PAL.scrub, PAL.scrubDry, 0x3d6a2c, 0x56803a])).offsetHSL(0, 0, rnd(-0.04, 0.04));
       shrubs.setColorAt(sn, col);
       sn++;
     }
@@ -907,39 +924,31 @@ export class World {
     shrubs.instanceColor.needsUpdate = true;
     this.scene.add(shrubs);
 
-    // ---- dead trees (merged)
-    const b = new Builder();
-    for (let i = 0; i < 16; i++) {
-      const a = rnd(0, TAU), r = rnd(22, ARENA_R - 12);
+    // ---- pine forest: scattered stands in the valley, thick on the rim slopes,
+    //      and a forest ring on the plain outside (no shadows out there)
+    const b = new Builder(), far = new Builder();
+    let placed = 0;
+    for (let k = 0; k < 900 && placed < 150; k++) {
+      const a = rnd(0, TAU), r = rnd(20, ARENA_R + 6);
       const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      let y = terrainHeight(x, z);
-      const th = rnd(4, 8);
-      let tx = x, tz = z;
-      const lean = rnd(-0.14, 0.14), leanZ = rnd(-0.14, 0.14);
-      const segs = 5;
-      for (let s = 0; s < segs; s++) {
-        const sh = th / segs;
-        const rr = lerp(0.34, 0.13, s / segs);
-        b.add(new THREE.CylinderGeometry(rr * 0.82, rr, sh * 1.05, 6), PAL.wood, {
-          pos: [tx, y + sh / 2, tz], rot: [leanZ, rnd(0, TAU), lean], jitter: 0.05
-        });
-        y += sh;
-        tx += lean * sh * 0.5; tz += leanZ * sh * 0.5;
-        // branches
-        if (s >= 2 && rng() > 0.35) {
-          const bl = rnd(1.2, 2.6);
-          const ba = rnd(0, TAU);
-          b.add(new THREE.CylinderGeometry(0.06, 0.12, bl, 5), PAL.wood, {
-            pos: [tx + Math.cos(ba) * bl * 0.35, y + rnd(0, 0.4), tz + Math.sin(ba) * bl * 0.35],
-            rot: [Math.PI / 2 - rnd(0.2, 0.7), ba, 0], jitter: 0.04
-          });
-        }
-      }
-      this.obstacles.push({ x, z, r: 0.55, h: 4 });
+      // stands, not a lawn of single trees
+      if (fbm(x * 0.03 + 40, z * 0.03, 2) < (r > 66 ? 0.42 : 0.55)) continue;
+      if (waterDist(x, z) < 2.5 || terrainNormal(x, z, _v).y < 0.7 || !this.isClear(x, z, 1.4)) continue;
+      pineInto(b, x, terrainHeight(x, z), z, rnd(0.8, 1.45));
+      if (r < ARENA_R) this.obstacles.push({ x, z, r: 0.55, h: 8 });
+      placed++;
     }
-    const trees = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
-    trees.castShadow = true;
+    for (let k = 0; k < 320; k++) {
+      const a = rnd(0, TAU), r = rnd(106, 175);
+      pineInto(far, Math.cos(a) * r, 9, Math.sin(a) * r, rnd(1.2, 2.2));
+    }
+    const pineMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: needleTexture() });
+    const trees = new THREE.Mesh(b.buildUV(1.3), pineMat);
+    trees.castShadow = true; trees.receiveShadow = true;
     this.scene.add(trees);
+    const farTrees = new THREE.Mesh(far.buildUV(1.3), pineMat);
+    farTrees.frustumCulled = false;
+    this.scene.add(farTrees);
   }
 
   /* -------------------------------------------------- ground scatter */
@@ -963,7 +972,7 @@ export class World {
       d.scale.set(s * rnd(0.8, 1.5), s * rnd(0.5, 1.0), s * rnd(0.8, 1.5));
       d.updateMatrix();
       mesh.setMatrixAt(n, d.matrix);
-      col.setHex(pick([0x9b7648, 0x7d5c38, 0xb08a58, 0x6b4f31])).offsetHSL(0, 0, rnd(-0.05, 0.06));
+      col.setHex(pick([0x7d8284, 0x6a6f6c, 0x8f8c80, 0x5d6650])).offsetHSL(0, 0, rnd(-0.05, 0.06));
       mesh.setColorAt(n, col);
       n++;
     }
@@ -988,9 +997,10 @@ export class World {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    // spirit motes: faint glowing seeds drifting over the valley
     const m = new THREE.PointsMaterial({
-      size: 0.16, map: smokeTexture(), transparent: true, opacity: 0.32,
-      depthWrite: false, blending: THREE.NormalBlending, color: 0xffdcae, sizeAttenuation: true
+      size: 0.13, map: radialSprite('rgba(255,255,255,1)', 'rgba(140,240,255,0)', 32), transparent: true, opacity: 0.75,
+      depthWrite: false, blending: THREE.AdditiveBlending, color: 0xc9f6ff, sizeAttenuation: true
     });
     const pts = new THREE.Points(g, m);
     pts.frustumCulled = false;
@@ -998,9 +1008,243 @@ export class World {
     this.dust = pts;
   }
 
+  /* -------------------------------------------------- watchtowers
+     Round stone towers with slate roofs and lit windows: three inside the valley
+     on the rim slopes, three more on the horizon for scale. */
+  buildTowers() {
+    const b = new Builder(), roof = new Builder(), lit = new Builder();
+    const tower = (x, z, H, R, inside) => {
+      let y0 = terrainHeight(x, z);
+      for (let a = 0; a < 8; a++) y0 = Math.min(y0, terrainHeight(x + Math.cos(a) * R, z + Math.sin(a) * R));
+      y0 -= 0.6;
+      b.add(new THREE.CylinderGeometry(R * 1.2, R * 1.32, 2.2, 16), PAL.ruinDark, { pos: [x, y0 + 1.1, z], jitter: 0.04 });
+      b.add(new THREE.CylinderGeometry(R * 0.9, R, H, 16), PAL.ruin, { pos: [x, y0 + 2.2 + H / 2, z], jitter: 0.05 });
+      for (const f of [0.42, 1.0]) b.add(new THREE.CylinderGeometry(R * (1.12 - f * 0.1), R * (1.06 - f * 0.1), 0.7, 16), PAL.ruinDark, { pos: [x, y0 + 2.2 + H * f, z], jitter: 0.04 });
+      const top = y0 + 2.2 + H, Rt = R * 1.02;
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * TAU;
+        b.add(new THREE.BoxGeometry(R * 0.38, 1.1, 0.6), PAL.ruinLight, { pos: [x + Math.cos(a) * Rt, top + 0.9, z + Math.sin(a) * Rt], rot: [0, -a, 0], jitter: 0.05 });
+      }
+      roof.add(new THREE.ConeGeometry(R * 1.12, H * 0.55, 16), PAL.slate, { pos: [x, top + 0.35 + H * 0.275, z], jitter: 0.03 });
+      roof.add(new THREE.CylinderGeometry(0.08, 0.12, 3.2, 6), PAL.metalRust, { pos: [x, top + 0.35 + H * 0.55 + 1.4, z] });
+      // windows: dark frames, warm light inside, spiralling up the tower
+      for (let k = 0; k < 6; k++) {
+        const a = k * 2.1, yy = y0 + 4 + k * (H - 6) / 5;
+        const wx = x + Math.cos(a) * (R * 0.93), wz = z + Math.sin(a) * (R * 0.93);
+        b.add(new THREE.BoxGeometry(0.9, 1.7, 0.5), 0x2a2622, { pos: [wx, yy, wz], rot: [0, -a + Math.PI / 2, 0] });
+        lit.add(new THREE.BoxGeometry(0.55, 1.25, 0.56), 0xffc070, { pos: [wx, yy, wz], rot: [0, -a + Math.PI / 2, 0] });
+      }
+      // door facing the valley
+      const ad = Math.atan2(-z, -x);
+      b.add(new THREE.BoxGeometry(1.8, 3.0, 0.6), 0x3b2a1c, { pos: [x + Math.cos(ad) * R * 1.02, y0 + 2.2 + 1.5, z + Math.sin(ad) * R * 1.02], rot: [0, -ad + Math.PI / 2, 0] });
+      if (inside) this.obstacles.push({ x, z, r: R * 1.32, h: H + 2 });
+    };
+    for (const a of [1.15, 0.25, -1.45]) tower(Math.cos(a) * 76, Math.sin(a) * 76, rnd(15, 19), 3.4, true);
+    for (const [a, d] of [[2.0, 190], [-0.7, 230], [3.5, 210]]) tower(Math.cos(a) * d, Math.sin(a) * d, rnd(34, 46), 7, false);
+
+    const m1 = new THREE.Mesh(b.buildUV(0.45), stoneMat());
+    m1.castShadow = true; m1.receiveShadow = true; m1.frustumCulled = false;
+    const m2 = new THREE.Mesh(roof.build(), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    m2.castShadow = true; m2.frustumCulled = false;
+    const m3 = new THREE.Mesh(lit.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true }));
+    m3.frustumCulled = false;
+    this.scene.add(m1, m2, m3);
+  }
+
+  /* -------------------------------------------------- the guardian colossi
+     Two hooded stone giants leaning on greatswords, flanking the river where it
+     falls into the valley. Built from rounded volumes, eyes faintly lit. */
+  buildColossi() {
+    const b = new Builder({ smooth: true }), glow = new Builder({ smooth: true });
+    const M = new THREE.Matrix4(), L = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    const giant = (cx, cz, scale) => {
+      const yaw = Math.atan2(-cx, -cz);              // faces the shrine
+      let y0 = terrainHeight(cx, cz);
+      for (let a = 0; a < 8; a++) y0 = Math.min(y0, terrainHeight(cx + Math.cos(a) * 5 * scale, cz + Math.sin(a) * 5 * scale));
+      M.compose(new THREE.Vector3(cx, y0 - 0.5, cz), q.setFromEuler(e.set(0, yaw, 0)), new THREE.Vector3(scale, scale, scale));
+      const part = (bld, geo, col, p, r = [0, 0, 0], sc = [1, 1, 1]) => {
+        L.compose(new THREE.Vector3(...p), q.setFromEuler(e.set(...r)), new THREE.Vector3(...sc));
+        bld.add(geo, col, { matrix: new THREE.Matrix4().multiplyMatrices(M, L), jitter: 0.03 });
+      };
+      const S = PAL.ruin, SD = PAL.ruinDark, SL = PAL.ruinLight, MOSS = 0x6f8358;
+      part(b, new THREE.BoxGeometry(8, 3, 8), SD, [0, 1.5, 0]);                                           // plinth
+      part(b, new THREE.BoxGeometry(7, 0.6, 7), SL, [0, 3.2, 0]);
+      part(b, new THREE.CylinderGeometry(1.9, 3.3, 8.5, 20), S, [0, 7.6, 0]);                             // robe
+      part(b, new THREE.CylinderGeometry(3.32, 3.45, 0.9, 20), MOSS, [0, 3.9, 0]);                        // mossy hem
+      part(b, new THREE.CapsuleGeometry(1.9, 2.4, 6, 16), S, [0, 13.2, 0], [0, 0, 0], [1.25, 1, 0.9]);     // torso
+      for (const sx of [-1, 1]) {
+        part(b, new THREE.SphereGeometry(1.35, 16, 12), SL, [sx * 2.3, 14.9, 0]);                          // shoulders
+        part(b, new THREE.CapsuleGeometry(0.75, 2.6, 6, 12), S, [sx * 2.0, 12.9, 1.0], [-0.5, 0, sx * 0.35]); // arms to the hilt
+        part(b, new THREE.SphereGeometry(0.75, 12, 10), SL, [sx * 0.65, 11.6, 2.15]);                       // hands
+      }
+      part(b, new THREE.SphereGeometry(1.25, 18, 14), SL, [0, 16.9, 0.2]);                               // face
+      part(b, new THREE.SphereGeometry(1.55, 18, 14), SD, [0, 17.15, -0.25], [0, 0, 0], [1, 1.12, 1]);     // hood
+      part(b, new THREE.ConeGeometry(1.2, 1.6, 14), SD, [0, 18.6, -0.6], [-0.5, 0, 0]);                    // hood peak
+      // the greatsword, point down on the plinth
+      part(b, new THREE.BoxGeometry(0.75, 9.2, 0.22), SL, [0, 7.1, 2.4]);
+      part(b, new THREE.ConeGeometry(0.53, 1.1, 4), SL, [0, 2.0, 2.4], [Math.PI, Math.PI / 4, 0], [1, 1, 0.3]);
+      part(b, new THREE.BoxGeometry(3.6, 0.45, 0.5), SD, [0, 11.9, 2.4]);                                // crossguard
+      part(b, new THREE.CylinderGeometry(0.28, 0.28, 1.5, 10), SD, [0, 12.9, 2.4]);
+      part(b, new THREE.SphereGeometry(0.42, 12, 10), PAL.metalRust, [0, 13.8, 2.4]);                     // pommel
+      for (const sx of [-1, 1]) part(glow, new THREE.SphereGeometry(0.17, 10, 8), PAL.rune, [sx * 0.42, 17.0, 1.33]);
+      part(glow, new THREE.BoxGeometry(0.12, 7.6, 0.24), PAL.rune, [0, 7.4, 2.4]);                        // fuller glow
+      this.obstacles.push({ x: cx, z: cz, r: 5.4 * scale, h: 18 * scale });
+    };
+    giant(-76, 30, 1.0);
+    giant(-61, 60, 1.0);
+    const m = new THREE.Mesh(b.buildUV(0.3), stoneMat());
+    m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
+    const g = new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true }));
+    this.scene.add(m, g);
+    this.colossusGlow = g;
+  }
+
+  /* -------------------------------------------------- water
+     One shader for river and lake: depth colour, flowing ripples on world
+     coordinates, sky reflection at grazing angles, sun glints, foam at the banks
+     and on the cascade. */
+  buildWater() {
+    const mat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide,   // ribbon winding varies along the bends
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+        uTime: { value: 0 }, uSun: { value: this.sunDir.clone() },
+        uDeep: { value: new THREE.Color(0x174a55) }, uShallow: { value: new THREE.Color(0x3f8f86) },
+        uSky: { value: new THREE.Color(0xbcd8ec) },
+      }]),
+      vertexShader: /* glsl */`
+        attribute vec2 flow; attribute float edge; attribute float foam;
+        varying vec3 vW; varying vec2 vFlow; varying float vEdge; varying float vFoam;
+        #include <fog_pars_vertex>
+        void main(){
+          vec4 w = modelMatrix * vec4(position, 1.0);
+          vW = w.xyz; vFlow = flow; vEdge = edge; vFoam = foam;
+          vec4 mvPosition = viewMatrix * w;
+          gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: /* glsl */`
+        uniform float uTime; uniform vec3 uSun, uDeep, uShallow, uSky;
+        varying vec3 vW; varying vec2 vFlow; varying float vEdge; varying float vFoam;
+        #include <fog_pars_fragment>
+        float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
+        float rip(vec2 p){ return vn(p) * 0.6 + vn(p * 2.3 + 7.1) * 0.4; }
+        void main(){
+          vec2 q = vW.xz * 0.45 - vFlow * uTime * 1.3;
+          float n = rip(q), nx = rip(q + vec2(0.06, 0.0)), nz = rip(q + vec2(0.0, 0.06));
+          vec3 N = normalize(vec3((n - nx) * 5.0, 1.0, (n - nz) * 5.0));
+          vec3 V = normalize(cameraPosition - vW);
+          float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+          vec3 col = mix(uDeep, uShallow, smoothstep(0.2, 1.0, vEdge) * 0.8 + n * 0.15);
+          col = mix(col, uSky, clamp(fres * 0.75, 0.0, 0.75));
+          vec3 Hh = normalize(normalize(uSun) + V);
+          col += vec3(1.0, 0.93, 0.8) * pow(max(dot(N, Hh), 0.0), 120.0) * 1.6;
+          float fm = smoothstep(0.78, 1.0, vEdge) * (0.55 + 0.45 * rip(q * 2.0))
+                   + vFoam * smoothstep(0.35, 0.75, rip(q * 1.6 - uTime * 0.4));
+          col = mix(col, vec3(0.93, 0.97, 0.97), clamp(fm, 0.0, 1.0) * 0.8);
+          gl_FragColor = vec4(col, clamp(mix(0.86, 0.6, vEdge) + fm * 0.3, 0.0, 0.95));
+          #include <fog_fragment>
+        }`,
+    });
+    this.waterMat = mat;
+
+    // river ribbon
+    const P = RIVER, W = RIVER_W + 1.3;
+    const pos = [], flow = [], edge = [], foam = [], idx = [];
+    for (let i = 0; i < P.length; i++) {
+      const a = P[Math.max(0, i - 1)], c = P[Math.min(P.length - 1, i + 1)];
+      let tx = c.x - a.x, tz = c.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+      const nx = -tz, nz = tx;
+      const slope = clamp((a.wy - c.wy) / Math.max(0.5, c.s - a.s) * 3, 0, 1);
+      for (const side of [-1, 0, 1]) {
+        pos.push(P[i].x + nx * W * side, P[i].wy, P[i].z + nz * W * side);
+        flow.push(tx * (1 + slope * 3), tz * (1 + slope * 3));
+        edge.push(Math.abs(side)); foam.push(slope);
+      }
+      if (i) for (let k = 0; k < 2; k++) {
+        const o = (i - 1) * 3 + k, o2 = i * 3 + k;
+        idx.push(o, o2, o + 1, o + 1, o2, o2 + 1);
+      }
+    }
+    // lake: a disc, edge rising to the rim
+    const base = pos.length / 3, SEGS = 40;
+    pos.push(LAKE.x, LAKE_Y, LAKE.z); flow.push(0, 0); edge.push(0); foam.push(0);
+    for (let k = 0; k <= SEGS; k++) {
+      const a = (k / SEGS) * TAU;
+      for (const f of [0.6, 1.0]) {
+        pos.push(LAKE.x + Math.cos(a) * (LAKE.r + 1.6) * f, LAKE_Y, LAKE.z + Math.sin(a) * (LAKE.r + 1.6) * f);
+        flow.push(0.08, 0.03); edge.push(f === 1 ? 1 : 0.35); foam.push(0);
+      }
+    }
+    for (let k = 0; k < SEGS; k++) {
+      const i0 = base + 1 + k * 2, i1 = base + 1 + (k + 1) * 2;
+      idx.push(base, i1, i0, i0, i1, i1 + 1, i0, i1 + 1, i0 + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('flow', new THREE.Float32BufferAttribute(flow, 2));
+    g.setAttribute('edge', new THREE.Float32BufferAttribute(edge, 1));
+    g.setAttribute('foam', new THREE.Float32BufferAttribute(foam, 1));
+    g.setIndex(idx);
+    g.computeBoundingSphere();
+    const water = new THREE.Mesh(g, mat);
+    water.renderOrder = 2;
+    water.frustumCulled = false;
+    this.scene.add(water);
+    this.water = water;
+
+    // reeds along the banks: tall thin blades in clumps where the water meets the bank
+    const reed = new Builder();
+    for (let k = 0; k < 900; k++) {
+      const q = RIVER[Math.floor(rng() * RIVER.length)];
+      const a = rnd(0, TAU), d = RIVER_W + rnd(-0.6, 1.4);
+      const x = q.x + Math.cos(a) * d, z = q.z + Math.sin(a) * d;
+      const wd = waterDist(x, z);
+      if (wd < -0.8 || wd > 1.2 || terrainNormal(x, z, _v).y < 0.75) continue;
+      const y0 = terrainHeight(x, z), n = 3 + Math.floor(rng() * 4);
+      for (let i = 0; i < n; i++) {
+        const h = rnd(0.7, 1.5), ox = rnd(-0.25, 0.25), oz = rnd(-0.25, 0.25);
+        reed.add(new THREE.ConeGeometry(0.025, h, 3), pick([0x5d7a34, 0x6f8a3c, 0x8a8a48]), {
+          pos: [x + ox, y0 + h / 2 - 0.05, z + oz], rot: [rnd(-0.2, 0.2), rnd(0, TAU), rnd(-0.2, 0.2)]
+        });
+        if (rng() < 0.3) reed.add(new THREE.CapsuleGeometry(0.03, 0.12, 3, 5), 0x5a3a22, { pos: [x + ox, y0 + h - 0.02, z + oz] }); // cat-tail head
+      }
+    }
+    // lily pads and a few flowers drifting on the lake
+    for (let k = 0; k < 26; k++) {
+      const a = rnd(0, TAU), d = Math.sqrt(rng()) * (LAKE.r - 1);
+      const x = LAKE.x + Math.cos(a) * d, z = LAKE.z + Math.sin(a) * d, s = rnd(0.35, 0.7);
+      reed.add(new THREE.CylinderGeometry(s, s, 0.02, 10, 1, false, 0.3, TAU - 0.6), pick([0x3f6a2c, 0x4f7a34]), { pos: [x, LAKE_Y + 0.02, z], rot: [0, rnd(0, TAU), 0] });
+      if (rng() < 0.3) reed.add(new THREE.SphereGeometry(0.11, 8, 6), pick([0xf2e4ea, 0xf0c8d8]), { pos: [x, LAKE_Y + 0.08, z], scale: [1, 0.6, 1] });
+    }
+    const reeds = new THREE.Mesh(reed.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    reeds.receiveShadow = true;
+    this.scene.add(reeds);
+
+    // spray where the cascade meets the valley floor
+    this.mist = [];
+    const tex = smokeTexture();
+    let steepEnd = 0;
+    for (let i = 1; i < P.length - 1; i++) if (P[i - 1].wy - P[i + 1].wy > 0.8) steepEnd = i;
+    for (let k = 0; k < 5; k++) {
+      const q = P[Math.min(P.length - 1, steepEnd + k * 2)];
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0xeaf6f8, transparent: true, depthWrite: false, opacity: 0.4 }));
+      sp.position.set(q.x + rnd(-1.5, 1.5), q.wy + 1.2, q.z + rnd(-1.5, 1.5));
+      sp.scale.setScalar(rnd(4, 7));
+      this.scene.add(sp);
+      this.mist.push({ sp, base: q.wy + 1.2, seed: rng() * 10 });
+    }
+  }
+
   /* -------------------------------------------------- per frame */
   update(dt, t, playerPos, camera) {
     this.time.value = t;
+    if (this.runes) this.runes.material.color.setScalar(0.75 + Math.sin(t * 1.3) * 0.25);
+    if (this.mist) for (const m of this.mist) {
+      m.sp.material.opacity = 0.38 + Math.sin(t * 1.7 + m.seed) * 0.12;
+      m.sp.position.y = m.base + Math.sin(t * 0.9 + m.seed) * 0.4;
+    }
 
     // firelight: flicker the flames and their lights
     if (this.flames) {
@@ -1040,6 +1284,8 @@ export class World {
       this.fill.target.position.set(playerPos.x, playerPos.y + 1.1, playerPos.z);
       this.fill.target.updateMatrixWorld();
     }
+
+    if (this.waterMat) this.waterMat.uniforms.uTime.value = t;
 
     // drifting dust, wrapped around the player
     if (this.dust && this.dustData) {
@@ -1170,6 +1416,19 @@ export class World {
       }
     }
     return false;
+  }
+}
+
+/** a pine: trunk and stacked tiers, added into a Builder at (x, y, z) */
+function pineInto(b, x, y, z, s) {
+  const lean = rnd(-0.04, 0.04);
+  b.add(new THREE.CylinderGeometry(0.16 * s, 0.26 * s, 2.2 * s, 6), PAL.wood, { pos: [x, y + 1.0 * s, z], rot: [lean, 0, lean], jitter: 0.04 });
+  const tiers = 4;
+  for (let t = 0; t < tiers; t++) {
+    const r = (2.3 - t * 0.48) * s, h = (3.0 - t * 0.3) * s;
+    b.add(new THREE.ConeGeometry(r, h, 7, 1), t % 2 ? PAL.pine : PAL.pineDark, {
+      pos: [x + lean * t, y + (2.2 + t * 1.55) * s + h * 0.35, z + lean * t], rot: [0, rnd(0, TAU), 0], jitter: 0.06
+    });
   }
 }
 

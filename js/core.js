@@ -211,15 +211,105 @@ export function terrainRaw(x, z) {
   return h;
 }
 
-let HEIGHTS = null;
+/* ---------------- the river ----------------
+   It drops off the valley rim as a cascade, winds round the shrine and ends in a
+   lake. It is carved into the height field itself, so what you wade through is
+   what you see. The water surface level falls monotonically along the course. */
+export const RIVER_W = 3.4;           // half-width of the channel
+export const LAKE = { x: 50, z: -26, r: 11 };
+const RIVER_CTRL = [
+  [-96, 58], [-80, 49], [-63, 41], [-46, 35], [-29, 37], [-12, 39], [5, 35],
+  [20, 28], [33, 16], [42, 1], [47, -12], [LAKE.x, LAKE.z],
+];
+export const RIVER = (() => {
+  // Catmull-Rom through the control points, about one sample per metre
+  const pts = [];
+  const P = RIVER_CTRL;
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    const segLen = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    const n = Math.max(2, Math.ceil(segLen));
+    for (let k = 0; k < n; k++) {
+      const t = k / n, t2 = t * t, t3 = t2 * t;
+      const f = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      pts.push({ x: f(p0[0], p1[0], p2[0], p3[0]), z: f(p0[1], p1[1], p2[1], p3[1]) });
+    }
+  }
+  pts.push({ x: P[P.length - 1][0], z: P[P.length - 1][1] });
+  let len = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (i) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+    pts[i].s = len;
+  }
+  // water level: the running minimum of the ground along the course, eased, so
+  // water never has to climb; then a little below it
+  let m = Infinity;
+  for (const q of pts) { m = Math.min(m, terrainRaw(q.x, q.z)); q.wy = m; }
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 1; i < pts.length - 1; i++) pts[i].wy = Math.min(pts[i - 1].wy, (pts[i - 1].wy + pts[i].wy + pts[i + 1].wy) / 3);
+  }
+  for (const q of pts) q.wy -= 0.35;
+  return pts;
+})();
+export const LAKE_Y = RIVER[RIVER.length - 1].wy;
+
+/** nearest point on the river: {d, wy, i}; d is horizontal distance to the centre line */
+export function riverNearest(x, z) {
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < RIVER.length; i++) {
+    const q = RIVER[i];
+    const dx = x - q.x, dz = z - q.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < best) { best = d2; bi = i; }
+  }
+  return { d: Math.sqrt(best), wy: RIVER[bi].wy, i: bi };
+}
+
+let LAST_WD = Infinity;
+/** carve channel, banks and lake bed into a raw height */
+function carve(x, z, h) {
+  const L = Math.hypot(x - LAKE.x, z - LAKE.z);
+  const rn = riverNearest(x, z);
+  // pick whichever water body is closer, measured against its own edge
+  const useLake = L - LAKE.r < rn.d - RIVER_W;
+  const d = useLake ? L : rn.d, W = useLake ? LAKE.r : RIVER_W, wy = useLake ? LAKE_Y : rn.wy;
+  LAST_WD = d - W;
+  const depth = useLake ? 1.7 : 0.9;
+  if (d > W + 14) return h;
+  const bank = Math.max(h, wy + 0.4);
+  if (d < W) return wy - 0.12 - depth * (1 - (d / W) * (d / W));
+  if (d < W + 5) return lerp(wy - 0.12, bank, smoothstep(W, W + 5, d));
+  return lerp(bank, h, smoothstep(W + 5, W + 14, d));
+}
+
+/** distance from a point to the nearest water edge (negative inside the water), from the cached grid */
+export function waterDist(x, z) {
+  heightTable();
+  const n = GRID_SEG + 1;
+  const i = clamp(Math.round((x + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
+  const j = clamp(Math.round((z + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
+  return WD[j * n + i];
+}
+
+/** water surface height at a point, or -Infinity on dry land */
+export function waterLevel(x, z) {
+  if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 1.2) return LAKE_Y;
+  const rn = riverNearest(x, z);
+  return rn.d < RIVER_W + 1.2 ? rn.wy : -Infinity;
+}
+
+let HEIGHTS = null, WD = null;
 function heightTable() {
   if (HEIGHTS) return HEIGHTS;
   const n = GRID_SEG + 1;
   HEIGHTS = new Float32Array(n * n);
+  WD = new Float32Array(n * n);
   for (let j = 0; j < n; j++) {
     const z = -GRID_EXT + j * GRID_STEP;
     for (let i = 0; i < n; i++) {
-      HEIGHTS[j * n + i] = terrainRaw(-GRID_EXT + i * GRID_STEP, z);
+      const x = -GRID_EXT + i * GRID_STEP;
+      HEIGHTS[j * n + i] = carve(x, z, terrainRaw(x, z));
+      WD[j * n + i] = LAST_WD;
     }
   }
   return HEIGHTS;
@@ -370,9 +460,10 @@ export function grassTexture() {
       const hh = 18 + r() * 40;
       const bend = (r() - 0.5) * 16;
       const g = ctx.createLinearGradient(0, h, 0, h - hh);
-      const dry = 150 + Math.floor(r() * 60);
-      g.addColorStop(0, `rgba(${dry},${Math.floor(dry * 0.72)},38,1)`);
-      g.addColorStop(1, `rgba(${dry + 40},${Math.floor(dry * 0.85)},60,1)`);
+      const l = 150 + Math.floor(r() * 70);
+      // neutral, light at the tip: hue comes from each tuft's instance colour
+      g.addColorStop(0, `rgba(${Math.floor(l * 0.62)},${Math.floor(l * 0.7)},${Math.floor(l * 0.55)},1)`);
+      g.addColorStop(1, `rgba(${Math.min(255, l + 50)},${Math.min(255, l + 60)},${l},1)`);
       ctx.strokeStyle = g;
       ctx.lineWidth = 1 + r() * 1.6;
       ctx.lineCap = 'round';
@@ -594,5 +685,60 @@ export function fabricTexture() {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  return tex;
+}
+
+/** Pine needles: short dark strokes on a light ground, near white on average so
+ *  the vertex green carries the hue. Box-projected onto the cone tiers. */
+export function needleTexture() {
+  const S = 128;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = 'rgb(220,228,214)'; ctx.fillRect(0, 0, S, S);
+  const r = mulberry32(6060);
+  for (let i = 0; i < 900; i++) {
+    const x = r() * S, y = r() * S, l = 4 + r() * 7, a = Math.PI / 2 + (r() - 0.5) * 1.1;
+    const dark = r() < 0.7;
+    ctx.strokeStyle = dark ? `rgba(40,60,40,${0.35 + r() * 0.35})` : `rgba(255,255,240,${0.25 + r() * 0.3})`;
+    ctx.lineWidth = 0.8 + r() * 0.8;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+
+/** Meadow ground: fine blades, clover and soil specks over soft noise. Detail
+ *  only (greyscale, light): the terrain's vertex colours carry the hue. */
+export function meadowTexture() {
+  const S = 512;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const r = mulberry32(8181);
+  const img = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const n = vnoise(x / 23, y / 23) * 0.5 + vnoise(x / 7, y / 7) * 0.3 + r() * 0.2;
+    const c = clamp(Math.round((0.8 + (n - 0.5) * 0.22) * 255), 0, 255);
+    const i = (y * S + x) * 4;
+    img.data[i] = c; img.data[i + 1] = c; img.data[i + 2] = c * 0.96; img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  // blades: short upright strokes, light tips and dark roots, wrapped at the edges
+  for (let i = 0; i < 5200; i++) {
+    const x = r() * S, y = r() * S, l = 3 + r() * 8, a = -Math.PI / 2 + (r() - 0.5) * 0.9;
+    ctx.strokeStyle = r() < 0.55 ? `rgba(255,255,245,${0.18 + r() * 0.25})` : `rgba(40,50,30,${0.15 + r() * 0.2})`;
+    ctx.lineWidth = 0.7 + r() * 0.9;
+    for (const ox of [0, x > S - 10 ? -S : 0]) {
+      ctx.beginPath(); ctx.moveTo(x + ox, y); ctx.lineTo(x + ox + Math.cos(a) * l, y + Math.sin(a) * l); ctx.stroke();
+    }
+  }
+  // clover and soil
+  for (let i = 0; i < 260; i++) {
+    const x = r() * S, y = r() * S;
+    ctx.fillStyle = r() < 0.6 ? `rgba(60,70,40,${0.18 + r() * 0.15})` : `rgba(90,70,50,${0.15 + r() * 0.15})`;
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(x + Math.cos(k * 2.1) * 2, y + Math.sin(k * 2.1) * 2, 1.6 + r(), 0, Math.PI * 2); ctx.fill(); }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   return tex;
 }

@@ -61,7 +61,7 @@ export async function runSmoke() {
   const title = document.getElementById('title');
   const death = document.getElementById('death');
   if (!death.classList.contains('hidden')) document.getElementById('btnRetry').click();
-  else if (!title.classList.contains('hidden')) document.getElementById('btnStart').click();
+  else if (!title.classList.contains('hidden')) document.getElementById('btnTrial').click();   // wave checks run in The Trial
   await wait(1200);
 
   await check('game loop is alive', async () => {
@@ -170,6 +170,7 @@ export async function runSmoke() {
   };
   const fireAt = (e) => {
     aimAt(e);
+    if (d.weapons.def.melee) d.weapons.switchTo(2, true);     // ranged checks use the spear
     d.weapons.cooldown = 0; d.weapons.reloading = false; d.weapons.switchT = 1;
     d.weapons.fire(d.camera);
   };
@@ -230,12 +231,12 @@ export async function runSmoke() {
 
   // ---- ammo crates refill limited weapons
   await check('an ammo crate refills reserves', async () => {
-    const s = d.weapons.state[1];
+    const s = d.weapons.state[3];
     s.reserve = 0;
     d.pickups.spawn(d.player.pos.x, d.player.pos.z, 'ammo');
     await wait(200, 4);
-    assert(s.reserve > 0, 'scatter reserve still 0 after the crate');
-    return 'scatter +' + s.reserve;
+    assert(s.reserve > 0, 'fire rune reserve still 0 after the crate');
+    return 'runes +' + s.reserve;
   });
 
   // ---- the boss lands a melee hit up close
@@ -396,6 +397,36 @@ export async function runSmoke() {
   });
 
 
+  // ---- b21: the blade and the river
+  await check('a sword strike hits what is in front, not behind', async () => {
+    d.enemies.clear();
+    const p = d.player, yaw = p.camYaw;
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);
+    const front = d.enemies.spawn('grunt', p.pos.x + fx * 2.2, p.pos.z + fz * 2.2);
+    const back = d.enemies.spawn('grunt', p.pos.x - fx * 2.2, p.pos.z - fz * 2.2);
+    for (const e of [front, back]) { e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0; e.attackCd = 9; }
+    d.weapons.switchTo(0, true);
+    d.weapons.cooldown = 0; d.weapons.swingT = 0; d.weapons.lastSwingEnd = 0;
+    p.camYaw = yaw;
+    d.weapons.fire(d.camera);
+    await wait(400, 6);
+    const hitFront = front.hp < front.maxHp, hitBack = back.hp < back.maxHp;
+    d.enemies.clear();
+    assert(hitFront, 'the grunt in front was not struck');
+    assert(!hitBack, 'the grunt behind was struck too');
+    return 'front only';
+  });
+
+  await check('the river is wadeable water that slows you', async () => {
+    const p = d.player, q = d.riverPoint;
+    p.pos.set(q.x, d.terrainHeight(q.x, q.z), q.z); p.vel.set(0, 0, 0); p.vy = 0;
+    await wait(300, 5);
+    const wl = d.waterLevel(p.pos.x, p.pos.z);
+    assert(isFinite(wl) && wl > p.pos.y + 0.15, `no water over the riverbed (level ${wl}, feet ${p.pos.y.toFixed(2)})`);
+    assert(p.inWater > 0.15, `wading depth not seen (${p.inWater.toFixed(2)})`);
+    return `wading ${p.inWater.toFixed(2)} m`;
+  });
+
   // ---- b19: score, physics, loot
   await check('the music follows the fight', async () => {
     const want = d.GAME.waveActive ? (d.GAME.wave % 5 === 0 ? 'boss' : 'combat') : 'explore';
@@ -431,6 +462,38 @@ export async function runSmoke() {
     for (let i = 0; i < 80 && s.reserve === 0; i++) await wait(50, 1);
     assert(s.reserve > 0, 'never reached you');
     return 'collected';
+  });
+
+  // ---- Wander the Vale
+  await check('wander mode: patrols roam and leave you be at range', async () => {
+    d.startMode('wander');
+    await wait(300, 4);
+    const pats = d.enemies.list.filter((e) => e.alive && e.passive);
+    assert(d.GAME.mode === 'wander', 'mode is ' + d.GAME.mode);
+    assert(pats.length >= 2, 'no patrols out');
+    assert(pats.every((e) => !e.aggro), 'a patrol is hunting you from the start');
+    const near = Math.min(...pats.map((e) => Math.hypot(e.pos.x - d.player.pos.x, e.pos.z - d.player.pos.z)));
+    assert(near > 20, `a patrol spawned on top of you (${near.toFixed(0)} m)`);
+    return `${pats.length} sentinels, nearest ${near.toFixed(0)} m`;
+  });
+
+  await check('a patrol notices you up close', async () => {
+    const e = d.enemies.list.find((x) => x.alive && x.passive && !x.aggro);
+    assert(e, 'no calm patrol left');
+    const x = e.pos.x + 6, z = e.pos.z;
+    d.player.pos.set(x, d.terrainHeight(x, z), z);
+    await wait(300, 5);
+    assert(e.aggro, 'it walked straight past you');
+    return 'alerted';
+  });
+
+  await check('deer bolt when you come close', async () => {
+    const deer = d.wildlife.deer.find((q) => q.state !== 'flee');
+    assert(deer, 'no calm deer in the valley');
+    d.player.pos.set(deer.x + 5, d.terrainHeight(deer.x + 5, deer.z), deer.z);
+    await wait(300, 5);
+    assert(deer.state === 'flee', 'deer ' + deer.state);
+    return 'fled';
   });
 
   // ---- report

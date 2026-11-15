@@ -119,6 +119,31 @@ export class FX {
       new THREE.MeshLambertMaterial({ flatShading: true }), quality === 'fast' ? 50 : 110);
     this.debrisPool.mesh.castShadow = true;
 
+    // ---- slash arcs: a crescent of light along the blade's path
+    this.slashes = [];
+    const arcTex = (() => {
+      const cv = document.createElement('canvas'); cv.width = 128; cv.height = 8;
+      const c = cv.getContext('2d');
+      const g = c.createLinearGradient(0, 0, 128, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.55, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,1)');
+      c.fillStyle = g; c.fillRect(0, 0, 128, 8);
+      const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t;
+    })();
+    for (let i = 0; i < 4; i++) {
+      // ring sector; uv.x runs inner to outer edge, so the bright edge is the blade tip
+      const geo = new THREE.RingGeometry(0.35, 1.0, 28, 1, -1.15, 2.3);
+      const uv = geo.attributes.uv, pa = geo.attributes.position;
+      for (let k = 0; k < uv.count; k++) uv.setXY(k, (Math.hypot(pa.getX(k), pa.getY(k)) - 0.35) / 0.65, 0.5);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+        map: arcTex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+        depthWrite: false, side: THREE.DoubleSide, toneMapped: false
+      }));
+      m.rotation.order = 'YXZ';
+      m.visible = false;
+      scene.add(m);
+      this.slashes.push({ m, life: 0 });
+    }
+
     // ---- damage numbers (DOM)
     this.dmgLayer = document.getElementById('dmgLayer');
     this.numbers = [];
@@ -259,6 +284,20 @@ export class FX {
     });
   }
 
+  /** style R/L: a horizontal sweep; O: an overhead arc in the vertical plane */
+  slash(pos, yaw, style, color, reach = 2.6) {
+    const s = this.slashes.reduce((a, b) => (a.life < b.life ? a : b));
+    const m = s.m;
+    m.position.copy(pos);
+    // a ring sector's local +X is turned to face along the swing (forward = yaw)
+    if (style === 'O') m.rotation.set(0, yaw - Math.PI / 2, Math.PI / 2 - 0.25);
+    else m.rotation.set(-Math.PI / 2, yaw - Math.PI / 2, 0);
+    m.scale.set(reach, style === 'L' ? -reach : reach, reach);
+    m.material.color.setHex(color);
+    m.visible = true;
+    s.life = 0.22; s.max = 0.22;
+  }
+
   explosion(pos, radius = 4, color = 0xff8a30) {
     this.debris(pos, 12, radius / 4.8);
     this.spark(pos, null, 0xffd080, 26, 12, 0.40, 1.0);
@@ -303,6 +342,14 @@ export class FX {
   update(dt) {
     const cam = this.camera;
     this.updateDebris(dt);
+    for (const s of this.slashes) {
+      if (s.life <= 0) continue;
+      s.life -= dt;
+      const k = Math.max(0, s.life / s.max);
+      s.m.material.opacity = k * 0.9;
+      s.m.scale.multiplyScalar(1 + dt * 0.9);
+      if (s.life <= 0) s.m.visible = false;
+    }
 
     // sparks
     this.sparks.items = this.sparks.items.filter(p => {

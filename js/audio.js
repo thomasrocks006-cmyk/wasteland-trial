@@ -100,6 +100,88 @@ export class Audio {
     this.buildReverb();
     this.startWind();
     this.startDrone();
+    this.startAmbience();
+  }
+
+  /* ---------------------------------------------------------- the valley's sound
+     River (a bright trickle and a low gurgle), the cascade's roar, and birds.
+     Levels and stereo position are driven every frame from where you stand. */
+  startAmbience() {
+    const t = this.t;
+    const loopNoise = () => { const s = this.ctx.createBufferSource(); s.buffer = this.noiseBuf; s.loop = true; s.loopStart = Math.random(); s.start(t); return s; };
+    const pan = () => (this.ctx.createStereoPanner ? this.ctx.createStereoPanner() : this.ctx.createGain());
+
+    // river: trickle (bandpassed hiss with a slow wobble) + gurgle (narrow, fluttering)
+    this.riverGain = this.ctx.createGain(); this.riverGain.gain.value = 0;
+    this.riverPan = pan();
+    this.riverGain.connect(this.riverPan); this.riverPan.connect(this.master);
+    const tr = this.ctx.createBiquadFilter(); tr.type = 'bandpass'; tr.frequency.value = 2400; tr.Q.value = 0.6;
+    const trg = this.ctx.createGain(); trg.gain.value = 0.22;
+    loopNoise().connect(tr); tr.connect(trg); trg.connect(this.riverGain);
+    const wob = this.ctx.createOscillator(); wob.frequency.value = 0.23;
+    const wobg = this.ctx.createGain(); wobg.gain.value = 600;
+    wob.connect(wobg); wobg.connect(tr.frequency); wob.start(t);
+    const gu = this.ctx.createBiquadFilter(); gu.type = 'bandpass'; gu.frequency.value = 520; gu.Q.value = 4;
+    const gug = this.ctx.createGain(); gug.gain.value = 0.35;
+    loopNoise().connect(gu); gu.connect(gug); gug.connect(this.riverGain);
+    for (const [f, d] of [[5.3, 0.25], [7.9, 0.18]]) {           // the flutter that makes it read as water
+      const o = this.ctx.createOscillator(); o.frequency.value = f;
+      const og = this.ctx.createGain(); og.gain.value = d;
+      o.connect(og); og.connect(gug.gain); o.start(t);
+    }
+    const gf = this.ctx.createOscillator(); gf.frequency.value = 0.37;
+    const gfg = this.ctx.createGain(); gfg.gain.value = 220;
+    gf.connect(gfg); gfg.connect(gu.frequency); gf.start(t);
+
+    // cascade: a low, steady roar
+    this.roarGain = this.ctx.createGain(); this.roarGain.gain.value = 0;
+    this.roarPan = pan();
+    const rl = this.ctx.createBiquadFilter(); rl.type = 'lowpass'; rl.frequency.value = 900;
+    loopNoise().connect(rl); rl.connect(this.roarGain); this.roarGain.connect(this.roarPan); this.roarPan.connect(this.master);
+
+    this.birdLevel = 0; this.birdT = 1.5;
+  }
+
+  /** river and roar 0..1 with pans -1..1, wind 0..1, birds 0..1 (how lively the air is) */
+  setAmbience(a, dt) {
+    if (!this.ctx || !this.riverGain) return;
+    const t = this.t;
+    this.riverGain.gain.setTargetAtTime(a.river * 0.5, t, 0.25);
+    if (this.riverPan.pan) this.riverPan.pan.setTargetAtTime(a.riverPan * 0.8, t, 0.15);
+    this.roarGain.gain.setTargetAtTime(a.roar * 0.45, t, 0.4);
+    if (this.roarPan.pan) this.roarPan.pan.setTargetAtTime(a.roarPan * 0.7, t, 0.2);
+    if (this.wind) this.wind.gain.setTargetAtTime(0.03 + a.wind * 0.07, t, 1.0);
+    this.birdLevel = a.birds;
+    this.birdT -= dt;
+    if (this.birdT <= 0) {
+      this.birdT = (1.2 + Math.random() * 4) / Math.max(0.15, this.birdLevel);
+      if (this.birdLevel > 0.05 && this.enabled) this.birdCall(Math.random() * 1.6 - 0.8, this.birdLevel);
+    }
+  }
+
+  /** a short phrase of chirps or a trill, each a quick sine sweep */
+  birdCall(panV, level) {
+    const t = this.t + 0.02;
+    const out = this.ctx.createGain(); out.gain.value = 0.05 + level * 0.06;
+    let node = out;
+    if (this.ctx.createStereoPanner) { const p = this.ctx.createStereoPanner(); p.pan.value = panV; out.connect(p); node = p; }
+    node.connect(this.master);
+    if (this.reverb) out.connect(this.reverb);
+    const base = 2400 + Math.random() * 2600, kind = Math.random();
+    const notes = kind < 0.4 ? 2 + Math.floor(Math.random() * 3) : kind < 0.75 ? 6 + Math.floor(Math.random() * 6) : 3;
+    for (let i = 0; i < notes; i++) {
+      const at = t + i * (kind < 0.4 ? 0.16 : kind < 0.75 ? 0.055 : 0.22);
+      const o = this.ctx.createOscillator(); o.type = 'sine';
+      const f0 = base * (1 + (Math.random() - 0.5) * 0.15), up = kind >= 0.75 && i === notes - 1;
+      o.frequency.setValueAtTime(f0 * (up ? 0.8 : 1.15), at);
+      o.frequency.exponentialRampToValueAtTime(f0 * (up ? 1.3 : 0.85), at + 0.05);
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0005, at);
+      g.gain.linearRampToValueAtTime(1, at + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0005, at + (kind < 0.75 ? 0.07 : 0.14));
+      o.connect(g); g.connect(out);
+      o.start(at); o.stop(at + 0.16);
+    }
   }
 
   /* ---------------------------------------------------------- canyon reverb
@@ -160,6 +242,10 @@ export class Audio {
       case 'scatter': return this._scatter(t, vol);
       case 'beam': return this._beam(t, vol);
       case 'bomber': return this._thump(t, vol, 150, 62, 0.16, 0.9);
+      case 'sword': return this._whoosh(t, vol * 0.8, 700, 2600, 0.2);
+      case 'axe': this._whoosh(t, vol, 260, 1100, 0.42); return this._thump(t + 0.3, vol * 0.5, 120, 50, 0.2, 0.6);
+      case 'spear': this._whoosh(t, vol * 0.9, 500, 1900, 0.28); return this.click(0.02, 0.12 * vol, 700);
+      case 'rune': return this._fireCast(t, vol);
       default: return this._blaster(t, vol);
     }
   }
@@ -263,6 +349,83 @@ export class Audio {
 
     // low recoil slam
     this._thump(t, vol * 0.9, 165, 44, 0.24, 0.85);
+  }
+
+  /** air cut by a blade or a shaft: band-passed noise sweeping up, then away */
+  _whoosh(t, vol, f0, f1, dur) {
+    const n = this._noise(dur + 0.05);
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.Q.value = 1.6;
+    bp.frequency.setValueAtTime(f0, t);
+    bp.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.45);
+    bp.frequency.exponentialRampToValueAtTime(f0 * 0.8, t + dur);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0008, t);
+    g.gain.linearRampToValueAtTime(0.55 * vol, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    n.connect(bp); bp.connect(g); g.connect(this.master);
+  }
+
+  _fireCast(t, vol) {
+    this._whoosh(t, vol * 0.7, 300, 1500, 0.35);
+    const o = this.ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(220, t);
+    o.frequency.exponentialRampToValueAtTime(520, t + 0.18);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0008, t);
+    g.gain.linearRampToValueAtTime(0.16 * vol, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + 0.3);
+    o.connect(lp); lp.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.32);
+  }
+
+  /** a blade landing on bronze: inharmonic partials ringing out, and a hard click */
+  clang(n = 1, heavy = false) {
+    if (!this.ctx || !this.enabled) return;
+    const t = this.t, base = heavy ? 260 : 380 + Math.random() * 60;
+    const vol = Math.min(1.4, 0.75 + n * 0.15) * (heavy ? 1.2 : 1);
+    [1, 2.76, 5.4, 8.93].forEach((m, i) => {
+      const o = this.ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = base * m;
+      const g = this.ctx.createGain();
+      const dur = (heavy ? 0.7 : 0.45) / (1 + i * 0.6);
+      g.gain.setValueAtTime(0.12 * vol / (1 + i * 0.5), t);
+      g.gain.exponentialRampToValueAtTime(0.0005, t + dur);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + dur + 0.02);
+    });
+    const nz = this._noise(0.05);
+    const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.35 * vol, t);
+    ng.gain.exponentialRampToValueAtTime(0.0005, t + 0.045);
+    nz.connect(hp); hp.connect(ng); ng.connect(this.master);
+    if (heavy) this._thump(t, 0.7, 140, 45, 0.25, 0.8);
+  }
+
+  /** a foot in the river */
+  splash() {
+    if (!this.ctx || !this.enabled) return;
+    const t = this.t;
+    const n = this._noise(0.25);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 1300 + Math.random() * 500; lp.Q.value = 0.7;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.22, t);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + 0.22);
+    n.connect(lp); lp.connect(g); g.connect(this.master);
+    const o = this.ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(600 + Math.random() * 300, t + 0.03);
+    o.frequency.exponentialRampToValueAtTime(1400, t + 0.09);
+    const og = this.ctx.createGain();
+    og.gain.setValueAtTime(0.0005, t);
+    og.gain.linearRampToValueAtTime(0.05, t + 0.04);
+    og.gain.exponentialRampToValueAtTime(0.0005, t + 0.12);
+    o.connect(og); og.connect(this.master);
+    o.start(t); o.stop(t + 0.14);
   }
 
   _thump(t, vol, f0, f1, dur, amp) {
@@ -594,13 +757,58 @@ export class Audio {
     this.musicStep = 0;
     this.nextTime = t + 0.12;
     this.musicTimer = setInterval(() => this.scheduleMusic(), 40);
+    this.loadTracks();
   }
 
-  /** 'explore' | 'combat' | 'boss'; takes effect on the next bar line */
-  setMood(m) { this.nextMood = m; }
+  /** 'explore' | 'combat' | 'boss'; takes effect on the next bar line (or at once with recorded tracks) */
+  setMood(m) {
+    this.nextMood = m;
+    if (this.useTracks && this.musicGain && this.curTrack !== m) this.playTrack(m);
+  }
+
+  /* Recorded score. If music/explore.mp3, combat.mp3 and boss.mp3 are all there,
+     they replace the synthesised score; each loops, and moods crossfade. If any is
+     missing, the synth score plays as before. */
+  async loadTracks() {
+    if (this._tracksTried || !this.ctx) return;
+    this._tracksTried = true;
+    const names = ['explore', 'combat', 'boss'], bufs = {};
+    await Promise.all(names.map(async (n) => {
+      try {
+        const r = await fetch(`music/${n}.mp3`);
+        if (!r.ok) return;
+        bufs[n] = await this.ctx.decodeAudioData(await r.arrayBuffer());
+      } catch { /* missing or undecodable: keep the synth score */ }
+    }));
+    if (names.every((n) => bufs[n])) {
+      this.trackBuf = bufs;
+      this.useTracks = true;
+      if (this.musicGain) this.playTrack(this.nextMood || 'explore');
+    }
+  }
+
+  playTrack(m) {
+    const buf = this.trackBuf && this.trackBuf[m];
+    if (!buf) return;
+    const t = this.t;
+    if (this.trackNode) {
+      const old = this.trackNode;
+      old.g.gain.setTargetAtTime(0.0001, t, 0.6);
+      old.src.stop(t + 3);
+    }
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.setTargetAtTime(1.0, t, 0.8);
+    src.connect(g); g.connect(this.musicGain);
+    src.start(t);
+    this.trackNode = { src, g };
+    this.curTrack = m;
+  }
 
   scheduleMusic() {
-    if (!this.ctx) return;
+    if (!this.ctx || this.useTracks) return;
     if (this.ctx.state !== 'running') { this.nextTime = this.ctx.currentTime + 0.05; return; }
     while (this.nextTime < this.ctx.currentTime + 0.3) {
       if (this.musicStep % 16 === 0 && this.nextMood !== this.mood) {

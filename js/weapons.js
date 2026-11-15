@@ -1,122 +1,110 @@
 import * as THREE from 'three';
-import { clamp, lerp, rnd, TAU, Builder, deg, addRim } from './core.js';
+import { clamp, lerp, rnd, TAU, Builder, deg, addRim, angleTo } from './core.js';
 
 /* ============================================================ definitions
-   Every gun is deliberately different in weight, cadence and punishment.
-   recoilPitch is the real camera climb per shot in degrees.            */
+   A mythic arsenal: two blades up close, a spear and a fire rune at range.
+   Melee weapons carry a combo; each step has its damage, length, the moment
+   in the swing that it lands (hit), and a style the hero's arm plays out. */
 export const WEAPONS = [
   {
-    id: 'blaster', name: 'BLASTER', mod: 'ORANGE MOD',
-    dmg: 26, pellets: 1, rpm: 225, spread: 0.55, spreadBloom: 0.30, bloomMax: 4.5,
-    recoilPitch: 1.45, recoilYaw: 0.42, shake: 0.10, kickVis: 0.055, push: 0,
-    mag: 24, reserve: Infinity, reload: 1.45, range: 140,
-    tracer: 0xffc070, flash: 0xffb060, flashSize: 0.85, sound: 'blaster',
-    color: 0xe2762c, desc: 'Balanced. Fast follow-up, manageable climb.'
+    id: 'sword', name: 'SWORD', mod: 'SPIRIT BLADE',
+    melee: {
+      range: 2.7, arc: 2.1,
+      combo: [
+        { dmg: 32, dur: 0.34, hit: 0.1, style: 'R' },
+        { dmg: 32, dur: 0.34, hit: 0.1, style: 'L' },
+        { dmg: 68, dur: 0.52, hit: 0.2, style: 'O', finisher: true },
+      ],
+    },
+    dmg: 32, pellets: 1, rpm: 600, spread: 0, spreadBloom: 0, bloomMax: 0,
+    recoilPitch: 0, recoilYaw: 0, shake: 0.1, kickVis: 0, push: 0,
+    mag: 1, reserve: Infinity, reload: 0.1, range: 3,
+    tracer: 0x9ff4ff, flash: 0x9ff4ff, flashSize: 0, sound: 'sword',
+    color: 0x7ff3ff, desc: 'Three strikes; the third is a heavy overhead.'
   },
   {
-    id: 'scatter', name: 'SCATTER', mod: 'YELLOW MOD',
-    dmg: 12, pellets: 9, rpm: 72, spread: 6.4, spreadBloom: 2.0, bloomMax: 14,
-    recoilPitch: 4.6, recoilYaw: 1.5, shake: 0.52, kickVis: 0.16, push: 3.4,
-    mag: 8, reserve: 64, reload: 2.35, range: 46,
-    tracer: 0xffd98a, flash: 0xffcb70, flashSize: 1.75, sound: 'scatter',
-    color: 0xf0b23c, desc: 'Nine pellets. Shoves you back. Brutal inside 8 metres.'
+    id: 'axe', name: 'AXE', mod: 'WAR AXE',
+    melee: {
+      range: 3.1, arc: 2.7,
+      combo: [{ dmg: 90, dur: 0.78, hit: 0.34, style: 'O', finisher: true, slam: true }],
+    },
+    dmg: 90, pellets: 1, rpm: 600, spread: 0, spreadBloom: 0, bloomMax: 0,
+    recoilPitch: 0, recoilYaw: 0, shake: 0.5, kickVis: 0, push: 0,
+    mag: 1, reserve: Infinity, reload: 0.1, range: 3.2,
+    tracer: 0xffb347, flash: 0xffb347, flashSize: 0, sound: 'axe',
+    color: 0xffb347, desc: 'One slow, wide chop that breaks a pack.'
   },
   {
-    id: 'beam', name: 'BEAM', mod: 'BLUE MOD',
-    dmg: 105, pellets: 1, rpm: 58, spread: 0.08, spreadBloom: 0.5, bloomMax: 3,
-    recoilPitch: 5.4, recoilYaw: 0.9, shake: 0.62, kickVis: 0.20, push: 5.2,
-    mag: 10, reserve: 48, reload: 2.6, range: 220, pierce: 3,
-    tracer: 0x7ae4ff, flash: 0x9fe8ff, flashSize: 1.3, sound: 'beam',
-    color: 0x37e0c8, desc: 'Pierces three bodies. One shot, huge punch.'
+    id: 'spear', name: 'SPEAR', mod: 'THROWN',
+    dmg: 95, pellets: 1, rpm: 75, spread: 0.15, spreadBloom: 0.4, bloomMax: 2,
+    recoilPitch: 1.2, recoilYaw: 0.3, shake: 0.25, kickVis: 0.1, push: 0,
+    mag: 5, reserve: 30, reload: 1.5, range: 150, pierce: 3, anim: 'T',
+    tracer: 0xffd27a, flash: 0xffe0a0, flashSize: 0.5, sound: 'spear',
+    color: 0xffd27a, desc: 'Thrown hard and straight; passes through three.'
   },
   {
-    id: 'bomber', name: 'BOMBER', mod: 'RED MOD',
-    dmg: 140, pellets: 1, rpm: 46, spread: 0.9, spreadBloom: 0.8, bloomMax: 4,
-    recoilPitch: 6.8, recoilYaw: 1.8, shake: 0.75, kickVis: 0.24, push: 6.5,
-    mag: 5, reserve: 24, reload: 3.0, range: 90,
-    explosive: { radius: 4.8, falloff: 0.45, speed: 46, gravity: 13 },
-    tracer: 0xff8a40, flash: 0xff7030, flashSize: 2.1, sound: 'bomber',
-    color: 0xc8301f, desc: 'Arcing charge. Clears a whole pack. Kicks like a mule.'
+    id: 'rune', name: 'FIRE RUNE', mod: 'SPELL',
+    dmg: 130, pellets: 1, rpm: 52, spread: 0.5, spreadBloom: 0.6, bloomMax: 3,
+    recoilPitch: 1.6, recoilYaw: 0.4, shake: 0.3, kickVis: 0.1, push: 1.5,
+    mag: 4, reserve: 20, reload: 2.0, range: 90, anim: 'C',
+    explosive: { radius: 4.8, falloff: 0.45, speed: 34, gravity: 5, bounce: false },
+    tracer: 0xff9a40, flash: 0xffb060, flashSize: 1.4, sound: 'rune',
+    color: 0xff8a3c, desc: 'An arcing flame that bursts on contact.'
   },
 ];
 
-/* ============================================================ gun models */
-/* Gun models. Local axes: -y is the barrel (along the forearm), +z is the top of
-   the gun when shouldered, the grip sits at the origin in the hand. Every gun has
-   a lit body plus glowing accents in its own colour, which read at phone size. */
+/* ============================================================ weapon models
+   Local axes: -y runs along the forearm (blade or shaft forward), +z is up when
+   the arm is raised, the grip sits at the origin in the hand. Lit body plus
+   glowing accents in the weapon's colour. */
 export function buildGunModel(id) {
-  const b = new Builder();          // body
-  const gl = new Builder();         // glow accents
+  const b = new Builder(), gl = new Builder();
   const muzzle = new THREE.Object3D();
   const group = new THREE.Group();
-  const M = 0x9a9288, MD = 0x4f4943, ML = 0xb9b1a4, GRIP = 0x2e241b;
-  const C = { blaster: 0xff8a3c, scatter: 0xffc44a, beam: 0x5ff0e0, bomber: 0xff4a2a }[id];
+  const STEEL = 0xc9d2d8, STEELD = 0x7f8a92, BRONZE = 0xb08a40, LEATHER = 0x3a2a1c, WOOD = 0x5a4330;
+  const C = WEAPONS.find((w) => w.id === id).color;
   const cyl = (r0, r1, l, seg = 10) => new THREE.CylinderGeometry(r0, r1, l, seg);
   const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
-  // shared furniture: pistol grip and trigger guard
-  b.add(box(0.05, 0.06, 0.13), GRIP, { pos: [0, 0.03, -0.08], rot: [0.32, 0, 0], jitter: 0.02 });
-  b.add(box(0.012, 0.07, 0.012), MD, { pos: [0, -0.03, -0.06] });
 
-  if (id === 'blaster') {
-    b.add(box(0.09, 0.22, 0.11), M, { pos: [0, -0.06, 0.01], jitter: 0.015 });
-    b.add(box(0.072, 0.17, 0.075), MD, { pos: [0, -0.25, 0.015], jitter: 0.015 });          // shroud
-    b.add(cyl(0.026, 0.03, 0.32), ML, { pos: [0, -0.30, 0.015] });
-    b.add(cyl(0.04, 0.036, 0.05), MD, { pos: [0, -0.45, 0.015] });                           // muzzle brake
-    b.add(box(0.03, 0.2, 0.014), MD, { pos: [0, -0.08, 0.072] });                             // top rail
-    b.add(box(0.026, 0.035, 0.045), MD, { pos: [0, 0.01, 0.09] });                            // rear sight
-    b.add(box(0.046, 0.05, 0.1), MD, { pos: [0, -0.1, -0.07], rot: [-0.12, 0, 0] });          // magazine
-    b.add(box(0.06, 0.09, 0.05), M, { pos: [0, 0.09, 0.0] });                                 // stock stub
-    gl.add(box(0.012, 0.17, 0.014), C, { pos: [0.047, -0.06, 0.02] });
-    gl.add(box(0.012, 0.17, 0.014), C, { pos: [-0.047, -0.06, 0.02] });
-    gl.add(new THREE.TorusGeometry(0.037, 0.008, 5, 14), C, { pos: [0, -0.475, 0.015], rot: [Math.PI / 2, 0, 0] });
-    gl.add(box(0.016, 0.006, 0.02), C, { pos: [0, 0.01, 0.114] });                           // sight dot
-    muzzle.position.set(0, -0.48, 0.015);
-  } else if (id === 'scatter') {
-    b.add(box(0.14, 0.22, 0.13), M, { pos: [0, -0.05, 0.01], jitter: 0.02 });
-    b.add(cyl(0.034, 0.038, 0.36), ML, { pos: [-0.037, -0.3, 0.02] });
-    b.add(cyl(0.034, 0.038, 0.36), ML, { pos: [0.037, -0.3, 0.02] });
-    b.add(box(0.15, 0.06, 0.05), MD, { pos: [0, -0.3, -0.03] });                              // pump grip
-    for (let i = 0; i < 4; i++) b.add(box(0.17, 0.012, 0.05), MD, { pos: [0, -0.14 - i * 0.045, 0.065] });
-    b.add(box(0.12, 0.06, 0.09), MD, { pos: [0, -0.47, 0.02] });                              // muzzle block
-    b.add(box(0.07, 0.12, 0.06), GRIP, { pos: [0, 0.11, 0.0], rot: [-0.1, 0, 0] });           // stock
-    gl.add(box(0.1, 0.012, 0.012), C, { pos: [0, -0.505, 0.055] });
-    gl.add(box(0.1, 0.012, 0.012), C, { pos: [0, -0.505, -0.015] });
-    gl.add(box(0.012, 0.15, 0.012), C, { pos: [0.072, -0.05, 0.04] });
-    gl.add(box(0.012, 0.15, 0.012), C, { pos: [-0.072, -0.05, 0.04] });
-    muzzle.position.set(0, -0.51, 0.02);
-  } else if (id === 'beam') {
-    b.add(box(0.1, 0.2, 0.11), M, { pos: [0, -0.04, 0.01], jitter: 0.015 });
-    b.add(cyl(0.018, 0.022, 0.66, 8), ML, { pos: [0, -0.42, 0.015] });
-    b.add(box(0.05, 0.3, 0.05), MD, { pos: [0, -0.22, -0.055], rot: [0.08, 0, 0] });          // capacitor spine
-    b.add(cyl(0.035, 0.035, 0.14), MD, { pos: [0, -0.02, 0.1], rot: [0, 0, 0] });            // scope tube
-    b.add(box(0.02, 0.04, 0.05), MD, { pos: [0, -0.02, 0.07] });
-    b.add(box(0.06, 0.13, 0.06), GRIP, { pos: [0, 0.12, 0.0] });
-    for (let i = 0; i < 5; i++) gl.add(new THREE.TorusGeometry(0.046, 0.011, 5, 12), C, { pos: [0, -0.2 - i * 0.085, 0.015], rot: [Math.PI / 2, 0, 0] });
-    gl.add(cyl(0.024, 0.024, 0.006), C, { pos: [0, -0.095, 0.1] });                           // scope lens
-    gl.add(box(0.012, 0.22, 0.012), C, { pos: [0, -0.22, -0.083] });
-    muzzle.position.set(0, -0.76, 0.015);
+  if (id === 'sword') {
+    b.add(cyl(0.022, 0.024, 0.18), LEATHER, { pos: [0, 0, 0] });                              // grip
+    b.add(new THREE.SphereGeometry(0.036, 10, 8), BRONZE, { pos: [0, 0.11, 0] });               // pommel
+    b.add(box(0.24, 0.035, 0.045), BRONZE, { pos: [0, -0.1, 0] });                              // crossguard
+    for (const sx of [-1, 1]) b.add(new THREE.SphereGeometry(0.022, 8, 6), BRONZE, { pos: [sx * 0.125, -0.1, 0] });
+    b.add(box(0.058, 0.84, 0.012), STEEL, { pos: [0, -0.54, 0] });                              // blade
+    b.add(box(0.06, 0.84, 0.006), STEELD, { pos: [0, -0.54, 0.0] });                            // bevel shade
+    b.add(new THREE.ConeGeometry(0.041, 0.13, 4), STEEL, { pos: [0, -1.02, 0], rot: [Math.PI, Math.PI / 4, 0], scale: [1, 1, 0.3] });
+    gl.add(box(0.012, 0.72, 0.016), C, { pos: [0, -0.52, 0] });                                 // fuller glow
+    muzzle.position.set(0, -1.08, 0);
+  } else if (id === 'axe') {
+    b.add(cyl(0.024, 0.028, 1.02), WOOD, { pos: [0, -0.34, 0] });                              // haft
+    b.add(new THREE.TorusGeometry(0.03, 0.01, 5, 10), LEATHER, { pos: [0, 0.03, 0], rot: [Math.PI / 2, 0, 0] });
+    b.add(new THREE.TorusGeometry(0.03, 0.01, 5, 10), LEATHER, { pos: [0, -0.06, 0], rot: [Math.PI / 2, 0, 0] });
+    b.add(box(0.06, 0.13, 0.08), STEELD, { pos: [0, -0.8, 0] });                                // socket
+    b.add(box(0.026, 0.3, 0.24), STEEL, { pos: [0, -0.8, -0.14] });                             // bearded blade
+    b.add(box(0.03, 0.12, 0.08), STEEL, { pos: [0, -0.68, -0.22], rot: [0.5, 0, 0] });          // beard
+    b.add(new THREE.ConeGeometry(0.035, 0.14, 4), STEELD, { pos: [0, -0.8, 0.1], rot: [Math.PI / 2, 0, 0] }); // back spike
+    gl.add(box(0.03, 0.2, 0.02), C, { pos: [0, -0.8, -0.2] });                                 // rune on the blade
+    muzzle.position.set(0, -0.8, -0.26);
+  } else if (id === 'spear') {
+    b.add(cyl(0.02, 0.022, 1.95, 8), WOOD, { pos: [0, -0.5, 0] });                        // shaft
+    b.add(new THREE.TorusGeometry(0.026, 0.009, 5, 10), BRONZE, { pos: [0, -1.44, 0], rot: [Math.PI / 2, 0, 0] });
+    b.add(new THREE.OctahedronGeometry(0.12, 0), STEEL, { pos: [0, -1.62, 0], scale: [0.5, 1.7, 0.16] });  // leaf blade
+    b.add(new THREE.SphereGeometry(0.03, 8, 6), BRONZE, { pos: [0, 0.48, 0] });                  // butt cap
+    gl.add(box(0.01, 0.26, 0.022), C, { pos: [0, -1.62, 0] });
+    muzzle.position.set(0, -1.8, 0);
   } else {
-    // bomber: a drum launcher
-    b.add(box(0.13, 0.19, 0.14), M, { pos: [0, -0.02, 0.01], jitter: 0.02 });
-    b.add(cyl(0.1, 0.1, 0.15, 12), MD, { pos: [0, -0.13, 0.0], jitter: 0.015 });             // drum
-    b.add(cyl(0.055, 0.062, 0.28, 10), ML, { pos: [0, -0.3, 0.02] });
-    b.add(cyl(0.07, 0.06, 0.06, 10), MD, { pos: [0, -0.46, 0.02] });                          // flared mouth
-    b.add(box(0.1, 0.035, 0.1), MD, { pos: [0, -0.4, 0.02] });
-    b.add(box(0.03, 0.06, 0.09), MD, { pos: [0, -0.3, -0.07] });                              // fore grip
-    b.add(box(0.08, 0.12, 0.07), GRIP, { pos: [0, 0.12, 0.0] });
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * TAU;
-      gl.add(cyl(0.017, 0.017, 0.152, 6), C, { pos: [Math.cos(a) * 0.07, -0.13, Math.sin(a) * 0.07] });
-    }
-    gl.add(new THREE.TorusGeometry(0.062, 0.008, 5, 14), C, { pos: [0, -0.49, 0.02], rot: [Math.PI / 2, 0, 0] });
-    muzzle.position.set(0, -0.49, 0.02);
+    b.add(cyl(0.021, 0.026, 1.3), 0x3f2e20, { pos: [0, -0.32, 0] });                          // staff
+    for (const y of [0.15, -0.5, -0.86]) b.add(new THREE.TorusGeometry(0.03, 0.008, 5, 10), BRONZE, { pos: [0, y, 0], rot: [Math.PI / 2, 0, 0] });
+    b.add(new THREE.TorusGeometry(0.085, 0.012, 6, 16), BRONZE, { pos: [0, -1.04, 0] });       // crystal cradle
+    gl.add(new THREE.OctahedronGeometry(0.07, 0), C, { pos: [0, -1.04, 0], scale: [0.8, 1.3, 0.8] });
+    muzzle.position.set(0, -1.1, 0);
   }
 
   const mesh = new THREE.Mesh(b.build(), addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), 0xffe2b8, 0.3, 3.0));
   mesh.castShadow = true;
   const glow = new THREE.Mesh(gl.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   group.add(mesh, glow, muzzle);
-  group.scale.setScalar(1.55);
   group.userData.muzzle = muzzle;
   group.userData.color = C;
   return group;
@@ -147,7 +135,9 @@ export class WeaponSystem {
     this.shotsFired = 0;
     this.shotsHit = 0;
     // run upgrades (perks) scale these; reset at the start of every run
-    this.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0 };
+    this.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0, reach: 1 };
+    // melee state
+    this.swingT = 0; this.swingCur = null; this.swingDone = true; this.comboIdx = 0; this.lastSwingEnd = 0;
     this._aim = new THREE.Vector3();
     this._dir = new THREE.Vector3();
     this._muzzlePos = new THREE.Vector3();
@@ -171,6 +161,9 @@ export class WeaponSystem {
 
   syncModel() {
     this.models.forEach((m, i) => { m.visible = i === this.index && this.visible; });
+    const d = this.def;
+    // the hero holds a blade, a two-handed spear or a one-handed staff differently
+    this.player.weaponKind = d.melee ? 'melee' : d.explosive ? 'spell' : 'thrown';
   }
 
   setVisible(v) { this.visible = v; this.syncModel(); }
@@ -178,6 +171,7 @@ export class WeaponSystem {
   switchTo(i, instant = false) {
     if (i === this.index || i < 0 || i >= WEAPONS.length) return;
     this.index = i;
+    this.swingT = 0; this.swingDone = true; this.comboIdx = 0;
     this.reloading = false;
     this.reloadT = 0;
     this.bloom = 0;
@@ -220,6 +214,7 @@ export class WeaponSystem {
   /* ---------------- firing ---------------- */
   fire(camera) {
     const d = this.def;
+    if (d.melee) return this.swing();
     const s = this.ammo;
     if (this.reloading || this.cooldown > 0 || this.switchT < 0.98) return;
 
@@ -293,8 +288,8 @@ export class WeaponSystem {
         this.shotsHit++;
         const maxDist = hits[hits.length - 1].dist;
         const end = camPos.clone().addScaledVector(dir, maxDist);
-        this.fx.tracer(this._muzzlePos, end, d.tracer, d.id === 'beam' ? 0.10 : 0.035, d.id === 'beam' ? 0.18 : 0.13);
-        if (d.id === 'beam') {
+        this.fx.tracer(this._muzzlePos, end, d.tracer, d.pierce ? 0.07 : 0.035, d.pierce ? 0.2 : 0.13);
+        if (d.pierce) {
           this.fx.beam(this._muzzlePos, end, 0x7ae4ff, 0.11, 0.26);
         }
         for (const h of hits) {
@@ -308,7 +303,7 @@ export class WeaponSystem {
         // hit the world (ground, wall or pillar) or nothing at all
         const hitWorld = wall < d.range;
         const p = camPos.clone().addScaledVector(dir, hitWorld ? wall : d.range);
-        this.fx.tracer(this._muzzlePos, p, d.tracer, d.id === 'beam' ? 0.10 : 0.035, d.id === 'beam' ? 0.18 : 0.13);
+        this.fx.tracer(this._muzzlePos, p, d.tracer, d.pierce ? 0.07 : 0.035, d.pierce ? 0.2 : 0.13);
         if (hitWorld) {
           this.fx.spark(p, dir.clone().negate(), 0xd8b080, 5, 4.5, 0.10, 0.35);
           this.fx.puff(p, null, 0xa07a52, 0.28, 1, 0.55, 0.7);
@@ -317,6 +312,7 @@ export class WeaponSystem {
     }
 
     if (this.ctx.onShot) this.ctx.onShot(anyHit, anyHead);
+    if (d.anim && this.player.startSwing) this.player.startSwing(d.anim, 0.36);
 
     // --- the feel: recoil, shake, bloom, model kick
     const steady = 0.5 + this.mods.spread * 0.5;
@@ -339,8 +335,91 @@ export class WeaponSystem {
     if (this.ctx.onAmmo) this.ctx.onAmmo();
   }
 
+  /* ---------------- melee ---------------- */
+  /** nearest living foe within range and in front of the camera's facing */
+  meleeTarget(range, arc) {
+    const p = this.player.pos, yaw = this.player.camYaw;
+    let best = null, bd = Infinity;
+    for (const e of (this.ctx.enemies() || [])) {
+      if (!e.alive || e.state === 'spawn') continue;
+      const dx = e.pos.x - p.x, dz = e.pos.z - p.z, d = Math.hypot(dx, dz);
+      if (d > range + e.type.radius || d >= bd) continue;
+      if (Math.abs(angleTo(yaw, Math.atan2(dx, dz))) > arc / 2) continue;
+      best = e; bd = d;
+    }
+    return best;
+  }
+
+  swing() {
+    const d = this.def, M = d.melee;
+    if (this.cooldown > 0 || this.switchT < 0.98 || this.swingT > 0) return;
+    if (performance.now() - this.lastSwingEnd > 550) this.comboIdx = 0;
+    const c = M.combo[this.comboIdx % M.combo.length];
+    this.comboIdx++;
+    this.swingCur = c; this.swingT = c.dur; this.swingDone = false;
+    this.cooldown = c.dur;
+    this.shotsFired++;
+    const pl = this.player;
+    pl.faceLock = Math.max(pl.faceLock, c.dur + 0.3);
+    if (pl.startSwing) pl.startSwing(c.style, c.dur);
+    // step into the strike: toward the nearest foe in front, or a short lunge
+    const yaw = pl.camYaw, t = this.meleeTarget(M.range * this.mods.reach + 2.2, M.arc + 0.6);
+    if (t) {
+      const dx = t.pos.x - pl.pos.x, dz = t.pos.z - pl.pos.z, dd = Math.hypot(dx, dz) || 1;
+      const gap = dd - t.type.radius - 1.0;
+      if (gap > 0) pl.knock.add(new THREE.Vector3(dx / dd, 0, dz / dd).multiplyScalar(Math.min(9, gap * 6)));
+    } else pl.knock.add(new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(2.5));
+    this.audio.shot(d.sound, 0);
+    if (this.onFired) this.onFired(d);
+  }
+
+  /** the blade crosses: everything in reach and in the arc is struck */
+  strike() {
+    const d = this.def, M = d.melee, c = this.swingCur, pl = this.player;
+    const p = pl.pos, yaw = pl.camYaw;
+    const reach = M.range * this.mods.reach, arc = M.arc * Math.min(1.5, this.mods.reach);
+    const dmg = c.dmg * this.mods.dmg * (pl.dmgMul || 1);
+    let hits = 0;
+    for (const e of (this.ctx.enemies() || [])) {
+      if (!e.alive) continue;
+      // the long boss is struck wherever you reach it: head or any body segment
+      let ex = e.pos.x, ez = e.pos.z, ey = e.pos.y;
+      if (e.segs) for (const sg of e.segs) {
+        if (Math.hypot(sg.x - p.x, sg.z - p.z) < Math.hypot(ex - p.x, ez - p.z)) { ex = sg.x; ez = sg.z; ey = sg.y; }
+      }
+      const dx = ex - p.x, dz = ez - p.z, dist = Math.hypot(dx, dz) || 0.01;
+      const dy = ey - p.y;
+      if (dist > reach + e.type.radius || dy > 3.4 || dy < -1.8) continue;
+      if (Math.abs(angleTo(yaw, Math.atan2(dx, dz))) > arc / 2 && dist > e.type.radius + 0.9) continue;
+      const dir = new THREE.Vector3(dx / dist, 0, dz / dist);
+      const point = new THREE.Vector3(ex - dir.x * e.type.radius * 0.6, ey + e.type.height * 0.55, ez - dir.z * e.type.radius * 0.6);
+      this.ctx.applyDamage(e, dmg, point, dir, !!c.finisher, d);
+      hits++;
+    }
+    if (this.fx.slash) this.fx.slash(new THREE.Vector3(p.x, p.y + (c.style === 'O' ? 1.3 : 1.15), p.z), yaw, c.style, d.color, reach);
+    if (c.slam) {
+      const at = new THREE.Vector3(p.x + Math.sin(yaw) * 1.8, p.y + 0.1, p.z + Math.cos(yaw) * 1.8);
+      this.fx.ring(at, d.color, 3.2, 0.4);
+      this.fx.puff(at, null, 0x8a7d62, 0.8, 4, 0.7, 2.2);
+      pl.shake = Math.min(2, pl.shake + 0.5);
+    }
+    if (hits) {
+      this.shotsHit++;
+      pl.shake = Math.min(2, pl.shake + 0.18 + (c.finisher ? 0.25 : 0));
+      if (this.audio.clang) this.audio.clang(hits, !!c.finisher);
+      if (this.ctx.onMeleeHit) this.ctx.onMeleeHit(hits, !!c.finisher);
+    }
+    if (this.ctx.onShot) this.ctx.onShot(hits > 0, false);
+  }
+
   update(dt) {
     this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.swingT > 0) {
+      this.swingT -= dt;
+      const el = this.swingCur.dur - this.swingT;
+      if (!this.swingDone && el >= this.swingCur.hit) { this.swingDone = true; this.strike(); }
+      if (this.swingT <= 0) { this.swingT = 0; this.lastSwingEnd = performance.now(); }
+    }
     this.switchT = Math.min(1, this.switchT + dt * 6);
 
     // bloom recovers when you stop shooting
@@ -375,7 +454,7 @@ export class WeaponSystem {
     this.kickRot = Math.max(0, this.kickRot - dt * 7);
     const m = this.models[this.index];
     if (m) {
-      const k = this.kick * 0.055 * (this.def.id === 'beam' ? 1.6 : 1);
+      const k = this.kick * 0.055;
       m.position.set(0, k, -this.kick * 0.02);
       m.rotation.x = this.kickRot * 0.34;
       // reload dip
