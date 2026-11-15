@@ -280,6 +280,33 @@ export function riverNearest(x, z) {
   return { d: Math.sqrt(best), wy: RIVER[bi].wy, i: bi };
 }
 
+/* ---------------- the forest trail ----------------
+   From the shrine ring out to the parapet at the pass, swinging wide of the lake.
+   The forest is planted along it (world.js); the ground is worn to dirt on it. */
+const TRAIL_CTRL = [[9, -11], [16, -24], [22, -38], [33, -50], [48, -58], [63, -61], [75, -57], [83, -50]];
+export const TRAIL = (() => {
+  const pts = [], P = TRAIL_CTRL;
+  for (let i = 0; i < P.length - 1; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+    const n = Math.max(2, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1])));
+    for (let k = 0; k < n; k++) {
+      const t = k / n, t2 = t * t, t3 = t2 * t;
+      const f = (a, b, c, d) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      pts.push({ x: f(p0[0], p1[0], p2[0], p3[0]), z: f(p0[1], p1[1], p2[1], p3[1]) });
+    }
+  }
+  pts.push({ x: P[P.length - 1][0], z: P[P.length - 1][1] });
+  return pts;
+})();
+export function trailNearest(x, z) {
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < TRAIL.length; i++) {
+    const dx = x - TRAIL[i].x, dz = z - TRAIL[i].z, d2 = dx * dx + dz * dz;
+    if (d2 < best) { best = d2; bi = i; }
+  }
+  return { d: Math.sqrt(best), i: bi };
+}
+
 let LAST_WD = Infinity;
 /** carve channel, banks and lake bed into a raw height */
 function carve(x, z, h) {
@@ -306,6 +333,15 @@ export function waterDist(x, z) {
   return WD[j * n + i];
 }
 
+/** distance from a point to the forest trail's centre line, from the cached grid */
+export function trailDist(x, z) {
+  heightTable();
+  const n = GRID_SEG + 1;
+  const i = clamp(Math.round((x + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
+  const j = clamp(Math.round((z + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
+  return TD[j * n + i];
+}
+
 /** water surface height at a point, or -Infinity on dry land */
 export function waterLevel(x, z) {
   if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 1.2) return LAKE_Y;
@@ -313,18 +349,20 @@ export function waterLevel(x, z) {
   return rn.d < RIVER_W + 1.2 ? rn.wy : -Infinity;
 }
 
-let HEIGHTS = null, WD = null;
+let HEIGHTS = null, WD = null, TD = null;
 function heightTable() {
   if (HEIGHTS) return HEIGHTS;
   const n = GRID_SEG + 1;
   HEIGHTS = new Float32Array(n * n);
   WD = new Float32Array(n * n);
+  TD = new Float32Array(n * n);
   for (let j = 0; j < n; j++) {
     const z = -GRID_EXT + j * GRID_STEP;
     for (let i = 0; i < n; i++) {
       const x = -GRID_EXT + i * GRID_STEP;
       HEIGHTS[j * n + i] = carve(x, z, terrainRaw(x, z));
       WD[j * n + i] = LAST_WD;
+      TD[j * n + i] = trailNearest(x, z).d;
     }
   }
   return HEIGHTS;
@@ -783,6 +821,125 @@ export function leatherTexture() {
     ctx.fillStyle = `rgba(255,245,230,${0.06 + r() * 0.1})`;
     ctx.beginPath(); ctx.ellipse(r() * S, r() * S, 2 + r() * 7, 1 + r() * 3, r() * 3, 0, Math.PI * 2); ctx.fill();
   }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+
+/* ---------------- foliage: geometry that keeps its UVs and normals ----------------
+   Leaf cards need their own 0..1 UVs (the Builder box-projects instead), and
+   foliage looks volumetric when its normals point out from the crown. */
+export class MeshBuilder {
+  constructor() { this.p = []; this.n = []; this.u = []; this.c = []; }
+  /** add geo transformed by matrix; normalAt(worldPos, out) may override the normal */
+  add(geo, color, matrix, normalAt) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const pa = g.attributes.position, na = g.attributes.normal, ua = g.attributes.uv;
+    const nm = new THREE.Matrix3().getNormalMatrix(matrix);
+    const v = new THREE.Vector3(), nv = new THREE.Vector3();
+    _c.set(color);
+    for (let i = 0; i < pa.count; i++) {
+      v.fromBufferAttribute(pa, i).applyMatrix4(matrix);
+      this.p.push(v.x, v.y, v.z);
+      if (normalAt) normalAt(v, nv); else nv.fromBufferAttribute(na, i).applyMatrix3(nm).normalize();
+      this.n.push(nv.x, nv.y, nv.z);
+      if (ua) this.u.push(ua.getX(i), ua.getY(i)); else this.u.push(0, 0);
+      this.c.push(_c.r, _c.g, _c.b);
+    }
+    if (g !== geo) g.dispose();
+    return this;
+  }
+  build() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.u, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
+    g.computeBoundingSphere();
+    return g;
+  }
+}
+
+function alphaCanvas(w, h, draw) {
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  draw(ctx, w, h);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+
+/** a spray of broad leaves, densest at the middle so the card's square edge never shows */
+export function leafTexture() {
+  const r = mulberry32(4141);
+  return alphaCanvas(256, 256, (ctx, W, H) => {
+    for (let i = 0; i < 150; i++) {
+      const a = r() * Math.PI * 2, d = Math.pow(r(), 0.7) * 108;
+      const x = W / 2 + Math.cos(a) * d, y = H / 2 + Math.sin(a) * d * 0.9;
+      const l = 9 + r() * 9, w = l * 0.48, rot = r() * Math.PI * 2;
+      const g = 150 + Math.floor(r() * 90), lt = 0.65 + r() * 0.35;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+      ctx.fillStyle = `rgb(${Math.floor(g * 0.62 * lt)},${Math.floor(g * lt)},${Math.floor(g * 0.42 * lt)})`;
+      ctx.beginPath(); ctx.moveTo(-l, 0); ctx.quadraticCurveTo(0, -w, l, 0); ctx.quadraticCurveTo(0, w, -l, 0); ctx.fill();
+      ctx.strokeStyle = 'rgba(30,50,20,0.35)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-l * 0.9, 0); ctx.lineTo(l * 0.9, 0); ctx.stroke();
+      ctx.restore();
+    }
+  });
+}
+
+/** a fir bough: a twig with needles brushed out both sides, tapering to the tip */
+export function needleSprayTexture() {
+  const r = mulberry32(5252);
+  return alphaCanvas(256, 128, (ctx, W, H) => {
+    ctx.strokeStyle = 'rgb(80,60,40)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(4, H / 2); ctx.lineTo(W - 8, H / 2); ctx.stroke();
+    for (let i = 0; i < 520; i++) {
+      const t = r(), x = 6 + t * (W - 16), reach = (1 - t * 0.75) * (H * 0.46) * (0.55 + r() * 0.45);
+      const side = r() < 0.5 ? -1 : 1, ang = 0.45 + r() * 0.5;
+      const g = 90 + Math.floor(r() * 80);
+      ctx.strokeStyle = `rgb(${Math.floor(g * 0.38)},${g},${Math.floor(g * 0.45)})`;
+      ctx.lineWidth = 1.2 + r() * 1.2;
+      ctx.beginPath(); ctx.moveTo(x, H / 2);
+      ctx.lineTo(x + Math.cos(ang) * reach * 0.5, H / 2 + side * Math.sin(ang) * reach); ctx.stroke();
+    }
+  });
+}
+
+/** a fern frond: a stem with leaflets shrinking to the tip */
+export function fernTexture() {
+  const r = mulberry32(6363);
+  return alphaCanvas(128, 256, (ctx, W, H) => {
+    ctx.strokeStyle = 'rgb(70,100,40)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(W / 2, H - 2); ctx.quadraticCurveTo(W / 2 + 6, H / 2, W / 2, 6); ctx.stroke();
+    for (let k = 0; k < 26; k++) {
+      const t = k / 26, y = H - 10 - t * (H - 24), len = (1 - t) * 50 + 6;
+      for (const sd of [-1, 1]) {
+        const g = 120 + Math.floor(r() * 70);
+        ctx.fillStyle = `rgb(${Math.floor(g * 0.5)},${g},${Math.floor(g * 0.35)})`;
+        ctx.save(); ctx.translate(W / 2, y); ctx.rotate(sd * (1.2 - t * 0.4));
+        ctx.beginPath(); ctx.ellipse(0, -len / 2, 3.2 - t * 1.5, len / 2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    }
+  });
+}
+
+/** bark: deep vertical furrows and plates; greyscale so vertex colour sets the wood */
+export function barkTexture() {
+  const S = 256;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const r = mulberry32(7474);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const ridge = Math.abs(Math.sin((x / S) * Math.PI * 14 + vnoise(x / 9, y / 40) * 3.5));
+    const n = vnoise(x / 6, y / 22) * 0.5 + r() * 0.12;
+    const c = clamp(Math.round((0.45 + ridge * 0.45 + (n - 0.3) * 0.25) * 255), 0, 255);
+    const i = (y * S + x) * 4;
+    img.data[i] = c; img.data[i + 1] = c * 0.96; img.data[i + 2] = c * 0.9; img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   return tex;

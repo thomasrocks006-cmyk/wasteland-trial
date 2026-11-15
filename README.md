@@ -89,6 +89,16 @@ Strikes step you toward the nearest foe in front.
 - Music: three recorded tracks in `music/` (made in Suno on the owner's account,
   loudness-matched to -17 LUFS).
 
+## b23: the forest trail
+
+A dirt trail leaves the shrine ring and winds through forest to the parapet at the
+pass, so you come out of the trees onto the lowland view. Broadleaf trees line it
+with branches arching overhead; firs stand behind; ferns, bushes, fallen logs,
+mossy stones and mushrooms cover the floor. Foliage is textured leaf, needle and
+frond cards (alpha cut, crown-shaped normals, swaying, casting leaf-shaped
+shadows); trunks carry bark with relief; shafts of light angle down from the sun.
+The valley's fir stands use the same trees. Birds sing more under the trees.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

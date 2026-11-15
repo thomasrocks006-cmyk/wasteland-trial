@@ -501,9 +501,11 @@ export async function runSmoke() {
   await check('a patrol notices you up close', async () => {
     const e = d.enemies.list.find((x) => x.alive && x.passive && !x.aggro);
     assert(e, 'no calm patrol left');
+    // a patrol still being summoned isn't looking yet: wait until it has arrived
+    for (let i = 0; i < 40 && e.state === 'spawn'; i++) await wait(50, 1);
     const x = e.pos.x + 6, z = e.pos.z;
     d.player.pos.set(x, d.terrainHeight(x, z), z);
-    await wait(300, 5);
+    for (let i = 0; i < 12 && !e.aggro; i++) await wait(50, 1);
     assert(e.aggro, 'it walked straight past you');
     return 'alerted';
   });

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   clamp, lerp, damp, rnd, rng, pick, terrainHeight, TAU, radialSprite, Builder, waterLevel, RIVER,
-  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R
+  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R, trailDist, TRAIL
 } from './core.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -905,7 +905,8 @@ function updateAmbience(dt) {
     roar: Math.pow(clamp(1 - cd / 75, 0, 1), 2),
     roarPan: side(CASCADE.x - L.x, CASCADE.z - L.z),
     wind: clamp((L.y - 2) / 22, 0, 1),
-    birds: GAME.state === 'title' ? 0.8 : (hunting || (GAME.mode === 'trial' && GAME.waveActive)) ? 0.15 : 0.75,
+    birds: GAME.state === 'title' ? 0.8 : (hunting || (GAME.mode === 'trial' && GAME.waveActive)) ? 0.15
+      : trailDist(L.x, L.z) < 14 ? 1.0 : 0.65,                 // the forest is livelier
   }, dt);
 }
 
@@ -1041,7 +1042,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b22';
+const BUILD = 'b23';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
@@ -1470,7 +1471,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
-window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
+window.__dbg = { THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {
