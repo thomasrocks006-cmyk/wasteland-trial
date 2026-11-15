@@ -54,6 +54,10 @@ export function buildHero() {
   t.add(S(0.11), C.brass, { pos: [-0.235, 0.555, 0], scale: [1.15, 0.55, 1.05] });                  // shoulder plate
   t.add(CAP(0.03, 0.4), C.boot, { pos: [-0.08, 0.35, -0.16], rot: [0, 0, -0.45] });                 // back strap
   t.add(new THREE.TorusGeometry(0.15, 0.068, 10, 22), 0x6b5440, { pos: [0, 0.585, -0.035], rot: [Math.PI / 2, 0, 0], scale: [1.18, 1, 0.92] }); // fur collar
+  t.add(CAP(0.055, 0.06), C.boot, { pos: [0.15, 0.0, 0.11], rot: [0, 0, Math.PI / 2], scale: [1, 1, 0.8] });   // belt pouch
+  t.add(new THREE.BoxGeometry(0.05, 0.04, 0.02), C.brass, { pos: [0.15, 0.03, 0.155] });                         // pouch clasp
+  t.add(new THREE.BoxGeometry(0.06, 0.62, 0.025), C.boot, { pos: [0.02, 0.33, 0.158], rot: [0, 0, -0.62] });    // baldric across the chest
+  t.add(new THREE.TorusGeometry(0.032, 0.008, 6, 12), C.brass, { pos: [0.02, 0.33, 0.172] });                   // its buckle
   const torsoMesh = mesh(t);
   torso.add(torsoMesh);
 
@@ -123,6 +127,8 @@ export function buildHero() {
     const f = B();
     f.add(new THREE.TorusGeometry(0.058, 0.02, 8, 14), C.jacketDark, { pos: [0, -0.015, 0], rot: [Math.PI / 2, 0, 0] }); // cuff
     f.add(CAP(0.052, 0.17), C.jacket, { pos: [0, -0.13, 0] });                                        // sleeve down to the glove
+    f.add(new THREE.CylinderGeometry(0.06, 0.055, 0.13, 12), C.boot, { pos: [0, -0.2, 0] });            // leather bracer
+    f.add(new THREE.TorusGeometry(0.06, 0.008, 6, 12), C.brass, { pos: [0, -0.15, 0], rot: [Math.PI / 2, 0, 0] });
     elbow.add(mesh(f));
     sh.add(elbow);
     const hand = G(0, -0.29, 0.02);

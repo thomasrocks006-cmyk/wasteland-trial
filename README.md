@@ -109,6 +109,17 @@ a rune-lit altar, the old giants (huge mossy trees, ferns, low mist, a watchtowe
 through the trees), then thinning to the view. The forest is built in 40 m chunks
 so the camera and shadow pass skip what's out of view.
 
+## b26: detail pass
+
+The sentinels are rebuilt as rounded bronze constructs with a specular sheen:
+a hunched grunt with crested helm, banded belly and clawed gauntlets; a tall
+archer with crescent helm, breastplate and ringed bolt-caster; a horned bull
+brute with nose ring, spine plates and banded flanks; a bronze wasp with fanned
+blade-wings; the Ironcoil with a domed, spiked head and segments. Eyes glow in
+each helm's slit (they used to sit inside the old box heads). Ivy climbs the
+shrine's pillars, the towers and the arch. The hero gains a belt pouch, a
+buckled baldric and leather bracers.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

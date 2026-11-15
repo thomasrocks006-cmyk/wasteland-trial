@@ -76,6 +76,7 @@ export class World {
     this.buildWater();
     this.buildVegetation();
     this.buildForest();
+    this.buildIvy();
     this.buildGroundDetail();
     this.buildDust();
   }
@@ -1644,6 +1645,42 @@ export class World {
       this.scene.add(sp);
       this.mist.push({ sp, base: y0, seed: rng() * 10 });
     }
+  }
+
+  /* -------------------------------------------------- ivy
+     Leaf cards laid flat on old stone, thick near the ground and thinning upward:
+     the shrine's great pillars, the three watchtowers and the arch's legs. */
+  buildIvy() {
+    const mb = new MeshBuilder(), PLANE = new THREE.PlaneGeometry(1, 1);
+    const M = new THREE.Matrix4(), X = new THREE.Vector3(), Y = new THREE.Vector3(), Z = new THREE.Vector3(), P = new THREE.Vector3(), S = new THREE.Vector3();
+    const TINTS = [0x9fbf80, 0x8fb070, 0xb0c890, 0x7f9f68, 0xc8c080];
+    // a column of ivy round a cylinder of radius R from the ground up to H, on an arc of the surface
+    const climb = (cx, cz, R, H, n, a0 = 0, a1 = TAU) => {
+      const y0 = terrainHeight(cx, cz);
+      for (let k = 0; k < n; k++) {
+        const a = a0 + (a1 - a0) * rng(), h = H * Math.pow(rng(), 1.7), sz = rnd(0.4, 0.8) * (1 - h / H * 0.4);
+        Z.set(Math.cos(a), 0, Math.sin(a));                       // out from the stone
+        X.set(-Z.z, 0, Z.x);
+        Y.crossVectors(Z, X);
+        const roll = rnd(0, TAU);
+        X.applyAxisAngle(Z, roll); Y.applyAxisAngle(Z, roll);
+        M.makeBasis(X, Y, Z); M.scale(S.set(sz, sz, 1));
+        M.setPosition(P.set(cx + Z.x * (R + 0.04), y0 + h + 0.2, cz + Z.z * (R + 0.04)));
+        const nrm = Z.clone();
+        mb.add(PLANE, pick(TINTS), M, (v, out) => out.copy(nrm).addScaledVector(Y.set(0, 1, 0), 0.3).normalize());
+      }
+    };
+    for (let i = 0; i < 4; i++) {                                 // the shrine's great pillars
+      const a = (i / 4) * TAU + Math.PI / 4;
+      climb(Math.cos(a) * 12.5, Math.sin(a) * 12.5, 1.18, 6.5, 110);
+    }
+    for (const a of [1.15, 0.25, -1.45]) climb(Math.cos(a) * 76, Math.sin(a) * 76, 3.35, 9, 260, a + Math.PI - 1.4, a + Math.PI + 1.4);   // tower faces toward the valley
+    for (const [lx, lz] of [[-37.0, -59.2], [-71.0, -34.8]]) climb(lx, lz, 3.4, 8, 150);   // the arch legs
+    const tex = leafTexture();
+    const m = new THREE.Mesh(mb.build(), new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true }));
+    m.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.45 });
+    m.castShadow = true; m.receiveShadow = true;
+    this.scene.add(m);
   }
 
   /* -------------------------------------------------- per frame */

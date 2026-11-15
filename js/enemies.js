@@ -28,157 +28,158 @@ const SKIN = {
   flesh: 0x6b3f52,
 };
 
-/* ------------------------------------------------------------------ geometry */
+/* ------------------------------------------------------------------ geometry
+   Bronze constructs: rounded, plated and riveted, built smooth so the bronze
+   catches the light. Part names, joints and sizes are unchanged, so the
+   animation, hit zones and AI all work as before. */
+const sB = () => new Builder({ smooth: true });
+const sS = (r, w = 16, h = 12) => new THREE.SphereGeometry(r, w, h);
+const sDome = (r) => new THREE.SphereGeometry(r, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+const sCap = (r, l) => new THREE.CapsuleGeometry(r, l, 5, 12);
+const sTor = (r, t, arc = Math.PI * 2) => new THREE.TorusGeometry(r, t, 6, 18, arc);
+const PATINA = 0x5e8a74, BRASS = 0xc9ad78, SLIT = 0x1a120c;
+
 function gruntParts() {
-  const body = new Builder();
-  body.add(new THREE.BoxGeometry(0.56, 0.46, 0.40), SKIN.carapace, { pos: [0, 1.02, 0], rot: [0.16, 0, 0], jitter: 0.03 });
-  body.add(new THREE.BoxGeometry(0.62, 0.20, 0.46), SKIN.plate, { pos: [0, 1.26, -0.01], rot: [-0.05, 0, 0], jitter: 0.03 });
-  body.add(new THREE.BoxGeometry(0.34, 0.28, 0.34), SKIN.plateDark, { pos: [0, 1.22, 0.24], rot: [0.2, 0, 0], jitter: 0.03 });
-  body.add(new THREE.BoxGeometry(0.30, 0.14, 0.24), SKIN.carapace, { pos: [0, 0.96, 0.12], jitter: 0.03 });
-  // jaw
-  body.add(new THREE.BoxGeometry(0.22, 0.08, 0.10), SKIN.bone, { pos: [0, 1.10, 0.40], jitter: 0.02 });
-  // eyes
-  body.add(new THREE.BoxGeometry(0.13, 0.085, 0.04), SKIN.eye, { pos: [0.10, 1.27, 0.405] });
-  body.add(new THREE.BoxGeometry(0.13, 0.085, 0.04), SKIN.eye, { pos: [-0.10, 1.27, 0.405] });
-  body.add(new THREE.BoxGeometry(0.30, 0.045, 0.05), 0x0e0912, { pos: [0, 1.335, 0.40] });
-  // shoulder spikes
-  for (let s = 0; s < 2; s++) {
-    const sx = s ? -0.34 : 0.34;
-    body.add(new THREE.ConeGeometry(0.10, 0.30, 4), SKIN.plate, { pos: [sx, 1.40, -0.02], rot: [0, 0, s ? 0.5 : -0.5], jitter: 0.03 });
-    body.add(new THREE.ConeGeometry(0.09, 0.26, 4), SKIN.claw, { pos: [sx, 1.46, -0.16], rot: [-0.6, 0, s ? 0.4 : -0.4], jitter: 0.03 });
+  const body = sB();
+  body.add(sS(0.2), SKIN.plateDark, { pos: [0, 0.98, -0.02], scale: [1.2, 0.8, 1] });                       // pelvis
+  body.add(sCap(0.23, 0.3), SKIN.carapace, { pos: [0, 1.12, 0.03], rot: [0.45, 0, 0], scale: [1.15, 1, 0.95] }); // hunched torso
+  body.add(sS(0.22), SKIN.plate, { pos: [0, 1.2, 0.15], rot: [0.45, 0, 0], scale: [1.15, 1.05, 0.62] });      // chest plate
+  for (let k = 0; k < 3; k++) body.add(sTor(0.21 - k * 0.012, 0.02), BRASS, { pos: [0, 0.98 + k * 0.08, 0.02 + k * 0.04], rot: [Math.PI / 2 + 0.45, 0, 0] });
+  body.add(sS(0.17), SKIN.plate, { pos: [0, 1.28, 0.16], scale: [1, 0.95, 1.15] });                           // helm
+  body.add(sS(0.12), SKIN.carapace, { pos: [0, 1.19, 0.27], scale: [1.1, 0.8, 0.8] });                        // face guard
+  body.add(sTor(0.165, 0.026, Math.PI), BRASS, { pos: [0, 1.29, 0.15], rot: [0, Math.PI / 2, 0] });           // crest
+  body.add(new THREE.BoxGeometry(0.2, 0.03, 0.03), SLIT, { pos: [0, 1.27, 0.33] });                            // eye slit
+  for (const sx of [-1, 1]) {
+    body.add(sDome(0.15), SKIN.plate, { pos: [sx * 0.29, 1.33, 0.04], rot: [0, 0, -sx * 0.45] });             // pauldron
+    body.add(sTor(0.15, 0.018), BRASS, { pos: [sx * 0.29, 1.33, 0.04], rot: [Math.PI / 2, -sx * 0.45, 0] });
   }
-  // back spikes
-  for (let i = 0; i < 3; i++) {
-    body.add(new THREE.ConeGeometry(0.07, 0.22 + i * 0.03, 4), SKIN.bone, { pos: [0, 1.40 - i * 0.10, -0.20 - i * 0.03], rot: [-0.5, 0, 0], jitter: 0.02 });
-  }
+  for (let i = 0; i < 3; i++) body.add(new THREE.ConeGeometry(0.05, 0.18, 6), PATINA, { pos: [0, 1.36 - i * 0.1, -0.12 - i * 0.05], rot: [-0.6, 0, 0] });
+  body.add(new THREE.BoxGeometry(0.03, 0.18, 0.02), SKIN.eye, { pos: [0, 1.18, 0.29], rot: [0.45, 0, 0] });   // chest rune
 
   const leg = () => {
-    const b = new Builder();
-    b.add(new THREE.BoxGeometry(0.15, 0.36, 0.17), SKIN.plateDark, { pos: [0, -0.18, 0], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.13, 0.34, 0.15), SKIN.carapace, { pos: [0, -0.52, 0.02], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.17, 0.10, 0.30), SKIN.claw, { pos: [0, -0.72, 0.07], jitter: 0.03 });
-    b.add(new THREE.ConeGeometry(0.05, 0.14, 4), SKIN.bone, { pos: [0, -0.76, 0.24], rot: [1.4, 0, 0] });
+    const b = sB();
+    b.add(sCap(0.075, 0.2), SKIN.plateDark, { pos: [0, -0.17, 0] });
+    b.add(sS(0.1), SKIN.plate, { pos: [0, -0.14, 0.04], scale: [1, 1.4, 0.85] });
+    b.add(sS(0.072), BRASS, { pos: [0, -0.39, 0.03] });
+    b.add(sCap(0.062, 0.22), SKIN.carapace, { pos: [0, -0.56, 0.01] });
+    b.add(sS(0.09), SKIN.plateDark, { pos: [0, -0.74, 0.07], scale: [0.9, 0.55, 1.6] });
+    for (const tx of [-0.05, 0, 0.05]) b.add(new THREE.ConeGeometry(0.022, 0.1, 6), BRASS, { pos: [tx, -0.76, 0.23], rot: [1.45, 0, 0] });
     return b.build();
   };
-
   const arm = () => {
-    const b = new Builder();
-    b.add(new THREE.BoxGeometry(0.13, 0.28, 0.14), SKIN.plate, { pos: [0, -0.14, 0], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.11, 0.26, 0.12), SKIN.carapace, { pos: [0, -0.40, 0.02], jitter: 0.03 });
-    b.add(new THREE.ConeGeometry(0.045, 0.22, 4), SKIN.bone, { pos: [0.03, -0.56, 0.06], rot: [1.9, 0, 0.2] });
-    b.add(new THREE.ConeGeometry(0.045, 0.20, 4), SKIN.bone, { pos: [-0.03, -0.55, 0.04], rot: [1.9, 0, -0.2] });
+    const b = sB();
+    b.add(sCap(0.064, 0.17), SKIN.plate, { pos: [0, -0.13, 0] });
+    b.add(sS(0.068), BRASS, { pos: [0, -0.29, 0.01] });
+    b.add(sCap(0.058, 0.17), SKIN.carapace, { pos: [0, -0.44, 0.02] });
+    b.add(sS(0.08), SKIN.plate, { pos: [0, -0.57, 0.03], scale: [1, 1.15, 1.1] });
+    for (const tx of [-0.035, 0.035]) b.add(new THREE.ConeGeometry(0.025, 0.2, 6), BRASS, { pos: [tx, -0.66, 0.08], rot: [1.9, 0, tx * 4] });
     return b.build();
   };
-
   return { body: body.build(), legL: leg(), legR: leg(), armL: arm(), armR: arm() };
 }
 
 function shooterParts() {
-  const body = new Builder();
-  body.add(new THREE.BoxGeometry(0.46, 0.56, 0.34), SKIN.plate, { pos: [0, 1.30, 0], jitter: 0.03 });
-  body.add(new THREE.BoxGeometry(0.52, 0.16, 0.38), SKIN.plateDark, { pos: [0, 1.60, 0], jitter: 0.03 });
-  body.add(new THREE.BoxGeometry(0.28, 0.26, 0.30), SKIN.carapace, { pos: [0, 1.82, 0.02], jitter: 0.03 });
-  // single visor eye
-  body.add(new THREE.BoxGeometry(0.20, 0.06, 0.04), SKIN.eyeCold, { pos: [0, 1.84, 0.17] });
-  body.add(new THREE.ConeGeometry(0.06, 0.20, 3), SKIN.bone, { pos: [0.12, 2.00, -0.02], rot: [0, 0, -0.3] });
-  body.add(new THREE.ConeGeometry(0.06, 0.20, 3), SKIN.bone, { pos: [-0.12, 2.00, -0.02], rot: [0, 0, 0.3] });
-  // hip
-  body.add(new THREE.BoxGeometry(0.34, 0.20, 0.28), SKIN.plateDark, { pos: [0, 1.02, 0], jitter: 0.03 });
-  // cannon arm (right)
-  body.add(new THREE.CylinderGeometry(0.09, 0.11, 0.46, 7), SKIN.metal, { pos: [0.34, 1.34, 0.16], rot: [Math.PI / 2 - 0.25, 0, 0], jitter: 0.02 });
-  body.add(new THREE.CylinderGeometry(0.055, 0.07, 0.16, 7), SKIN.metalDark, { pos: [0.34, 1.26, 0.40], rot: [Math.PI / 2 - 0.25, 0, 0] });
-  body.add(new THREE.TorusGeometry(0.10, 0.02, 4, 8), SKIN.eyeCold, { pos: [0.34, 1.28, 0.30], rot: [Math.PI / 2 - 0.25, 0, 0] });
+  const body = sB();
+  body.add(sS(0.16), SKIN.plateDark, { pos: [0, 1.02, 0], scale: [1.2, 0.8, 1] });
+  body.add(sCap(0.19, 0.34), SKIN.plate, { pos: [0, 1.36, 0], scale: [1.15, 1, 0.85] });
+  body.add(sS(0.19), SKIN.plate, { pos: [0, 1.43, 0.08], scale: [1.1, 1, 0.55] });                           // breastplate
+  body.add(sTor(0.15, 0.016), BRASS, { pos: [0, 1.43, 0.17], scale: [1.1, 1, 1] });                          // its rim
+  body.add(sTor(0.2, 0.022), BRASS, { pos: [0, 1.14, 0], rot: [Math.PI / 2, 0, 0], scale: [1.05, 0.85, 1] }); // belt
+  body.add(new THREE.BoxGeometry(0.22, 0.36, 0.02), SKIN.carapace, { pos: [0, 0.94, 0.13] });               // tabard plates
+  body.add(new THREE.BoxGeometry(0.22, 0.36, 0.02), SKIN.carapace, { pos: [0, 0.94, -0.13] });
+  body.add(new THREE.BoxGeometry(0.16, 0.025, 0.025), BRASS, { pos: [0, 1.05, 0.145] });
+  body.add(sCap(0.055, 0.08), SKIN.carapace, { pos: [0, 1.69, 0] });
+  body.add(sS(0.15), SKIN.plate, { pos: [0, 1.84, 0], scale: [0.95, 1.1, 1.05] });                           // helm
+  body.add(sTor(0.15, 0.026, Math.PI), BRASS, { pos: [0, 1.95, -0.02] });                                    // crescent crest
+  body.add(new THREE.BoxGeometry(0.16, 0.035, 0.03), SLIT, { pos: [0, 1.85, 0.155] });
+  for (const sx of [-1, 1]) body.add(sDome(0.12), SKIN.plate, { pos: [sx * 0.25, 1.6, 0], rot: [0, 0, -sx * 0.4] });
+  // the bolt-caster on the right forearm
+  body.add(new THREE.CylinderGeometry(0.075, 0.09, 0.46, 12), SKIN.metal, { pos: [0.34, 1.34, 0.16], rot: [Math.PI / 2 - 0.25, 0, 0] });
+  body.add(new THREE.CylinderGeometry(0.05, 0.065, 0.16, 12), SKIN.metalDark, { pos: [0.34, 1.26, 0.4], rot: [Math.PI / 2 - 0.25, 0, 0] });
+  for (const o of [0.2, 0.3]) body.add(sTor(0.09, 0.016), SKIN.eyeCold, { pos: [0.34, 1.3 - (o - 0.2) * 0.3, o], rot: [Math.PI / 2 - 0.25, 0, 0] });
 
   const leg = () => {
-    const b = new Builder();
-    b.add(new THREE.BoxGeometry(0.13, 0.46, 0.15), SKIN.plateDark, { pos: [0, -0.23, 0], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.11, 0.44, 0.13), SKIN.carapace, { pos: [0, -0.66, 0.01], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.15, 0.10, 0.26), SKIN.metal, { pos: [0, -0.90, 0.06], jitter: 0.03 });
+    const b = sB();
+    b.add(sCap(0.07, 0.3), SKIN.plateDark, { pos: [0, -0.24, 0] });
+    b.add(sS(0.068), BRASS, { pos: [0, -0.5, 0.02] });
+    b.add(sCap(0.058, 0.3), SKIN.carapace, { pos: [0, -0.72, 0.01] });
+    b.add(sS(0.08), SKIN.plate, { pos: [0, -0.68, 0.05], scale: [0.9, 1.9, 0.6] });                          // greave
+    b.add(sS(0.08), SKIN.metal, { pos: [0, -0.96, 0.06], scale: [0.9, 0.55, 1.6] });
     return b.build();
   };
   const arm = () => {
-    const b = new Builder();
-    b.add(new THREE.BoxGeometry(0.11, 0.28, 0.12), SKIN.plate, { pos: [0, -0.14, 0], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.10, 0.26, 0.11), SKIN.carapace, { pos: [0, -0.40, 0.02], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.09, 0.08, 0.09), SKIN.claw, { pos: [0, -0.55, 0.03] });
+    const b = sB();
+    b.add(sCap(0.055, 0.17), SKIN.plate, { pos: [0, -0.13, 0] });
+    b.add(sS(0.058), BRASS, { pos: [0, -0.29, 0.01] });
+    b.add(sCap(0.05, 0.17), SKIN.carapace, { pos: [0, -0.43, 0.02] });
+    b.add(sS(0.06), BRASS, { pos: [0, -0.56, 0.03] });
     return b.build();
   };
   return { body: body.build(), legL: leg(), legR: leg(), armL: arm(), armR: arm() };
 }
 
 function bruteParts() {
-  const body = new Builder();
-  body.add(new THREE.BoxGeometry(1.20, 0.86, 1.70), SKIN.carapace, { pos: [0, 1.10, 0], jitter: 0.04 });
-  body.add(new THREE.BoxGeometry(1.05, 0.34, 1.30), SKIN.plate, { pos: [0, 1.56, -0.05], jitter: 0.04 });
-  // head
-  body.add(new THREE.BoxGeometry(0.70, 0.52, 0.62), SKIN.plateDark, { pos: [0, 1.20, 0.98], jitter: 0.04 });
-  body.add(new THREE.BoxGeometry(0.50, 0.18, 0.30), SKIN.bone, { pos: [0, 1.00, 1.24], jitter: 0.03 });
-  body.add(new THREE.BoxGeometry(0.12, 0.07, 0.04), SKIN.eye, { pos: [0.17, 1.34, 1.29] });
-  body.add(new THREE.BoxGeometry(0.12, 0.07, 0.04), SKIN.eye, { pos: [-0.17, 1.34, 1.29] });
-  // horns
-  body.add(new THREE.ConeGeometry(0.10, 0.52, 5), SKIN.bone, { pos: [0.28, 1.62, 0.86], rot: [-0.6, 0, -0.35], jitter: 0.03 });
-  body.add(new THREE.ConeGeometry(0.10, 0.52, 5), SKIN.bone, { pos: [-0.28, 1.62, 0.86], rot: [-0.6, 0, 0.35], jitter: 0.03 });
-  // spine ridge
-  for (let i = 0; i < 4; i++) {
-    body.add(new THREE.ConeGeometry(0.10 - i * 0.012, 0.34, 4), SKIN.plate, { pos: [0, 1.78, 0.42 - i * 0.42], rot: [-0.25, 0, 0], jitter: 0.03 });
+  const body = sB();
+  body.add(sCap(0.55, 0.8), SKIN.carapace, { pos: [0, 1.12, -0.05], rot: [Math.PI / 2, 0, 0], scale: [1.05, 1, 0.92] }); // barrel
+  body.add(sS(0.52), SKIN.plate, { pos: [0, 1.42, 0.32], scale: [1.05, 0.85, 1.1] });                                   // hump
+  for (let k = 0; k < 3; k++) body.add(sTor(0.57, 0.035), BRASS, { pos: [0, 1.12, -0.5 + k * 0.42], scale: [1.02, 0.94, 1] }); // flank bands
+  body.add(sS(0.34), SKIN.plateDark, { pos: [0, 1.2, 0.98], scale: [0.95, 0.85, 1.15] });                              // head
+  body.add(sS(0.2), SKIN.carapace, { pos: [0, 1.05, 1.27], scale: [1.1, 0.85, 1] });                                    // muzzle
+  body.add(sTor(0.08, 0.02), BRASS, { pos: [0, 0.96, 1.42], rot: [0.3, 0, 0] });                                        // nose ring
+  body.add(new THREE.BoxGeometry(0.4, 0.035, 0.03), SLIT, { pos: [0, 1.31, 1.27] });
+  for (const sx of [-1, 1]) {
+    // horns: a thick root sweeping out, then a tip curving forward
+    body.add(new THREE.CylinderGeometry(0.06, 0.11, 0.45, 10), SKIN.bone, { pos: [sx * 0.36, 1.46, 0.92], rot: [-0.3, 0, -sx * 1.0] });
+    body.add(new THREE.ConeGeometry(0.06, 0.4, 10), SKIN.bone, { pos: [sx * 0.6, 1.66, 1.04], rot: [0.5, 0, -sx * 0.25] });
   }
-  // tail
-  body.add(new THREE.CylinderGeometry(0.10, 0.24, 0.80, 6), SKIN.plateDark, { pos: [0, 1.02, -1.15], rot: [-1.9, 0, 0], jitter: 0.03 });
-
+  for (let i = 0; i < 5; i++) body.add(new THREE.ConeGeometry(0.1 - i * 0.012, 0.32, 6), PATINA, { pos: [0, 1.82 - i * 0.05, 0.5 - i * 0.36], rot: [-0.3, 0, 0] });
+  body.add(sCap(0.08, 0.6), SKIN.plateDark, { pos: [0, 1.0, -1.15], rot: [-1.9, 0, 0] });                              // tail
+  body.add(sS(0.12), BRASS, { pos: [0, 0.75, -1.4] });
   const leg = (front) => {
-    const b = new Builder();
-    b.add(new THREE.BoxGeometry(0.24, 0.44, 0.28), SKIN.plateDark, { pos: [0, -0.22, 0], jitter: 0.04 });
-    b.add(new THREE.BoxGeometry(0.20, 0.40, 0.22), SKIN.carapace, { pos: [0, -0.62, front ? 0.06 : -0.02], jitter: 0.04 });
-    b.add(new THREE.BoxGeometry(0.26, 0.14, 0.36), SKIN.claw, { pos: [0, -0.86, 0.06], jitter: 0.04 });
+    const b = sB();
+    b.add(sS(0.22), SKIN.plate, { pos: [0, -0.12, 0], scale: [0.9, 1.1, 1] });
+    b.add(sCap(0.13, 0.32), SKIN.carapace, { pos: [0, -0.48, front ? 0.04 : -0.02] });
+    b.add(sS(0.11), BRASS, { pos: [0, -0.68, 0.02] });
+    b.add(new THREE.CylinderGeometry(0.15, 0.19, 0.18, 12), SKIN.plateDark, { pos: [0, -0.86, 0.04] });                // hoof
     return b.build();
   };
-  return {
-    body: body.build(),
-    legL: leg(true), legR: leg(true), legL2: leg(false), legR2: leg(false)
-  };
+  return { body: body.build(), legL: leg(true), legR: leg(true), legL2: leg(false), legR2: leg(false) };
 }
 
 function waspParts() {
-  const body = new Builder();
-  b0(body);
-  function b0(b) {
-    b.add(new THREE.CylinderGeometry(0.16, 0.30, 0.46, 7), SKIN.plate, { pos: [0, 0, 0.10], rot: [1.35, 0, 0], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.26, 0.20, 0.24), SKIN.carapace, { pos: [0, 0.04, 0.36], jitter: 0.03 });
-    b.add(new THREE.BoxGeometry(0.18, 0.08, 0.06), SKIN.eye, { pos: [0, 0.06, 0.48] });
-    b.add(new THREE.ConeGeometry(0.06, 0.30, 4), SKIN.bone, { pos: [0, 0, -0.22], rot: [-1.4, 0, 0] });
-    for (let i = 0; i < 3; i++) {
-      b.add(new THREE.CylinderGeometry(0.02, 0.03, 0.24, 4), SKIN.claw, {
-        pos: [0, -0.14, 0.06 + i * 0.12], rot: [0.9, 0, 0.5 * (i - 1)]
-      });
-    }
+  const body = sB();
+  body.add(sS(0.16), SKIN.plate, { pos: [0, 0, 0.05], scale: [0.9, 0.85, 1.2] });                // thorax
+  body.add(sCap(0.11, 0.3), SKIN.carapace, { pos: [0, -0.05, -0.3], rot: [Math.PI / 2 + 0.25, 0, 0] }); // abdomen
+  for (let k = 0; k < 3; k++) body.add(sTor(0.105, 0.015), BRASS, { pos: [0, -0.05 - k * 0.035, -0.2 - k * 0.12], rot: [0.25, 0, 0] });
+  body.add(new THREE.ConeGeometry(0.04, 0.2, 8), SKIN.bone, { pos: [0, -0.15, -0.6], rot: [-Math.PI / 2 - 0.25, 0, 0] }); // stinger
+  body.add(sS(0.1), SKIN.plateDark, { pos: [0, 0.04, 0.3] });                                     // head
+  for (const sx of [-1, 1]) {
+    body.add(new THREE.ConeGeometry(0.02, 0.16, 6), BRASS, { pos: [sx * 0.05, 0.13, 0.38], rot: [0.6, 0, -sx * 0.3] }); // feelers
+    for (let i = 0; i < 3; i++) body.add(new THREE.CylinderGeometry(0.012, 0.018, 0.26, 6), SKIN.claw, { pos: [sx * 0.1, -0.14, 0.12 - i * 0.1], rot: [0.4, 0, sx * 0.5] });
   }
-  const wing = new Builder();
-  wing.add(new THREE.BoxGeometry(0.62, 0.02, 0.26), 0xd8b870, { pos: [0.34, 0, 0], jitter: 0.02 });
-  wing.add(new THREE.BoxGeometry(0.20, 0.02, 0.18), 0xb89850, { pos: [0.72, 0, 0.04] });
+  const wing = sB();
+  // three bronze feather-blades fanned out
+  for (let i = 0; i < 3; i++) wing.add(new THREE.BoxGeometry(0.62 - i * 0.12, 0.012, 0.11), i ? 0xd8b870 : 0xe6c888, { pos: [0.31 - i * 0.03, 0, -i * 0.07], rot: [0, i * 0.18, 0] });
   return { body: body.build(), wingL: wing.build(), wingR: wing.build() };
 }
 
 function bossParts() {
-  const body = new Builder();
-  // the head segment; the rest of the body is separate segments that trail it
-  body.add(new THREE.BoxGeometry(1.5, 1.1, 1.5), SKIN.carapace, { pos: [0, 1.5, 0], jitter: 0.05 });
-  body.add(new THREE.ConeGeometry(0.18, 0.55, 4), SKIN.bone, { pos: [0, 2.05, 0], rot: [-0.2, 0, 0], jitter: 0.04 });
-  body.add(new THREE.BoxGeometry(1.1, 0.9, 0.9), SKIN.plateDark, { pos: [0, 1.55, 1.35], jitter: 0.05 });
-  body.add(new THREE.BoxGeometry(0.9, 0.20, 0.3), SKIN.bone, { pos: [0, 1.32, 1.78], jitter: 0.04 });
-  body.add(new THREE.BoxGeometry(0.20, 0.10, 0.06), SKIN.eye, { pos: [0.26, 1.72, 1.80] });
-  body.add(new THREE.BoxGeometry(0.20, 0.10, 0.06), SKIN.eye, { pos: [-0.26, 1.72, 1.80] });
-  // mandibles
-  body.add(new THREE.ConeGeometry(0.12, 0.60, 4), SKIN.claw, { pos: [0.34, 1.30, 2.10], rot: [1.5, 0, -0.3] });
-  body.add(new THREE.ConeGeometry(0.12, 0.60, 4), SKIN.claw, { pos: [-0.34, 1.30, 2.10], rot: [1.5, 0, 0.3] });
-  // shoulder plating
-  body.add(new THREE.BoxGeometry(0.9, 0.5, 1.2), SKIN.plate, { pos: [0.95, 1.75, 0.5], rot: [0, 0, -0.25], jitter: 0.05 });
-  body.add(new THREE.BoxGeometry(0.9, 0.5, 1.2), SKIN.plate, { pos: [-0.95, 1.75, 0.5], rot: [0, 0, 0.25], jitter: 0.05 });
-
+  const body = sB();
+  body.add(sS(0.85), SKIN.carapace, { pos: [0, 1.5, 0], scale: [1.0, 0.75, 1.05] });               // the head segment
+  body.add(sS(0.6), SKIN.plateDark, { pos: [0, 1.55, 1.0], scale: [1.05, 0.85, 0.95] });            // skull
+  body.add(new THREE.BoxGeometry(0.7, 0.05, 0.05), SLIT, { pos: [0, 1.72, 1.52] });
+  for (const sx of [-1, 1]) {
+    body.add(new THREE.ConeGeometry(0.13, 0.75, 10), SKIN.claw, { pos: [sx * 0.34, 1.25, 1.75], rot: [1.45, 0, -sx * 0.35] }); // mandibles
+    body.add(sDome(0.55), SKIN.plate, { pos: [sx * 0.85, 1.75, 0.45], rot: [0, 0, -sx * 0.5] });                               // shoulder plates
+  }
+  for (let i = 0; i < 4; i++) body.add(new THREE.ConeGeometry(0.16, 0.6, 8), SKIN.bone, { pos: [0, 2.15 - i * 0.04, 0.9 - i * 0.4], rot: [-0.35, 0, 0] }); // crest
+  body.add(sTor(0.86, 0.05), BRASS, { pos: [0, 1.5, 0], rot: [Math.PI / 2, 0, 0], scale: [1, 1.05, 1] });
   const leg = () => {
-    const b = new Builder();
-    b.add(new THREE.CylinderGeometry(0.20, 0.26, 0.9, 6), SKIN.carapace, { pos: [0, -0.45, 0], jitter: 0.04 });
-    b.add(new THREE.CylinderGeometry(0.14, 0.18, 0.7, 6), SKIN.plateDark, { pos: [0, -1.1, 0.1], jitter: 0.04 });
-    b.add(new THREE.BoxGeometry(0.3, 0.16, 0.5), SKIN.claw, { pos: [0, -1.45, 0.15], jitter: 0.04 });
+    const b = sB();
+    b.add(sCap(0.22, 0.6), SKIN.carapace, { pos: [0, -0.45, 0] });
+    b.add(sS(0.2), BRASS, { pos: [0, -0.82, 0.05] });
+    b.add(sCap(0.16, 0.45), SKIN.plateDark, { pos: [0, -1.1, 0.1] });
+    b.add(new THREE.ConeGeometry(0.17, 0.4, 8), SKIN.claw, { pos: [0, -1.45, 0.18], rot: [0.3, 0, 0] });
     return b.build();
   };
   return { body: body.build(), legL: leg(), legR: leg(), legL2: leg(), legR2: leg() };
@@ -186,13 +187,14 @@ function bossParts() {
 
 /** one trailing boss segment, built at full size and tapered per instance */
 function bossSegmentGeo() {
-  const b = new Builder();
-  b.add(new THREE.BoxGeometry(1.5, 1.1, 1.4), SKIN.plate, { pos: [0, 1.5, 0], jitter: 0.05 });
-  b.add(new THREE.BoxGeometry(1.62, 0.22, 1.0), SKIN.plateDark, { pos: [0, 2.0, 0], jitter: 0.04 });
-  b.add(new THREE.ConeGeometry(0.17, 0.55, 4), SKIN.bone, { pos: [0, 2.32, 0], rot: [-0.25, 0, 0], jitter: 0.04 });
+  const b = sB();
+  b.add(sS(0.8), SKIN.plate, { pos: [0, 1.5, 0], scale: [1.0, 0.72, 0.92] });
+  b.add(sTor(0.78, 0.045), BRASS, { pos: [0, 1.5, 0], rot: [Math.PI / 2, 0, 0], scale: [1, 0.95, 1] });
+  b.add(sDome(0.6), SKIN.plateDark, { pos: [0, 1.85, 0], scale: [1.1, 0.5, 0.9] });
+  b.add(new THREE.ConeGeometry(0.15, 0.55, 8), SKIN.bone, { pos: [0, 2.3, 0], rot: [-0.25, 0, 0] });
   for (const sx of [-1, 1]) {
-    b.add(new THREE.CylinderGeometry(0.12, 0.16, 1.2, 5), SKIN.carapace, { pos: [sx * 0.95, 0.75, 0], rot: [0, 0, sx * 0.5], jitter: 0.04 });
-    b.add(new THREE.BoxGeometry(0.22, 0.12, 0.34), SKIN.claw, { pos: [sx * 1.22, 0.08, 0], jitter: 0.04 });
+    b.add(sCap(0.11, 1.0), SKIN.carapace, { pos: [sx * 0.95, 0.75, 0], rot: [0, 0, sx * 0.5] });
+    b.add(new THREE.ConeGeometry(0.1, 0.25, 8), SKIN.claw, { pos: [sx * 1.22, 0.08, 0], rot: [Math.PI, 0, 0] });
   }
   return b.build();
 }
@@ -203,32 +205,32 @@ const segScale = (i) => 1 - (i + 1) * 0.085;
 /* ------------------------------------------------------------------ types */
 export const ENEMY_TYPES = {
   grunt: {
-    key: 'grunt', hp: 70, speed: 3.9, radius: 0.52, height: 1.75, headY: 1.26, headR: 0.30,
+    key: 'grunt', hp: 70, speed: 3.9, radius: 0.52, height: 1.75, headY: 1.26, headR: 0.30, eye: [0.065, 1.27, 0.33],
     dmg: 9, attackRange: 1.75, attackCd: 1.35, score: 100, hudName: 'GRUNT',
     parts: gruntParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
     legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
     armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
   },
   shooter: {
-    key: 'shooter', hp: 95, speed: 2.9, radius: 0.50, height: 2.05, headY: 1.84, headR: 0.26,
+    key: 'shooter', hp: 95, speed: 2.9, radius: 0.50, height: 2.05, headY: 1.84, headR: 0.26, eye: [0.045, 1.85, 0.16],
     dmg: 9, attackRange: 30, preferred: 15, attackCd: 2.1, score: 150, hudName: 'SHARPSHOOTER',
     parts: shooterParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
     legPivots: { legL: [-0.15, 1.02, 0], legR: [0.15, 1.02, 0] },
     armPivots: { armL: [-0.30, 1.56, 0], armR: [0.34, 1.34, 0.16] },
   },
   brute: {
-    key: 'brute', hp: 330, speed: 2.5, radius: 1.05, height: 2.0, headY: 1.24, headR: 0.44,
+    key: 'brute', hp: 330, speed: 2.5, radius: 1.05, height: 2.0, headY: 1.24, headR: 0.44, eye: [0.15, 1.31, 1.28],
     dmg: 20, attackRange: 3.3, attackCd: 1.7, score: 400, hudName: 'BRUTE', heavy: true,
     parts: bruteParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
     legPivots: { legL: [-0.55, 1.02, 0.62], legR: [0.55, 1.02, 0.62], legL2: [-0.55, 1.02, -0.62], legR2: [0.55, 1.02, -0.62] },
   },
   wasp: {
-    key: 'wasp', hp: 48, speed: 6.4, radius: 0.46, height: 0.9, headY: 0.5, headR: 0.26,
+    key: 'wasp', hp: 48, speed: 6.4, radius: 0.46, height: 0.9, headY: 0.5, headR: 0.26, eye: [0.05, 0.07, 0.38],
     dmg: 7, attackRange: 2.2, attackCd: 1.2, score: 120, hudName: 'STINGER', flying: true, flyH: 3.1,
     parts: waspParts, partList: ['body', 'wingL', 'wingR'],
   },
   boss: {
-    key: 'boss', hp: 1500, speed: 2.2, radius: 1.9, height: 2.4, headY: 1.7, headR: 0.75,
+    key: 'boss', hp: 1500, speed: 2.2, radius: 1.9, height: 2.4, headY: 1.7, headR: 0.75, eye: [0.24, 1.72, 1.52],
     dmg: 26, attackRange: 4.2, attackCd: 1.9, score: 2500, hudName: 'IRONCOIL', boss: true, heavy: true,
     parts: bossParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
     legPivots: { legL: [-0.9, 1.2, 0.9], legR: [0.9, 1.2, 0.9], legL2: [-0.9, 1.2, -1.5], legR2: [0.9, 1.2, -1.5] },
@@ -244,7 +246,8 @@ class TypeRender {
     this.geos = type.parts();
     this.parts = [];
     // cool violet rim: hostiles read as a silhouette even against bright ground
-    const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), type.boss ? 0xff7a40 : 0xffd9a0, 0.45, 2.4);
+    // polished bronze: a specular sheen, plus the warm rim that separates them from the forest
+    const mat = addRim(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 42, specular: 0x7a5a28 }), type.boss ? 0xff7a40 : 0xffd9a0, 0.35, 2.6);
     for (const name of type.partList) {
       const geo = this.geos[name];
       if (!geo) continue;
@@ -300,7 +303,7 @@ export class Enemies {
     scene.add(this.eyeMesh);
 
     // trailing boss body: one instanced mesh for every segment of every boss
-    this.segMesh = new THREE.InstancedMesh(bossSegmentGeo(), addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), 0xff7a40, 0.5, 2.4), BOSS_SEGS * 2);
+    this.segMesh = new THREE.InstancedMesh(bossSegmentGeo(), addRim(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 42, specular: 0x7a5a28 }), 0xff7a40, 0.4, 2.6), BOSS_SEGS * 2);
     this.segMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.segMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BOSS_SEGS * 2 * 3), 3);
     this.segMesh.castShadow = true;
@@ -896,14 +899,16 @@ export class Enemies {
       const col = t.boss ? 0xff5a18 : (e.key === 'wasp' ? 0xffb030 : (e.key === 'shooter' ? 0xffc860 : 0xff7a20));
       _col.setHex(col).multiplyScalar(1 + Math.sin(time * 5 + e.phase) * 0.18);
       for (let s = -1; s <= 1; s += 2) {
-        const ox = s * t.headR * 0.55, oz = t.headR * 0.95;
+        // eyes sit in the helm's slit (t.eye: [half spacing, height, forward]), scaled with the body
+        const ex = t.eye ? t.eye[0] : t.headR * 0.55, ey = t.eye ? t.eye[1] : t.headY, ez = t.eye ? t.eye[2] : t.headR * 0.95;
+        const ox = s * ex * e.scale, oz = ez * e.scale;
         _d.position.set(
           e.pos.x + ox * cosY + oz * sinY,
-          e.pos.y + t.headY,
+          e.pos.y + ey * e.scale,
           e.pos.z - ox * sinY + oz * cosY
         );
         _d.rotation.set(0, 0, 0);
-        _d.scale.setScalar(e.scale * (t.boss ? 3.6 : 1) * (1 + Math.sin(time * 6 + e.phase) * 0.1));
+        _d.scale.setScalar(e.scale * (t.boss ? 2.6 : 0.7) * (1 + Math.sin(time * 6 + e.phase) * 0.1));
         _d.updateMatrix();
         this.eyeMesh.setMatrixAt(ei, _d.matrix);
         this.eyeMesh.setColorAt(ei, _col);
