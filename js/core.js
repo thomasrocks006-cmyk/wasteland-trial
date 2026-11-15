@@ -260,7 +260,9 @@ const _m = new THREE.Matrix4();
 const _c = new THREE.Color();
 
 export class Builder {
-  constructor() { this.pos = []; this.col = []; }
+  /** smooth: keep each primitive's own normals (rounded shapes stay round).
+   *  Default is flat: normals are recomputed per face, the chiselled look. */
+  constructor(opts = {}) { this.pos = []; this.col = []; this.smooth = !!opts.smooth; this.nor = []; }
   /** add geometry with optional transform + colour (hex or THREE.Color) */
   add(geo, color = 0xffffff, opt = {}) {
     const g = geo.index ? geo.toNonIndexed() : geo;
@@ -275,6 +277,15 @@ export class Builder {
     }
     const p = g.attributes.position.array;
     const n = p.length / 3;
+    if (this.smooth) {
+      const na = g.attributes.normal.array;
+      const nm = new THREE.Matrix3().getNormalMatrix(m);
+      const v = new THREE.Vector3();
+      for (let i = 0; i < n; i++) {
+        v.set(na[i * 3], na[i * 3 + 1], na[i * 3 + 2]).applyMatrix3(nm).normalize();
+        this.nor.push(v.x, v.y, v.z);
+      }
+    }
     _c.set(color);
     const jitter = opt.jitter || 0;
     for (let i = 0; i < n; i++) {
@@ -291,7 +302,8 @@ export class Builder {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
-    g.computeVertexNormals();
+    if (this.smooth) g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nor, 3));
+    else g.computeVertexNormals();
     g.computeBoundingSphere();
     return g;
   }
@@ -572,11 +584,7 @@ export function fabricTexture() {
     }
   }
   ctx.putImageData(img, 0, 0);
-  // stitched seams
-  ctx.strokeStyle = 'rgba(40,30,22,0.35)'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 3]);
-  for (const v of [42, 170]) { ctx.beginPath(); ctx.moveTo(0, v); ctx.lineTo(S, v); ctx.stroke(); }
-  ctx.beginPath(); ctx.moveTo(120, 0); ctx.lineTo(120, S); ctx.stroke();
-  ctx.setLineDash([]);
+  // (no drawn seams: box-projected UVs scatter them across a rounded body as dots)
   // scuffs and dust
   for (let i = 0; i < 160; i++) {
     ctx.fillStyle = r() > 0.5 ? `rgba(60,44,30,${0.05 + r() * 0.1})` : `rgba(255,240,215,${0.05 + r() * 0.08})`;

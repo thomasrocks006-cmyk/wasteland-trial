@@ -4,113 +4,147 @@ import {
   terrainHeight, Builder, ARENA_R, addRim, fabricTexture
 } from './core.js';
 
-/* The runner: a wasteland scout in a navy jacket, red headwrap and a cyan visor.
-   Chunky low-poly volumes, one vertex-coloured material per part. Navy is the
-   complement of the orange sand, so the hero never melts into the ground. */
+/* The runner: an original wasteland scout. Rounded, smooth-shaded volumes in an
+   animated-film style (not blocks): a red headwrap with streaming tails, navy
+   jacket, sand scarf, brass shoulder plate, cyan earpiece. Jointed rig: spine,
+   neck, shoulders, elbows, wrists, hips, knees, ankles. Faces +z; right is -x. */
 export function buildHero() {
   const C = {
-    skin: 0xc98f62,
-    skinDark: 0xa8714a,
-    hair: 0x2b1d15,
-    wrap: 0xb0412a,
-    wrapDark: 0x7c2a19,
-    cream: 0xd8c49a,          // sand scarf and shirt
-    creamDark: 0xbfa77a,
-    teal: 0x2d3d73,           // jacket (key name kept so the limb code below is unchanged)
-    tealDark: 0x1e2952,
-    olive: 0x3d3833,          // trousers
-    oliveDark: 0x2b2723,
-    boot: 0x3a2818,
-    glove: 0x2a1f16,
-    metal: 0x8a8478,
-    brass: 0xc0903c,
-    lens: 0x37e0c8,
+    skin: 0xb97b52, skinDark: 0x9a6340, hair: 0x241811,
+    wrap: 0xb0412a, wrapDark: 0x7c2a19,
+    cream: 0xd8c49a, creamDark: 0xbfa77a,
+    jacket: 0x2d3d73, jacketDark: 0x1e2952,
+    trousers: 0x3d3833, trousersDark: 0x2b2723,
+    boot: 0x3a2818, sole: 0x1c140e, glove: 0x2a1f16,
+    brass: 0xc0903c, eye: 0xf4efe6, iris: 0x2a1a10, cyan: 0x37e0c8,
   };
-
-  const torso = new Builder();
-  // hips
-  torso.add(new THREE.BoxGeometry(0.42, 0.24, 0.28), C.olive, { pos: [0, 0.94, 0], jitter: 0.02 });
-  // belt with a brass buckle
-  torso.add(new THREE.BoxGeometry(0.46, 0.09, 0.31), C.boot, { pos: [0, 1.06, 0], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.10, 0.07, 0.03), C.brass, { pos: [0, 1.06, 0.16] });
-  // shirt
-  torso.add(new THREE.BoxGeometry(0.44, 0.34, 0.29), C.cream, { pos: [0, 1.20, 0], jitter: 0.025 });
-  // jacket, open at the front
-  torso.add(new THREE.BoxGeometry(0.50, 0.30, 0.32), C.teal, { pos: [0, 1.41, 0], jitter: 0.025 });
-  torso.add(new THREE.BoxGeometry(0.16, 0.42, 0.30), C.teal, { pos: [0.17, 1.26, 0.01], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.16, 0.42, 0.30), C.teal, { pos: [-0.17, 1.26, 0.01], jitter: 0.02 });
-  // asymmetric shoulders: brass plate on the left, a plain jacket seam on the right
-  torso.add(new THREE.BoxGeometry(0.22, 0.12, 0.34), C.brass, { pos: [-0.31, 1.53, 0], rot: [0, 0, 0.32], jitter: 0.03 });
-  torso.add(new THREE.BoxGeometry(0.16, 0.06, 0.30), C.metal, { pos: [-0.33, 1.47, 0], rot: [0, 0, 0.32], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.15, 0.13, 0.28), C.tealDark, { pos: [0.29, 1.50, 0], rot: [0, 0, -0.22], jitter: 0.02 });
-  // sand scarf wound at the neck, one end hanging at the back
-  torso.add(new THREE.BoxGeometry(0.32, 0.11, 0.30), C.cream, { pos: [0, 1.61, 0], jitter: 0.03 });
-  torso.add(new THREE.BoxGeometry(0.12, 0.30, 0.04), C.creamDark, { pos: [-0.06, 1.46, -0.17], rot: [0.12, 0, 0.1], jitter: 0.03 });
-  // head
-  torso.add(new THREE.BoxGeometry(0.26, 0.27, 0.26), C.skin, { pos: [0, 1.76, 0], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.22, 0.10, 0.05), C.skinDark, { pos: [0, 1.70, 0.13], jitter: 0.02 }); // jaw shadow
-  // dark hair at the sides and nape
-  torso.add(new THREE.BoxGeometry(0.29, 0.12, 0.10), C.hair, { pos: [0, 1.80, -0.11], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.05, 0.12, 0.16), C.hair, { pos: [0.135, 1.80, 0.02], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.05, 0.12, 0.16), C.hair, { pos: [-0.135, 1.80, 0.02], jitter: 0.02 });
-  // headwrap with two tails streaming back
-  torso.add(new THREE.BoxGeometry(0.30, 0.13, 0.30), C.wrap, { pos: [0, 1.91, 0], rot: [-0.08, 0, 0], jitter: 0.03 });
-  torso.add(new THREE.BoxGeometry(0.31, 0.05, 0.31), C.wrapDark, { pos: [0, 1.85, 0.005], jitter: 0.02 });
-  torso.add(new THREE.BoxGeometry(0.07, 0.05, 0.30), C.wrap, { pos: [0.05, 1.87, -0.27], rot: [-0.55, 0.12, 0], jitter: 0.03 });
-  torso.add(new THREE.BoxGeometry(0.06, 0.04, 0.24), C.wrapDark, { pos: [-0.04, 1.84, -0.25], rot: [-0.75, -0.15, 0], jitter: 0.03 });
-  // visor across the eyes
-  torso.add(new THREE.BoxGeometry(0.29, 0.065, 0.05), C.metal, { pos: [0, 1.79, 0.125] });
-  torso.add(new THREE.BoxGeometry(0.21, 0.036, 0.02), C.lens, { pos: [0, 1.79, 0.152] });
-  // back strap
-  torso.add(new THREE.BoxGeometry(0.07, 0.46, 0.02), C.boot, { pos: [0.12, 1.32, -0.17], rot: [0, 0, 0.22] });
-
-  // cloth texture over the vertex colours, and a warm rim so the hero reads against sand
+  const S = (r, w = 20, h = 14) => new THREE.SphereGeometry(r, w, h);
+  const CAP = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 14);
+  const CYL = (r0, r1, h, s = 18) => new THREE.CylinderGeometry(r0, r1, h, s);
   const cloth = fabricTexture();
-  const heroMat = () => addRim(new THREE.MeshLambertMaterial({ vertexColors: true, map: cloth }), 0xffe2b8, 0.42, 2.6);
-  const torsoMesh = new THREE.Mesh(torso.buildUV(3.2), heroMat());
-  torsoMesh.castShadow = true;
-
-  /* --- limbs built with the joint at the origin --- */
-  const armGeo = (side) => {
-    const b = new Builder();
-    b.add(new THREE.CylinderGeometry(0.062, 0.075, 0.30, 6), C.tealDark, { pos: [0, -0.15, 0], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.055, 0.062, 0.28, 6), C.skin, { pos: [0, -0.43, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.10, 0.11, 0.10), C.glove, { pos: [0, -0.58, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.115, 0.05, 0.115), C.teal, { pos: [0, -0.315, 0], jitter: 0.02 });
-    return b.buildUV(3.2);
-  };
-  const legGeo = () => {
-    const b = new Builder();
-    b.add(new THREE.CylinderGeometry(0.085, 0.075, 0.40, 6), C.olive, { pos: [0, -0.20, 0], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.068, 0.078, 0.34, 6), C.oliveDark, { pos: [0, -0.55, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.14, 0.13, 0.14), C.boot, { pos: [0, -0.74, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.145, 0.09, 0.30), C.boot, { pos: [0, -0.79, 0.07], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.15, 0.05, 0.16), C.metal, { pos: [0, -0.73, 0.02] });
-    return b.buildUV(3.2);
-  };
-
-  const mat = heroMat();
-  const mk = (geo) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; };
-
-  // the hero faces local +z, so its right hand is on -x (the gun used to sit in the left)
-  const armL = new THREE.Group(); armL.position.set(0.30, 1.46, 0); armL.add(mk(armGeo(1)));
-  const armR = new THREE.Group(); armR.position.set(-0.30, 1.46, 0); armR.add(mk(armGeo(-1)));
-  const legL = new THREE.Group(); legL.position.set(-0.12, 0.92, 0); legL.add(mk(legGeo()));
-  const legR = new THREE.Group(); legR.position.set(0.12, 0.92, 0); legR.add(mk(legGeo()));
+  const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true, map: cloth }), 0xffe2b8, 0.42, 2.6);
+  // skin gets its own clean material: cloth weave on a face reads as a print
+  const skinMat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), 0xffd2a8, 0.22, 3.0);
+  const mesh = (b, m = mat) => { const o = new THREE.Mesh(b.buildUV(3.2), m); o.castShadow = true; return o; };
+  const B = () => new Builder({ smooth: true });
+  const G = (x = 0, y = 0, z = 0) => { const g = new THREE.Group(); g.position.set(x, y, z); return g; };
 
   const root = new THREE.Group();
   const body = new THREE.Group();
-  body.add(torsoMesh, armL, armR, legL, legR);
   root.add(body);
 
-  // hand mount for the gunstaff
-  const hand = new THREE.Group();
-  hand.position.set(0, -0.58, 0.02);
-  armR.add(hand);
+  // ---- hips (body space), the torso pivots above them
+  const hips = B();
+  hips.add(CAP(0.14, 0.13), C.trousers, { pos: [0, 0.97, 0], rot: [0, 0, Math.PI / 2], scale: [1, 1, 0.78] });
+  body.add(mesh(hips));
 
-  return { root, body, armL, armR, legL, legR, hand, torsoMesh };
+  const torso = G(0, 1.0, 0);
+  body.add(torso);
+  const t = B();
+  t.add(CYL(0.165, 0.17, 0.07), C.boot, { pos: [0, 0.04, 0], scale: [1, 1, 0.78] });                // belt
+  t.add(new THREE.BoxGeometry(0.07, 0.05, 0.02), C.brass, { pos: [0, 0.04, 0.135] });                // buckle
+  t.add(CYL(0.15, 0.165, 0.2), C.cream, { pos: [0, 0.17, 0], scale: [1, 1, 0.76] });                // shirt
+  t.add(CAP(0.18, 0.2), C.jacket, { pos: [0, 0.39, 0], scale: [1.18, 1, 0.8] });                    // chest
+  t.add(CYL(0.2, 0.19, 0.16), C.jacket, { pos: [0, 0.16, -0.012], scale: [1, 1, 0.8] });            // jacket hem
+  t.add(new THREE.BoxGeometry(0.07, 0.3, 0.03), C.cream, { pos: [0, 0.3, 0.145], rot: [0.05, 0, 0] }); // open front
+  t.add(new THREE.TorusGeometry(0.105, 0.05, 10, 20), C.cream, { pos: [0, 0.6, 0], rot: [Math.PI / 2, 0, 0] }); // scarf
+  t.add(CAP(0.035, 0.22), C.creamDark, { pos: [0.05, 0.47, -0.16], rot: [0.25, 0, 0.1] });          // scarf end
+  t.add(S(0.11), C.brass, { pos: [-0.235, 0.555, 0], scale: [1.15, 0.55, 1.05] });                  // shoulder plate
+  t.add(CAP(0.03, 0.4), C.boot, { pos: [-0.08, 0.35, -0.16], rot: [0, 0, -0.45] });                 // back strap
+  const torsoMesh = mesh(t);
+  torso.add(torsoMesh);
+  const nk = B();
+  nk.add(CYL(0.058, 0.065, 0.1), C.skinDark, { pos: [0, 0.68, 0] });                                 // neck
+  torso.add(mesh(nk, skinMat));
+
+  // ---- head
+  const head = G(0, 0.72, 0);
+  torso.add(head);
+  // face: skin pieces on the clean material, features kept small and close-set
+  const f = B();
+  f.add(S(0.15, 24, 18), C.skin, { pos: [0, 0.16, 0], scale: [0.94, 1.12, 1.02] });                  // skull
+  f.add(S(0.105, 18, 14), C.skin, { pos: [0, 0.07, 0.04], scale: [0.95, 0.95, 1] });                 // jaw and chin
+  f.add(S(0.019, 10, 8), C.skinDark, { pos: [0, 0.135, 0.152], scale: [0.85, 1.3, 1.1] });           // nose
+  f.add(CAP(0.007, 0.04), C.skinDark, { pos: [0, 0.088, 0.135], rot: [0, 0, Math.PI / 2] });          // mouth
+  for (const sx of [-1, 1]) {
+    f.add(S(0.035, 10, 8), C.skin, { pos: [sx * 0.143, 0.15, -0.01], scale: [0.42, 1, 0.75] });     // round ear
+  }
+  head.add(mesh(f, skinMat));
+  const h = B();
+  for (const sx of [-1, 1]) {
+    h.add(S(0.024, 12, 10), C.eye, { pos: [sx * 0.05, 0.172, 0.126], scale: [1.15, 0.95, 0.55] });
+    h.add(S(0.015, 10, 8), C.iris, { pos: [sx * 0.05, 0.172, 0.139], scale: [1, 1.05, 0.5] });
+    h.add(CAP(0.0095, 0.05), C.hair, { pos: [sx * 0.052, 0.208, 0.132], rot: [0.1, 0, Math.PI / 2 + sx * 0.22] }); // brow
+  }
+  h.add(S(0.156, 20, 14), C.hair, { pos: [0, 0.155, -0.035], scale: [0.96, 1.08, 1] });              // hair under the wrap
+  h.add(CAP(0.05, 0.08), C.hair, { pos: [0, 0.06, -0.12], rot: [0.5, 0, 0] });                       // nape
+  // headwrap, tilted back with a rolled lower edge, so it reads as cloth not a hat band
+  h.add(CYL(0.158, 0.166, 0.085), C.wrap, { pos: [0, 0.26, -0.008], rot: [-0.18, 0, 0] });
+  h.add(new THREE.TorusGeometry(0.16, 0.017, 8, 28), C.wrapDark, { pos: [0, 0.222, 0.0], rot: [Math.PI / 2 - 0.18, 0, 0] });
+  h.add(S(0.162, 20, 12), C.wrap, { pos: [0, 0.275, -0.015], rot: [-0.18, 0, 0], scale: [1, 0.6, 1.03] });
+  h.add(S(0.045), C.wrapDark, { pos: [0, 0.25, -0.17] });                                            // knot
+  h.add(CYL(0.022, 0.022, 0.02), C.cyan, { pos: [0.152, 0.15, 0], rot: [0, 0, Math.PI / 2] });       // earpiece
+  head.add(mesh(h));
+  const tails = G(0, 0.255, -0.175);
+  const tl = B();
+  tl.add(CAP(0.026, 0.2), C.wrap, { pos: [0.025, -0.11, -0.02], rot: [0.15, 0, 0.15] });
+  tl.add(CAP(0.022, 0.16), C.wrapDark, { pos: [-0.03, -0.09, -0.01], rot: [0.1, 0, -0.2] });
+  tails.add(mesh(tl));
+  head.add(tails);
+
+  // ---- arms: shoulder -> elbow -> wrist. Total reach 0.58 to the hand mount.
+  const arm = (side) => {
+    const sh = G(side * 0.245, 0.53, 0);
+    const u = B();
+    u.add(S(0.078), C.jacket, { pos: [0, -0.01, 0] });
+    u.add(CAP(0.064, 0.18), C.jacket, { pos: [0, -0.15, 0] });
+    sh.add(mesh(u));
+    const elbow = G(0, -0.29, 0);
+    const f = B();
+    f.add(new THREE.TorusGeometry(0.058, 0.02, 8, 14), C.jacketDark, { pos: [0, -0.015, 0], rot: [Math.PI / 2, 0, 0] }); // cuff
+    f.add(CAP(0.052, 0.17), C.jacket, { pos: [0, -0.13, 0] });                                        // sleeve down to the glove
+    elbow.add(mesh(f));
+    sh.add(elbow);
+    const hand = G(0, -0.29, 0.02);
+    const hd = B();
+    hd.add(S(0.055, 14, 10), C.glove, { pos: [0, -0.02, 0], scale: [0.9, 1.1, 0.85] });
+    hand.add(mesh(hd));
+    elbow.add(hand);
+    return { sh, elbow, hand };
+  };
+  const R = arm(-1), L = arm(1);
+  torso.add(R.sh, L.sh);
+
+  // ---- legs: hip -> knee -> ankle; the sole lands at body y 0.085 when straight
+  const leg = (side) => {
+    const hip = G(side * 0.1, 0.92, 0);
+    const th = B();
+    th.add(CAP(0.092, 0.22), C.trousers, { pos: [0, -0.2, 0] });
+    th.add(S(0.07), C.trousersDark, { pos: [0, -0.4, 0.03], scale: [1, 0.9, 0.8] });                  // knee pad
+    hip.add(mesh(th));
+    const knee = G(0, -0.42, 0);
+    const sn = B();
+    sn.add(CAP(0.074, 0.19), C.trousersDark, { pos: [0, -0.15, 0] });
+    sn.add(CYL(0.075, 0.07, 0.1), C.boot, { pos: [0, -0.26, 0] });                                   // boot shaft
+    knee.add(mesh(sn));
+    hip.add(knee);
+    const foot = G(0, -0.3, 0);
+    const ft = B();
+    ft.add(S(0.085, 16, 12), C.boot, { pos: [0, -0.04, 0.045], scale: [0.95, 0.75, 1.55] });
+    ft.add(new THREE.BoxGeometry(0.15, 0.04, 0.29), C.sole, { pos: [0, -0.1, 0.045] });
+    foot.add(mesh(ft));
+    knee.add(foot);
+    return { hip, knee, foot };
+  };
+  const LR = leg(-1), LL = leg(1);
+  body.add(LR.hip, LL.hip);
+
+  return {
+    root, body, torso, head, tails, torsoMesh,
+    armR: R.sh, armL: L.sh, elbowR: R.elbow, elbowL: L.elbow, hand: R.hand, handL: L.hand,
+    legR: LR.hip, legL: LL.hip, kneeR: LR.knee, kneeL: LL.knee, footR: LR.foot, footL: LL.foot,
+  };
 }
-
 
 export class Player {
   constructor(scene, world) {
@@ -449,13 +483,22 @@ export class Player {
     const sw = Math.sin(this.walkPhase);
     const swAmt = clamp(horiz / 6, 0, 1);
     const legSwing = sw * 0.85 * swAmt;
+    // knees fold while a leg swings forward; ankles keep the sole close to flat
+    const kneeOf = (ph) => (0.12 + Math.max(0, -Math.cos(ph)) * 1.05) * swAmt + 0.06;
     if (this.grounded) {
       m.legR.rotation.x = legSwing;
       m.legL.rotation.x = -legSwing;
+      m.kneeR.rotation.x = damp(m.kneeR.rotation.x, kneeOf(this.walkPhase), 20, dt);
+      m.kneeL.rotation.x = damp(m.kneeL.rotation.x, kneeOf(this.walkPhase + Math.PI), 20, dt);
     } else {
-      m.legR.rotation.x = damp(m.legR.rotation.x, -0.55, 8, dt);
-      m.legL.rotation.x = damp(m.legL.rotation.x, 0.28, 8, dt);
+      // tucked in the air: one knee up, the other trailing
+      m.legR.rotation.x = damp(m.legR.rotation.x, -0.75, 8, dt);
+      m.legL.rotation.x = damp(m.legL.rotation.x, 0.2, 8, dt);
+      m.kneeR.rotation.x = damp(m.kneeR.rotation.x, 1.15, 8, dt);
+      m.kneeL.rotation.x = damp(m.kneeL.rotation.x, 0.55, 8, dt);
     }
+    m.footR.rotation.x = -(m.legR.rotation.x + m.kneeR.rotation.x) * 0.8;
+    m.footL.rotation.x = -(m.legL.rotation.x + m.kneeL.rotation.x) * 0.8;
 
     // arms: a two-handed hold. Low ready while running (gun forward and down, never
     // hanging like a walking stick); shouldered and following the camera's pitch
@@ -469,6 +512,21 @@ export class Player {
     m.armR.rotation.y = 0;
     m.armL.rotation.x = damp(m.armL.rotation.x, lerp(-1.02 - legSwing * 0.10, aimX + 0.22, r), 16, dt);
     m.armL.rotation.z = damp(m.armL.rotation.z, lerp(-0.62, -0.72, r), 12, dt);
+    // elbows: relaxed bend at low ready, tighter support hand when shouldered.
+    // The gun hand counter-rotates, so the barrel stays on the upper arm's aim line.
+    m.elbowR.rotation.x = damp(m.elbowR.rotation.x, lerp(-0.45, -0.28, r), 16, dt);
+    m.elbowL.rotation.x = damp(m.elbowL.rotation.x, lerp(-0.55, -0.85, r), 16, dt);
+    m.hand.rotation.x = -m.elbowR.rotation.x;
+
+    // spine counter-twists with the stride (not while aiming), head follows the aim,
+    // breathing, and the headwrap tails stream back with speed
+    const now = performance.now();
+    m.torso.rotation.y = damp(m.torso.rotation.y, sw * 0.14 * swAmt * (1 - r), 12, dt);
+    m.torso.scale.y = 1 + Math.sin(now * 0.0018) * 0.012;
+    m.head.rotation.x = damp(m.head.rotation.x, -clamp(this.camPitch, -0.5, 0.5) * 0.55 * r + Math.sin(this.walkPhase * 2) * 0.03 * swAmt, 10, dt);
+    m.head.rotation.y = damp(m.head.rotation.y, -m.torso.rotation.y * 0.8, 10, dt);
+    m.tails.rotation.x = damp(m.tails.rotation.x, 0.25 + horiz * 0.09 + Math.sin(now * 0.009) * 0.08 * (0.3 + swAmt), 6, dt);
+    m.tails.rotation.z = Math.sin(now * 0.006) * 0.12;
 
     // idle bob / breathing
     const bob = Math.sin(this.walkPhase * 2) * 0.045 * swAmt + Math.sin(performance.now() * 0.0018) * 0.012;

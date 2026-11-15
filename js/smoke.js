@@ -244,8 +244,16 @@ export async function runSmoke() {
     d.enemies.clear();
     const p = d.player;
     p.hp = 100; p.iframe = 0; p.endMode();
-    const f = camDir();
-    const e = d.enemies.spawn('boss', p.pos.x + f[0] * 3.2, p.pos.z + f[1] * 3.2);
+    // open ground only: next to a pillar the boss is pushed out of reach and the
+    // test failed on geometry, not on the boss
+    let bx = null, bz = null;
+    for (let k = 0; k < 24 && bx === null; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const x = p.pos.x + Math.cos(a) * 3.2, z = p.pos.z + Math.sin(a) * 3.2;
+      if (d.world.isClear(x, z, 2.2)) { bx = x; bz = z; }
+    }
+    assert(bx !== null, 'test setup: no open ground beside the player');
+    const e = d.enemies.spawn('boss', bx, bz);
     e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.attackCd = 0; e.speed = 0;
     await wait(900, 14);
     const hp = p.hp;
