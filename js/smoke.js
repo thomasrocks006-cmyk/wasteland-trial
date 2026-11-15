@@ -45,9 +45,12 @@ const camDir = () => {
   window.__dbg.camera.getWorldDirection(d);
   return [d.x, d.z];
 };
-const rightOf = (v) => {
-  const yaw = Math.atan2(v[0], v[1]);
-  return [Math.cos(yaw), -Math.sin(yaw)];
+/* Screen-right read straight off the camera's own matrix. It used to be derived
+   with the same formula as the game, so a mirrored stick passed its own test. */
+const rightOf = () => {
+  const m = window.__dbg.camera.matrixWorld.elements;
+  const l = Math.hypot(m[0], m[2]) || 1;
+  return [m[0] / l, m[2] / l];
 };
 
 export async function runSmoke() {
@@ -121,6 +124,26 @@ export async function runSmoke() {
       return `${mag.toFixed(2)}m, align ${dot.toFixed(2)}`;
     });
   }
+
+  // ---- a diagonal push goes exactly where the thumb points (screen space)
+  await check('stick up-right moves up-right on screen', async () => {
+    d.player.vel.set(0, 0, 0);
+    const before = [d.player.pos.x, d.player.pos.z];
+    const f = camDir(), r = rightOf(f);
+    const fl = Math.hypot(f[0], f[1]) || 1;
+    const expect = [(f[0] / fl + r[0]) / Math.SQRT2, (f[1] / fl + r[1]) / Math.SQRT2];
+    stickZone.dispatchEvent(mk('pointerdown', 130, 290, 991));
+    for (let i = 1; i <= 5; i++) stickZone.dispatchEvent(mk('pointermove', 130 + 7 * i, 290 - 7 * i, 991));
+    await wait(650);
+    const moved = [d.player.pos.x - before[0], d.player.pos.z - before[1]];
+    stickZone.dispatchEvent(mk('pointerup', 165, 255, 991));
+    await wait(120);
+    const mag = Math.hypot(moved[0], moved[1]);
+    assert(mag > 0.15, `barely moved (${mag.toFixed(2)}m)`);
+    const dot = (moved[0] * expect[0] + moved[1] * expect[1]) / mag;
+    assert(dot > 0.85, `off the thumb's direction (alignment ${dot.toFixed(2)})`);
+    return `align ${dot.toFixed(2)}`;
+  });
 
   // ---- look drag turns the correct way at several camera yaws
   const lookZone = document.getElementById('lookZone');
@@ -364,26 +387,6 @@ export async function runSmoke() {
     return `apex +${(peak - y0).toFixed(2)}m`;
   });
 
-  await check('MOVE invert setting actually reverses the stick', async () => {
-    const p = d.player;
-    const sel = document.getElementById('invMove');
-    assert(sel, 'no invMove control in the UI');
-    sel.value = '-1'; sel.dispatchEvent(new Event('change'));
-    const f = camDir();
-    const before = [p.pos.x, p.pos.z];
-    const z = document.getElementById('stickZone');
-    z.dispatchEvent(mk('pointerdown', 130, 290, 555));
-    for (let i = 1; i <= 5; i++) z.dispatchEvent(mk('pointermove', 130, 290 - (50 * i) / 5, 555));
-    await wait(550);
-    z.dispatchEvent(mk('pointerup', 130, 240, 555));
-    await wait(150);
-    const mv = [p.pos.x - before[0], p.pos.z - before[1]];
-    const mag = Math.hypot(mv[0], mv[1]) || 1;
-    const dot = (mv[0] * f[0] + mv[1] * f[1]) / mag;
-    sel.value = '1'; sel.dispatchEvent(new Event('change'));
-    assert(dot < -0.5, `invert did not reverse the stick (alignment ${dot.toFixed(2)})`);
-    return 'reversed';
-  });
 
   // ---- report
   await check('no uncaught exceptions (whole run)', async () => {

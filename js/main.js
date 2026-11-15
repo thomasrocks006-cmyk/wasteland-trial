@@ -469,8 +469,8 @@ bindZone(stickZone, {
       const scale = ((mag - dead) / (1 - dead)) / mag;
       nx *= scale; ny *= scale;
     } else { nx = 0; ny = 0; }
-    input.mx = clamp(nx * invMove, -1, 1);
-    input.my = clamp(-ny * invMove, -1, 1);
+    input.mx = clamp(nx, -1, 1);
+    input.my = clamp(-ny, -1, 1);
     input.sprint = mag > 0.93;
   },
   up() {
@@ -906,18 +906,20 @@ function refreshTitleStats() {
 }
 refreshTitleStats();
 
-let invX = 1, invY = 1, invMove = 1;
+let invX = 1, invY = 1;
 const BUILD = 'b18';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
 const settings = (() => { try { return JSON.parse(localStorage.getItem(SET_KEY) || '{}'); } catch { return {}; } })();
+// v2 fixed the mirrored stick and look: any inversion saved to work around them
+// would now come out backwards, so drop those once
+if (settings.v !== 2) { delete settings.invX; delete settings.invMove; settings.v = 2; }
 function saveSettings() { try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); } catch { } }
 const SETTERS = {
   sens: (v) => { sensitivity = parseFloat(v); },
   invX: (v) => { invX = parseFloat(v); },
   invY: (v) => { invY = parseFloat(v); },
-  invMove: (v) => { invMove = parseFloat(v); },
   quality: (v) => { QUALITY = v; renderer.setPixelRatio(pixelRatioFor(QUALITY)); resize(); },
   snd: (v) => { audio.setEnabled(v === 'on'); },
 };

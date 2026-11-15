@@ -89,8 +89,9 @@ export function buildHero() {
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const mk = (geo) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; };
 
-  const armL = new THREE.Group(); armL.position.set(-0.30, 1.46, 0); armL.add(mk(armGeo(-1)));
-  const armR = new THREE.Group(); armR.position.set(0.30, 1.46, 0); armR.add(mk(armGeo(1)));
+  // the hero faces local +z, so its right hand is on -x (the gun used to sit in the left)
+  const armL = new THREE.Group(); armL.position.set(0.30, 1.46, 0); armL.add(mk(armGeo(1)));
+  const armR = new THREE.Group(); armR.position.set(-0.30, 1.46, 0); armR.add(mk(armGeo(-1)));
   const legL = new THREE.Group(); legL.position.set(-0.12, 0.92, 0); legL.add(mk(legGeo()));
   const legR = new THREE.Group(); legR.position.set(0.12, 0.92, 0); legR.add(mk(legGeo()));
 
@@ -283,7 +284,8 @@ export class Player {
     // dragging right must turn the view right, which is +yaw here
     this.lookVelX = damp(this.lookVelX, input.lookX, 34, dt);
     this.lookVelY = damp(this.lookVelY, input.lookY, 34, dt);
-    this.camYaw += this.lookVelX;
+    // +yaw swings the view to screen-LEFT here, so a rightward drag must lower it
+    this.camYaw -= this.lookVelX;
     this.camPitch = clamp(this.camPitch - this.lookVelY, -0.95, 0.62);
 
     // ---- recoil spring
@@ -322,7 +324,9 @@ export class Player {
       const cy = this.camYaw;
       // local (mx = strafe right, my = forward)
       const fx = Math.sin(cy), fz = Math.cos(cy);
-      const rx = Math.cos(cy), rz = -Math.sin(cy);
+      // screen-right for a camera looking along (sin cy, cos cy); it was the mirror
+      // of this, so every sideways push of the stick went the opposite way
+      const rx = -Math.cos(cy), rz = Math.sin(cy);
       wishX = (fx * my + rx * mx) / Math.max(mag, 1e-3) * mag;
       wishZ = (fz * my + rz * mx) / Math.max(mag, 1e-3) * mag;
       const wl = Math.hypot(wishX, wishZ) || 1;
@@ -450,13 +454,18 @@ export class Player {
       m.legL.rotation.x = damp(m.legL.rotation.x, 0.28, 8, dt);
     }
 
-    // arms: aim pose vs relaxed
-    const aimBlend = this.aim ? 1 : 0;
-    m.armR.rotation.x = damp(m.armR.rotation.x, -1.42 * aimBlend + (-0.98 - legSwing * 0.35) * (1 - aimBlend), 14, dt);
-    m.armR.rotation.z = damp(m.armR.rotation.z, 0.16 * aimBlend - 0.04, 12, dt);
-    m.armR.rotation.y = damp(m.armR.rotation.y, -0.10 * aimBlend, 12, dt);
-    m.armL.rotation.x = damp(m.armL.rotation.x, -1.30 * aimBlend + (-0.85 + legSwing * 0.30) * (1 - aimBlend), 14, dt);
-    m.armL.rotation.z = damp(m.armL.rotation.z, -0.30 * aimBlend, 12, dt);
+    // arms: a two-handed hold. Low ready while running (gun forward and down, never
+    // hanging like a walking stick); shouldered and following the camera's pitch
+    // while aiming or firing, so the barrel points where the crosshair is.
+    const ready = (this.aim || this.faceLock > 0) ? 1 : 0;
+    this.readyBlend = damp(this.readyBlend || 0, ready, 12, dt);
+    const r = this.readyBlend;
+    const aimX = -(Math.PI / 2 + clamp(this.camPitch + this.recoilPitch, -0.7, 0.7));
+    m.armR.rotation.x = damp(m.armR.rotation.x, lerp(-1.12 - legSwing * 0.12, aimX, r), 16, dt);
+    m.armR.rotation.z = damp(m.armR.rotation.z, lerp(0.30, 0.20, r), 12, dt);
+    m.armR.rotation.y = 0;
+    m.armL.rotation.x = damp(m.armL.rotation.x, lerp(-1.02 - legSwing * 0.10, aimX + 0.22, r), 16, dt);
+    m.armL.rotation.z = damp(m.armL.rotation.z, lerp(-0.62, -0.72, r), 12, dt);
 
     // idle bob / breathing
     const bob = Math.sin(this.walkPhase * 2) * 0.045 * swAmt + Math.sin(performance.now() * 0.0018) * 0.012;
@@ -488,8 +497,8 @@ export class Player {
     const dirY = Math.sin(cp);
     const dirZ = Math.cos(cy) * Math.cos(cp);
 
-    // right vector for shoulder offset
-    const rx = Math.cos(cy), rz = -Math.sin(cy);
+    // right vector for the shoulder offset: camera over the right shoulder
+    const rx = -Math.cos(cy), rz = Math.sin(cy);
 
     let px = pivot.x + rx * this.camShoulder - dirX * this.camDist;
     let py = pivot.y - dirY * this.camDist + 0.18;
