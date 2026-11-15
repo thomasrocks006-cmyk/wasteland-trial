@@ -120,6 +120,16 @@ export class WeaponSystem {
     this.ctx = ctx;                  // { enemies, camera, spawnProjectile, onAmmo }
     this.models = WEAPONS.map(w => buildGunModel(w.id));
     this.models.forEach((m) => { m.visible = false; player.model.hand.add(m); });
+    // a second copy of each weapon rides across the hero's back while sheathed
+    this.backModels = WEAPONS.map(w => buildGunModel(w.id));
+    this.backModels.forEach((m) => { m.visible = false; if (player.model.back) player.model.back.add(m); });
+    this.drawn = false;        // sheathed until you attack
+    this.drawT = 0;            // >0 while drawing or sheathing
+    this.drawDir = 0;          // +1 drawing, -1 sheathing
+    this.idleT = 0;
+    this.throwPending = 0;     // spear wind-up before release
+    this.flights = [];         // spears in the air: damage lands on arrival
+    this.handHidden = 0;       // the throwing hand is empty for a moment
 
     this.index = 0;
     this.state = WEAPONS.map(w => ({ mag: w.mag, reserve: w.reserve }));
@@ -160,16 +170,35 @@ export class WeaponSystem {
   get reloadTime() { return this.def.reload * this.mods.reload; }
 
   syncModel() {
-    this.models.forEach((m, i) => { m.visible = i === this.index && this.visible; });
+    const inHand = this.drawn && this.handHidden <= 0;
+    this.models.forEach((m, i) => { m.visible = i === this.index && this.visible && inHand; });
+    this.backModels.forEach((m, i) => { m.visible = i === this.index && this.visible && !this.drawn; });
     const d = this.def;
-    // the hero holds a blade, a two-handed spear or a one-handed staff differently
-    this.player.weaponKind = d.melee ? 'melee' : d.explosive ? 'spell' : 'thrown';
+    // the hero holds a blade, a two-handed spear or a one-handed staff differently;
+    // sheathed, his arms swing free
+    this.player.weaponKind = !this.drawn ? 'none' : d.melee ? 'melee' : d.explosive ? 'spell' : 'thrown';
   }
+
+  /** draw the current weapon from the back; attacks wait until it is in hand */
+  draw() {
+    if (this.drawn || this.drawT > 0) return;
+    this.drawT = 0.4; this.drawDir = 1;
+    if (this.player.startSwing) this.player.startSwing('D', 0.4);
+    if (this.audio.shot) this.audio.shot('draw', 0);
+  }
+  sheathe() {
+    if (!this.drawn || this.drawT > 0 || this.swingT > 0) return;
+    this.drawT = 0.42; this.drawDir = -1;
+    if (this.player.startSwing) this.player.startSwing('S', 0.42);
+  }
+  /** instant: weapon in hand (tests, and a fresh run's first fight) */
+  ready() { this.drawn = true; this.drawT = 0; this.handHidden = 0; this.syncModel(); }
 
   setVisible(v) { this.visible = v; this.syncModel(); }
 
   switchTo(i, instant = false) {
     if (i === this.index || i < 0 || i >= WEAPONS.length) return;
+    this.idleT = 0; this.throwPending = 0; this.handHidden = 0;
     this.index = i;
     this.swingT = 0; this.swingDone = true; this.comboIdx = 0;
     this.reloading = false;
@@ -214,9 +243,23 @@ export class WeaponSystem {
   /* ---------------- firing ---------------- */
   fire(camera) {
     const d = this.def;
+    this.idleT = 0;
+    if (!this.drawn || this.drawT > 0) { this.draw(); return; }
     if (d.melee) return this.swing();
     const s = this.ammo;
-    if (this.reloading || this.cooldown > 0 || this.switchT < 0.98) return;
+    // the spear is thrown from a wind-up: start it, and release a beat later (update)
+    if (d.anim === 'T' && !this._releasing) {
+      if (this.reloading || this.cooldown > 0 || this.switchT < 0.98 || this.throwPending > 0 || s.mag <= 0) {
+        if (s.mag <= 0 && this.cooldown <= 0) { this.cooldown = 0.28; this.audio.click(0, 0.22, 320); this.tryReload(); }
+        return;
+      }
+      this.throwPending = 0.17; this._cam = camera;
+      this.cooldown = 60 / (d.rpm * (this.player.fireRateMul || 1));
+      this.player.faceLock = Math.max(this.player.faceLock, 0.6);
+      if (this.player.startSwing) this.player.startSwing('T', 0.42);
+      return;
+    }
+    if (this.reloading || (this.cooldown > 0 && !this._releasing) || this.switchT < 0.98) return;
 
     if (s.mag <= 0) {
       this.cooldown = 0.28;
@@ -227,7 +270,7 @@ export class WeaponSystem {
 
     s.mag--;
     this.shotsFired += d.pellets;
-    this.cooldown = 60 / (d.rpm * (this.player.fireRateMul || 1));
+    if (!this._releasing) this.cooldown = 60 / (d.rpm * (this.player.fireRateMul || 1));
 
     // where the player is actually pointing
     camera.getWorldDirection(this._dir);
@@ -283,6 +326,20 @@ export class WeaponSystem {
       // the first wall or hill along the shot ends it: cover is real
       const wall = this.ctx.wallDist(camPos, dir, d.range, minT);
       const hits = this.ctx.raycast(camPos.clone(), dir, Math.min(d.range, wall), pierce);
+      if (d.anim === 'T') {
+        // a thrown spear: it flies from the hand to where it will strike, and the
+        // damage lands when it gets there
+        const hitWorld = wall < d.range;
+        const endD = hits.length ? hits[hits.length - 1].dist : hitWorld ? wall : Math.min(d.range, 60);
+        const end = camPos.clone().addScaledVector(dir, endD);
+        const from = this._muzzlePos.clone();
+        const dur = Math.max(0.08, from.distanceTo(end) / 55);
+        if (hits.length) { anyHit = true; this.shotsHit++; for (const h of hits) if (h.head) anyHead = true; }
+        this.flights.push({ t: dur, hits, dir: dir.clone(), dmg, d, end, hitWorld: hitWorld && !hits.length });
+        if (this.fx.spearFlight) this.fx.spearFlight(from, end, dur, this.models[this.index], !!hits.length);
+        this.handHidden = 0.5; this.syncModel();
+        continue;
+      }
       if (hits.length) {
         anyHit = true;
         this.shotsHit++;
@@ -312,7 +369,7 @@ export class WeaponSystem {
     }
 
     if (this.ctx.onShot) this.ctx.onShot(anyHit, anyHead);
-    if (d.anim && this.player.startSwing) this.player.startSwing(d.anim, 0.36);
+    if (d.anim && d.anim !== 'T' && this.player.startSwing) this.player.startSwing(d.anim, 0.36);
 
     // --- the feel: recoil, shake, bloom, model kick
     const steady = 0.5 + this.mods.spread * 0.5;
@@ -351,6 +408,7 @@ export class WeaponSystem {
   }
 
   swing() {
+    this.idleT = 0;
     const d = this.def, M = d.melee;
     if (this.cooldown > 0 || this.switchT < 0.98 || this.swingT > 0) return;
     if (performance.now() - this.lastSwingEnd > 550) this.comboIdx = 0;
@@ -396,7 +454,7 @@ export class WeaponSystem {
       this.ctx.applyDamage(e, dmg, point, dir, !!c.finisher, d);
       hits++;
     }
-    if (this.fx.slash) this.fx.slash(new THREE.Vector3(p.x, p.y + (c.style === 'O' ? 1.3 : 1.15), p.z), yaw, c.style, d.color, reach);
+    if (c.slam && this.fx.slash) this.fx.slash(new THREE.Vector3(p.x, p.y + 1.3, p.z), yaw, c.style, d.color, reach);
     if (c.slam) {
       const at = new THREE.Vector3(p.x + Math.sin(yaw) * 1.8, p.y + 0.1, p.z + Math.cos(yaw) * 1.8);
       this.fx.ring(at, d.color, 3.2, 0.4);
@@ -414,6 +472,39 @@ export class WeaponSystem {
 
   update(dt) {
     this.cooldown = Math.max(0, this.cooldown - dt);
+    // draw / sheathe: the weapon changes hands halfway through the motion
+    if (this.drawT > 0) {
+      const half = this.drawDir > 0 ? 0.2 : 0.21;
+      const before = this.drawT;
+      this.drawT = Math.max(0, this.drawT - dt);
+      if (before > half && this.drawT <= half) { this.drawn = this.drawDir > 0; this.syncModel(); }
+    } else if (this.drawn) {
+      this.idleT += dt;
+      if (this.idleT > 7 && !this.player.aim && !this.reloading && this.swingT <= 0 && this.flights.length === 0) this.sheathe();
+    }
+    // the spear leaves the hand at the end of the wind-up
+    if (this.throwPending > 0) {
+      this.throwPending -= dt;
+      if (this.throwPending <= 0 && this._cam) { this._releasing = true; this.fire(this._cam); this._releasing = false; }
+    }
+    if (this.handHidden > 0) { this.handHidden -= dt; if (this.handHidden <= 0) this.syncModel(); }
+    for (let i = this.flights.length - 1; i >= 0; i--) {
+      const f = this.flights[i];
+      f.t -= dt;
+      if (f.t > 0) continue;
+      for (const h of f.hits) if (h.enemy.alive) this.ctx.applyDamage(h.enemy, f.dmg * (h.head ? 1.9 : 1), h.point, f.dir, h.head, f.d);
+      this.fx.spark(f.end, f.dir.clone().negate(), f.hits.length ? 0xffc070 : 0xd8b080, 6, 5, 0.1, 0.35);
+      if (f.hitWorld) this.fx.puff(f.end, null, 0x8c7d5c, 0.3, 2, 0.55, 0.8);
+      this.flights.splice(i, 1);
+    }
+    // the blade's trail through the strike
+    if (this.swingT > 0 && this.def.melee && this.fx.trailSample) {
+      const el = this.swingCur.dur - this.swingT;
+      if (el > this.swingCur.hit - 0.12 && el < this.swingCur.hit + 0.1) {
+        const m = this.models[this.index];
+        this.fx.trailSample(this._tmp.setFromMatrixPosition(m.userData.muzzle.matrixWorld), new THREE.Vector3().setFromMatrixPosition(m.matrixWorld), this.def.color);
+      }
+    }
     if (this.swingT > 0) {
       this.swingT -= dt;
       const el = this.swingCur.dur - this.swingT;

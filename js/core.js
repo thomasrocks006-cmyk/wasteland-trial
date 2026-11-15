@@ -197,6 +197,16 @@ export function clothTexture() {
   return tex;
 }
 
+/* The pass: the rim is broken on one side, past the lake, and outside it the land
+   falls away to a vast lowland far below. LOWLAND_Y is that floor. */
+export const GAP_A = -0.55;          // direction of the pass (radians, atan2(z, x))
+export const LOWLAND_Y = -42;
+export function gapAmount(x, z) {
+  let d = Math.atan2(z, x) - GAP_A;
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  return Math.exp(-(d / 0.42) * (d / 0.42));
+}
+
 /** The raw noise field — only ever evaluated at grid corners. */
 export function terrainRaw(x, z) {
   const r = Math.hypot(x, z);
@@ -205,9 +215,14 @@ export function terrainRaw(x, z) {
   h += (fbm(x * 0.19, z * 0.19, 2) - 0.5) * 0.55;   // grit
   const flat = smoothstep(6, 46, r);
   h *= 0.16 + 0.84 * flat;
+  const g = gapAmount(x, z);
   const rim = smoothstep(66, RIM_R, r);
-  h += rim * (26 + (fbm(x * 0.028, z * 0.028, 3) - 0.5) * 22);
+  h += rim * (26 + (fbm(x * 0.028, z * 0.028, 3) - 0.5) * 22) * (1 - 0.93 * g);
   h += duneHeight(x, z);
+  // beyond the brink of the pass the ground drops to the lowland
+  // (and everywhere, past the outer foot of the rim, so the grid's edge never shows as a shelf;
+  //  it starts beyond the cascade's source at r 112 so the river's level is untouched)
+  h = lerp(h, LOWLAND_Y + 6, Math.max(g * smoothstep(97, 117, r), smoothstep(113, 130, r)));
   return h;
 }
 
@@ -740,5 +755,35 @@ export function meadowTexture() {
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  return tex;
+}
+
+/** Worn leather: fine grain, creases and scuffs, near white so vertex colour carries the hue. */
+export function leatherTexture() {
+  const S = 256;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const r = mulberry32(2727);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const n = vnoise(x / 3.1, y / 3.1) * 0.5 + vnoise(x / 11, y / 11) * 0.35 + r() * 0.15;
+    const c = clamp(Math.round((0.84 + (n - 0.5) * 0.2) * 255), 0, 255);
+    const i = (y * S + x) * 4;
+    img.data[i] = c; img.data[i + 1] = c * 0.97; img.data[i + 2] = c * 0.93; img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  for (let i = 0; i < 70; i++) {                         // creases
+    let x = r() * S, y = r() * S;
+    ctx.strokeStyle = `rgba(40,28,18,${0.18 + r() * 0.2})`; ctx.lineWidth = 0.8 + r();
+    ctx.beginPath(); ctx.moveTo(x, y);
+    for (let k = 0; k < 4; k++) { x += (r() - 0.5) * 26; y += (r() - 0.5) * 8; ctx.lineTo(x, y); }
+    ctx.stroke();
+  }
+  for (let i = 0; i < 90; i++) {                         // scuffs
+    ctx.fillStyle = `rgba(255,245,230,${0.06 + r() * 0.1})`;
+    ctx.beginPath(); ctx.ellipse(r() * S, r() * S, 2 + r() * 7, 1 + r() * 3, r() * 3, 0, Math.PI * 2); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   return tex;
 }

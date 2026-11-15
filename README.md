@@ -71,6 +71,24 @@ Strikes step you toward the nearest foe in front.
 `music/boss.mp3` in the game folder and they replace the synthesised score
 (looping, crossfading by mood). With any missing, the synth score plays.
 
+## b22: draw, throw, the pass
+
+- Weapons ride sheathed across the hero's back. The first press draws (the hand
+  goes over the shoulder to the hilt); seven quiet seconds and it goes back.
+  Patrols that notice you don't wait: hold attack and the draw flows into the strike.
+- Swings: a forehand diagonal, a rising backhand and an overhead, each with a held
+  wind-up, a fast strike with a wrist snap, a dip and the off hand out; a light
+  trail follows the blade's actual tip.
+- The spear is thrown: wind-up, release, a real spear flies and sticks where it
+  lands; damage arrives with it; a fresh spear appears in the hand.
+- The hero: rounded boots with heel and sole, gloves with thumb and fingers, leather
+  and cloth with surface relief, a cloak that moves.
+- The pass: the rim breaks on one side past the lake; from the parapet the land
+  falls to a vast lowland with forest, a lake, a colossal statue and a citadel,
+  under great mountains, clouds and a low golden sun from behind you.
+- Music: three recorded tracks in `music/` (made in Suno on the owner's account,
+  loudness-matched to -17 LUFS).
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

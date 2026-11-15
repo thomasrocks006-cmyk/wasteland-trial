@@ -127,6 +127,10 @@ export async function runSmoke() {
 
   // ---- a diagonal push goes exactly where the thumb points (screen space)
   await check('stick up-right moves up-right on screen', async () => {
+    // from open ground: the moves above can leave the hero against a trunk or stone
+    const sp = d.world.pickSpawn();
+    d.player.pos.set(sp[0], d.terrainHeight(sp[0], sp[1]), sp[1]);
+    await wait(80, 2);
     d.player.vel.set(0, 0, 0);
     const before = [d.player.pos.x, d.player.pos.z];
     const f = camDir(), r = rightOf(f);
@@ -168,11 +172,15 @@ export async function runSmoke() {
     d.camera.lookAt(e.pos.x, e.pos.y + e.type.height * 0.55, e.pos.z);
     d.camera.updateMatrixWorld(true);
   };
-  const fireAt = (e) => {
+  // ranged checks use the spear: in hand at once, thrown without the wind-up, and we wait
+  // for it to land (its damage arrives with it)
+  const fireAt = async (e) => {
     aimAt(e);
-    if (d.weapons.def.melee) d.weapons.switchTo(2, true);     // ranged checks use the spear
+    if (d.weapons.def.melee) d.weapons.switchTo(2, true);
+    d.weapons.ready();
     d.weapons.cooldown = 0; d.weapons.reloading = false; d.weapons.switchT = 1;
-    d.weapons.fire(d.camera);
+    d.weapons._releasing = true; d.weapons.fire(d.camera); d.weapons._releasing = false;
+    for (let i = 0; i < 40 && d.weapons.flights.length; i++) await wait(50, 1);
   };
   await check('three shots kill a grunt (accuracy and hit marker count it)', async () => {
     d.weapons.shotsFired = 0; d.weapons.shotsHit = 0;
@@ -194,7 +202,7 @@ export async function runSmoke() {
     await wait(150, 2);
     let shots = 0;
     for (let i = 0; i < 3; i++) {
-      fireAt(e);
+      await fireAt(e);
       shots++;
       await wait(120, 1);
       if (!e.alive) break;
@@ -217,12 +225,12 @@ export async function runSmoke() {
     e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0;
     await wait(80, 2);
     const hp0 = e.hp;
-    for (let i = 0; i < 3; i++) { fireAt(e); await wait(60, 1); }
+    for (let i = 0; i < 3; i++) { await fireAt(e); await wait(60, 1); }
     assert(e.hp === hp0, `shots went through the pillar (hp ${hp0} -> ${e.hp.toFixed(0)})`);
     // control: same line with the grunt moved in front of the pillar must hit,
     // otherwise the block above could be the ground or a broken gun
     e.pos.set(px + tx * 2.4, 0, pz + tz * 2.4); e.pos.y = d.terrainHeight(e.pos.x, e.pos.z);
-    fireAt(e); await wait(60, 1);
+    await fireAt(e); await wait(60, 1);
     const hit = e.hp < hp0;
     d.enemies.clear();
     assert(hit, 'control shot with a clear line also missed');
@@ -406,6 +414,7 @@ export async function runSmoke() {
     const back = d.enemies.spawn('grunt', p.pos.x - fx * 2.2, p.pos.z - fz * 2.2);
     for (const e of [front, back]) { e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0; e.attackCd = 9; }
     d.weapons.switchTo(0, true);
+    d.weapons.ready();                                  // blades start sheathed; draw first
     d.weapons.cooldown = 0; d.weapons.swingT = 0; d.weapons.lastSwingEnd = 0;
     p.camYaw = yaw;
     d.weapons.fire(d.camera);
@@ -415,6 +424,18 @@ export async function runSmoke() {
     assert(hitFront, 'the grunt in front was not struck');
     assert(!hitBack, 'the grunt behind was struck too');
     return 'front only';
+  });
+
+  await check('a sheathed blade is drawn before the first strike', async () => {
+    d.weapons.switchTo(0, true);
+    d.weapons.drawn = false; d.weapons.drawT = 0; d.weapons.syncModel();
+    assert(d.player.weaponKind === 'none', 'kind ' + d.player.weaponKind);
+    d.weapons.cooldown = 0;
+    d.weapons.fire(d.camera);
+    assert(d.weapons.drawT > 0 && !d.weapons.drawn, 'pressing attack did not start a draw');
+    await wait(600, 8);
+    assert(d.weapons.drawn && d.player.weaponKind === 'melee', 'never drawn');
+    return 'drawn';
   });
 
   await check('the river is wadeable water that slows you', async () => {

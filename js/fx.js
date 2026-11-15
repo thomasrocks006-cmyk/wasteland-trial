@@ -144,6 +144,27 @@ export class FX {
       this.slashes.push({ m, life: 0 });
     }
 
+    // ---- blade trail: a ribbon between the blade's tip and hilt over the last moments
+    this.trail = { samples: [], N: 18 };
+    {
+      const N = this.trail.N;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 2 * 3), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(N * 2 * 3), 3));
+      const idx = [];
+      for (let i = 0; i < N - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+      g.setIndex(idx);
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        vertexColors: true, transparent: true, blending: THREE.AdditiveBlending,
+        depthWrite: false, side: THREE.DoubleSide, toneMapped: false
+      }));
+      m.frustumCulled = false; m.visible = false;
+      scene.add(m);
+      this.trail.mesh = m;
+    }
+    // ---- spears in flight, and stuck where they landed
+    this.spears = [];
+
     // ---- damage numbers (DOM)
     this.dmgLayer = document.getElementById('dmgLayer');
     this.numbers = [];
@@ -284,6 +305,26 @@ export class FX {
     });
   }
 
+  trailSample(tip, base, color) {
+    this.trail.samples.unshift({ tip: tip.clone(), base: base.clone(), t: 0, color });
+    if (this.trail.samples.length > this.trail.N) this.trail.samples.length = this.trail.N;
+  }
+
+  /** a thrown spear: a copy of the hand's spear flies the path and sticks where it lands */
+  spearFlight(from, end, dur, model, hitEnemy) {
+    let s = this.spears.find((q) => q.life <= 0);
+    if (!s) {
+      if (this.spears.length >= 4) s = this.spears.reduce((a, b) => (a.life < b.life ? a : b));
+      else { s = { obj: model.clone(), life: 0 }; this.scene.add(s.obj); this.spears.push(s); }
+    }
+    s.from = from.clone(); s.end = end.clone(); s.dur = dur; s.t = 0;
+    s.stick = hitEnemy ? 0.15 : 2.5;
+    s.life = dur + s.stick;
+    s.dir = end.clone().sub(from).normalize();
+    s.arc = Math.min(1.2, from.distanceTo(end) * 0.04);
+    s.obj.visible = true;
+  }
+
   /** style R/L: a horizontal sweep; O: an overhead arc in the vertical plane */
   slash(pos, yaw, style, color, reach = 2.6) {
     const s = this.slashes.reduce((a, b) => (a.life < b.life ? a : b));
@@ -342,6 +383,42 @@ export class FX {
   update(dt) {
     const cam = this.camera;
     this.updateDebris(dt);
+    // blade trail: newest sample brightest, tip brighter than the hilt
+    {
+      const T = this.trail, S = T.samples;
+      for (const q of S) q.t += dt;
+      while (S.length && S[S.length - 1].t > 0.14) S.pop();
+      const pa = T.mesh.geometry.attributes.position, ca = T.mesh.geometry.attributes.color;
+      if (S.length < 2) T.mesh.visible = false;
+      else {
+        T.mesh.visible = true;
+        for (let i = 0; i < T.N; i++) {
+          const q = S[Math.min(i, S.length - 1)];
+          const k = i < S.length ? Math.max(0, 1 - q.t / 0.14) * (1 - i / T.N) : 0;
+          _col.setHex(q.color);
+          pa.setXYZ(i * 2, q.tip.x, q.tip.y, q.tip.z);
+          pa.setXYZ(i * 2 + 1, q.base.x + (q.tip.x - q.base.x) * 0.45, q.base.y + (q.tip.y - q.base.y) * 0.45, q.base.z + (q.tip.z - q.base.z) * 0.45);
+          ca.setXYZ(i * 2, _col.r * k * 1.4, _col.g * k * 1.4, _col.b * k * 1.4);
+          ca.setXYZ(i * 2 + 1, _col.r * k * 0.15, _col.g * k * 0.15, _col.b * k * 0.15);
+        }
+        pa.needsUpdate = true; ca.needsUpdate = true;
+        T.mesh.geometry.computeBoundingSphere();
+      }
+    }
+    // spears: fly along a shallow arc, point first, then stay stuck a moment
+    for (const sp of this.spears) {
+      if (sp.life <= 0) continue;
+      sp.life -= dt; sp.t += dt;
+      const k = Math.min(1, sp.t / sp.dur);
+      const o = sp.obj;
+      o.position.copy(sp.from).lerp(sp.end, k);
+      o.position.y += Math.sin(k * Math.PI) * sp.arc;
+      // the model points along its local -y; tip lands on the target
+      _v1.copy(sp.dir); if (k < 1) _v1.y += Math.cos(k * Math.PI) * sp.arc * Math.PI / Math.max(1, sp.from.distanceTo(sp.end)); _v1.normalize();
+      o.quaternion.setFromUnitVectors(_v2.set(0, -1, 0), _v1);
+      o.position.addScaledVector(_v1, k >= 1 ? -1.25 : -0.9);
+      if (sp.life <= 0) o.visible = false;
+    }
     for (const s of this.slashes) {
       if (s.life <= 0) continue;
       s.life -= dt;

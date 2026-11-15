@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, deg,
-  terrainHeight, Builder, ARENA_R, addRim, fabricTexture, waterLevel
+  terrainHeight, Builder, ARENA_R, addRim, fabricTexture, leatherTexture, waterLevel
 } from './core.js';
 
 /* The runner: an original wasteland scout. Rounded, smooth-shaded volumes in an
@@ -21,8 +21,10 @@ export function buildHero() {
   const S = (r, w = 20, h = 14) => new THREE.SphereGeometry(r, w, h);
   const CAP = (r, l) => new THREE.CapsuleGeometry(r, l, 6, 14);
   const CYL = (r0, r1, h, s = 18) => new THREE.CylinderGeometry(r0, r1, h, s);
-  const cloth = fabricTexture();
-  const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true, map: cloth }), 0xffe2b8, 0.42, 2.6);
+  const cloth = fabricTexture(), leather = leatherTexture();
+  // cloth and leather carry their own surface relief (bump), so light rakes across the weave
+  const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true, map: cloth, bumpMap: cloth, bumpScale: 1.4 }), 0xffe2b8, 0.24, 3.0);
+  const leatherMat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true, map: leather, bumpMap: leather, bumpScale: 2.0 }), 0xffe2b8, 0.18, 3.0);
   // skin gets its own clean material: cloth weave on a face reads as a print
   const skinMat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), 0xffd2a8, 0.22, 3.0);
   const mesh = (b, m = mat) => { const o = new THREE.Mesh(b.buildUV(3.2), m); o.castShadow = true; return o; };
@@ -68,6 +70,11 @@ export function buildHero() {
   nk.add(CYL(0.058, 0.065, 0.1), C.skinDark, { pos: [0, 0.68, 0] });                                 // neck
   torso.add(mesh(nk, skinMat));
 
+  // ---- the sheath: weapons ride diagonally across the back, hilt over the right shoulder
+  const back = G(-0.17, 0.6, -0.29);
+  back.rotation.set(0.12, 0, 0.62);
+  torso.add(back);
+
   // ---- head
   const head = G(0, 0.72, 0);
   torso.add(head);
@@ -75,6 +82,7 @@ export function buildHero() {
   const f = B();
   f.add(S(0.15, 24, 18), C.skin, { pos: [0, 0.16, 0], scale: [0.94, 1.12, 1.02] });                  // skull
   f.add(S(0.105, 18, 14), C.skin, { pos: [0, 0.07, 0.04], scale: [0.95, 0.95, 1] });                 // jaw and chin
+  f.add(S(0.106, 18, 14), 0x8f5d3e, { pos: [0, 0.062, 0.043], scale: [0.96, 0.82, 1.0] });             // stubble shadow on the jaw
   f.add(S(0.019, 10, 8), C.skinDark, { pos: [0, 0.135, 0.152], scale: [0.85, 1.3, 1.1] });           // nose
   f.add(CAP(0.007, 0.04), C.skinDark, { pos: [0, 0.088, 0.135], rot: [0, 0, Math.PI / 2] });          // mouth
   for (const sx of [-1, 1]) {
@@ -119,8 +127,11 @@ export function buildHero() {
     sh.add(elbow);
     const hand = G(0, -0.29, 0.02);
     const hd = B();
-    hd.add(S(0.055, 14, 10), C.glove, { pos: [0, -0.02, 0], scale: [0.9, 1.1, 0.85] });
-    hand.add(mesh(hd));
+    hd.add(S(0.05, 14, 10), C.glove, { pos: [0, -0.015, 0], scale: [0.95, 0.9, 0.75] });              // palm
+    hd.add(CAP(0.026, 0.05), C.glove, { pos: [0, -0.07, 0.012], scale: [1.35, 1, 0.85] });              // curled fingers
+    hd.add(CAP(0.014, 0.04), C.glove, { pos: [-side * 0.042, -0.03, 0.028], rot: [0.3, 0, -side * 0.7] }); // thumb
+    hd.add(new THREE.TorusGeometry(0.045, 0.012, 6, 12), C.boot, { pos: [0, 0.03, 0], rot: [Math.PI / 2, 0, 0] }); // cuff strap
+    hand.add(mesh(hd, leatherMat));
     elbow.add(hand);
     return { sh, elbow, hand };
   };
@@ -142,9 +153,12 @@ export function buildHero() {
     hip.add(knee);
     const foot = G(0, -0.3, 0);
     const ft = B();
-    ft.add(S(0.085, 16, 12), C.boot, { pos: [0, -0.04, 0.045], scale: [0.95, 0.75, 1.55] });
-    ft.add(new THREE.BoxGeometry(0.15, 0.04, 0.29), C.sole, { pos: [0, -0.1, 0.045] });
-    foot.add(mesh(ft));
+    ft.add(S(0.085, 16, 12), C.boot, { pos: [0, -0.035, 0.05], scale: [0.92, 0.78, 1.5] });             // boot upper
+    ft.add(S(0.06, 12, 10), C.boot, { pos: [0, -0.055, 0.15], scale: [1.0, 0.7, 1.1] });               // rounded toe
+    ft.add(CAP(0.068, 0.15), C.sole, { pos: [0, -0.098, 0.05], rot: [Math.PI / 2, 0, 0], scale: [1.08, 1, 0.4] }); // rounded sole
+    ft.add(S(0.05, 10, 8), C.sole, { pos: [0, -0.09, -0.045], scale: [1.05, 0.55, 0.9] });             // heel
+    ft.add(new THREE.TorusGeometry(0.068, 0.011, 6, 14), C.glove, { pos: [0, 0.03, 0.0], rot: [Math.PI / 2, 0, 0] }); // ankle strap
+    foot.add(mesh(ft, leatherMat));
     knee.add(foot);
     return { hip, knee, foot };
   };
@@ -152,7 +166,7 @@ export function buildHero() {
   body.add(LR.hip, LL.hip);
 
   return {
-    root, body, torso, head, tails, torsoMesh, cloak,
+    root, body, torso, head, tails, torsoMesh, cloak, back,
     armR: R.sh, armL: L.sh, elbowR: R.elbow, elbowL: L.elbow, hand: R.hand, handL: L.hand,
     legR: LR.hip, legL: LL.hip, kneeR: LR.knee, kneeL: LL.knee, footR: LR.foot, footL: LL.foot,
   };
@@ -538,6 +552,11 @@ export class Player {
       tRx = lerp(-1.12 - legSwing * 0.12, aimX, r); tRz = lerp(0.30, 0.20, r);
       tLx = lerp(-1.02 - legSwing * 0.10, aimX + 0.22, r); tLz = lerp(-0.62, -0.72, r);
       tER = lerp(-0.45, -0.28, r); tEL = lerp(-0.55, -0.85, r);
+    } else if (kind === 'none') {
+      // sheathed: arms swing free and opposite to the legs
+      tRx = -legSwing * 0.55 - 0.05; tRz = -0.08;
+      tLx = legSwing * 0.55 - 0.05; tLz = 0.08;
+      tER = -0.25 - Math.abs(legSwing) * 0.25; tEL = tER;
     } else if (kind === 'melee') {
       tRx = lerp(-0.7 - legSwing * 0.2, -1.1, r); tRz = lerp(0.14, 0.26, r);
       tLx = lerp(-0.2 + legSwing * 0.5, -0.7, r); tLz = 0.16;
@@ -559,26 +578,40 @@ export class Player {
     m.elbowL.rotation.x = damp(m.elbowL.rotation.x, tEL, 16, dt);
     m.hand.rotation.x = handX !== null ? handX : -m.elbowR.rotation.x;
 
-    // a swing, throw or cast plays over the stance: wind-up, fast strike, recovery
+    // a swing, throw, cast, draw or sheathe plays over the stance:
+    // a held wind-up, a fast strike with a wrist snap, then recovery
     this._swingTwist = 0;
+    m.hand.rotation.z = damp(m.hand.rotation.z, 0, 14, dt);
     const sa = this.swingAnim;
     if (sa && sa.t < sa.dur) {
       sa.t += dt;
       const k = clamp(sa.t / sa.dur, 0, 1);
-      const w = smoothstep(0, 0.12, k) * (1 - smoothstep(0.7, 1, k));
-      const e = smoothstep(0.08, 0.5, k);
-      let ax = m.armR.rotation.x, ay = 0, er = m.elbowR.rotation.x, tw = 0, hx = m.hand.rotation.x;
-      if (sa.style === 'R') { ax = -1.45; ay = lerp(-1.3, 1.1, e); er = -0.2; tw = lerp(-0.5, 0.45, e); hx = 0.1; }
-      else if (sa.style === 'L') { ax = -1.45; ay = lerp(1.1, -1.3, e); er = -0.2; tw = lerp(0.45, -0.5, e); hx = 0.1; }
-      else if (sa.style === 'O') { ax = lerp(-3.0, -0.5, e); ay = 0.1; er = lerp(-0.7, -0.05, e); hx = 0.15; }
-      else if (sa.style === 'T') { ax = lerp(-2.8, -1.25, e); ay = -0.15; er = lerp(-1.2, -0.1, e); }
-      else if (sa.style === 'C') { ax = lerp(-1.0, -1.75, e); er = lerp(-0.8, -0.05, e); }
-      m.armR.rotation.x = lerp(m.armR.rotation.x, ax, w);
-      m.armR.rotation.y = lerp(m.armR.rotation.y, ay, w);
-      m.elbowR.rotation.x = lerp(m.elbowR.rotation.x, er, w);
-      m.hand.rotation.x = lerp(m.hand.rotation.x, hx, w);
-      this._swingTwist = tw * w;
-      if (sa.style === 'O' || sa.style === 'T') m.body.rotation.x += 0.1 * e * w;
+      const w = smoothstep(0, 0.1, k) * (1 - smoothstep(0.78, 1, k));
+      const e = smoothstep(0.18, 0.5, k);
+      const reach = smoothstep(0, 0.5, k) * (1 - smoothstep(0.5, 1, k));
+      let ax = m.armR.rotation.x, ay = 0, az = m.armR.rotation.z, er = m.elbowR.rotation.x;
+      let tw = 0, hx = m.hand.rotation.x, hz = 0, dip = 0, lean = 0, lx = null;
+      switch (sa.style) {
+        case 'R': ax = lerp(-2.4, -0.85, e); ay = lerp(-1.35, 1.15, e); er = lerp(-1.3, -0.12, e); hz = lerp(0.7, -0.5, e); tw = lerp(-0.6, 0.55, e); dip = 0.07; lx = -0.9; break;
+        case 'L': ax = lerp(-0.85, -2.2, e); ay = lerp(1.2, -1.3, e); er = lerp(-0.5, -0.15, e); hz = lerp(-0.6, 0.6, e); tw = lerp(0.55, -0.6, e); dip = 0.05; lx = -0.9; break;
+        case 'O': ax = lerp(-3.1, -0.45, e); ay = 0.05; er = lerp(-1.5, -0.05, e); hx = lerp(0.6, 0.1, e); lean = 0.2 * e; dip = 0.12; lx = -1.2; break;
+        case 'T': ax = lerp(-2.95, -1.15, e); ay = lerp(-0.45, 0.1, e); er = lerp(-1.6, -0.1, e); tw = lerp(-0.55, 0.45, e); lean = 0.1 * e; lx = -1.55; break;
+        case 'C': ax = lerp(-1.0, -1.8, e); er = lerp(-0.9, -0.05, e); lx = -1.4; break;
+        case 'D': case 'S':
+          // the hand goes up over the right shoulder to the hilt and comes back
+          ax = lerp(ax, -2.85, reach); ay = -0.35 * reach; az = lerp(az, 0.55, reach); er = lerp(er, -2.0, reach); tw = -0.25 * reach; break;
+      }
+      const W = (sa.style === 'D' || sa.style === 'S') ? 1 : w;
+      m.armR.rotation.x = lerp(m.armR.rotation.x, ax, W);
+      m.armR.rotation.y = lerp(m.armR.rotation.y, ay, W);
+      m.armR.rotation.z = lerp(m.armR.rotation.z, az, W);
+      m.elbowR.rotation.x = lerp(m.elbowR.rotation.x, er, W);
+      m.hand.rotation.x = lerp(m.hand.rotation.x, hx, W);
+      m.hand.rotation.z = lerp(m.hand.rotation.z, hz, W);
+      if (lx !== null) m.armL.rotation.x = lerp(m.armL.rotation.x, lx, w * 0.8);   // off hand up: balance, or pointing the throw
+      this._swingTwist = tw * W;
+      m.body.rotation.x += lean * w;
+      m.body.position.y -= dip * w;
     }
 
     // spine counter-twists with the stride (not while aiming), head follows the aim,

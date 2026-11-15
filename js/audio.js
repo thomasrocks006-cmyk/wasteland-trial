@@ -246,6 +246,16 @@ export class Audio {
       case 'axe': this._whoosh(t, vol, 260, 1100, 0.42); return this._thump(t + 0.3, vol * 0.5, 120, 50, 0.2, 0.6);
       case 'spear': this._whoosh(t, vol * 0.9, 500, 1900, 0.28); return this.click(0.02, 0.12 * vol, 700);
       case 'rune': return this._fireCast(t, vol);
+      case 'draw': {
+        // steel leaving a scabbard: a rising scrape and a faint ring
+        const n = this._noise(0.32);
+        const hp = this.ctx.createBiquadFilter(); hp.type = 'bandpass'; hp.Q.value = 3;
+        hp.frequency.setValueAtTime(2200, t); hp.frequency.exponentialRampToValueAtTime(6500, t + 0.28);
+        const g = this.ctx.createGain();
+        g.gain.setValueAtTime(0.0005, t); g.gain.linearRampToValueAtTime(0.18 * vol, t + 0.12); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.32);
+        n.connect(hp); hp.connect(g); g.connect(this.master);
+        return this.clang(1, false);
+      }
       default: return this._blaster(t, vol);
     }
   }

@@ -3,13 +3,14 @@ import {
   TAU, clamp, lerp, smoothstep, rnd, rng, fbm, pick,
   terrainHeight, terrainNormal, Builder, ARENA_R, RIM_R,
   grassTexture, smokeTexture, radialSprite, groundTexture, stoneTexture, clothTexture,
-  GRID_SEG, GRID_EXT, gridHeight, RIVER, RIVER_W, LAKE, LAKE_Y, waterDist, needleTexture, meadowTexture
+  GRID_SEG, GRID_EXT, gridHeight, RIVER, RIVER_W, LAKE, LAKE_Y, waterDist, needleTexture, meadowTexture,
+  GAP_A, LOWLAND_Y, gapAmount
 } from './core.js';
 
 const _v = new THREE.Vector3();
 let STONE_MAT = null;
 function stoneMat() {
-  if (!STONE_MAT) STONE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, map: stoneTexture() });
+  if (!STONE_MAT) { const t = stoneTexture(); STONE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, map: t, bumpMap: t, bumpScale: 3 }); }
   return STONE_MAT;
 }
 const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color();
@@ -50,14 +51,16 @@ export class World {
     this.obstacles = [];       // {x,z,r,h}: h = top above local ground
     this.shadowTarget = new THREE.Vector3();
     this.time = { value: 0 };
-    this.sunDir = new THREE.Vector3(0.42, 0.30, -0.86).normalize(); // low sun, long shadows
+    // a low golden sun behind the overlook (over the cascade), so the view out through
+    // the pass is lit from the front, not a backlit silhouette
+    this.sunDir = new THREE.Vector3(-0.74, 0.26, 0.62).normalize();
     this.build();
   }
 
   build() {
     const scene = this.scene;
     // linear haze reads as depth; exponential just greys everything out
-    scene.fog = new THREE.Fog(0xb4c6cc, 44, 560);   // cool valley haze
+    scene.fog = new THREE.Fog(0xc9d5d6, 70, 1150);  // haze matched to the horizon: distance reads as distance
 
     this.buildSky();
     this.buildLights();
@@ -85,9 +88,9 @@ export class World {
       uniforms: {
         uSun: { value: this.sunDir.clone() },
         uTime: this.time,
-        uZenith: { value: new THREE.Color(0x3f6fae) },
-        uMid: { value: new THREE.Color(0x9ec0d6) },
-        uHorizon: { value: new THREE.Color(0xf4dfc0) },
+        uZenith: { value: new THREE.Color(0x3a66a6) },
+        uMid: { value: new THREE.Color(0xa6c3d8) },
+        uHorizon: { value: new THREE.Color(0xe9e2d2) },
         uGround: { value: new THREE.Color(0x56704a) },
       },
       vertexShader: /* glsl */`
@@ -165,10 +168,10 @@ export class World {
   /* -------------------------------------------------- lights */
   buildLights() {
     const scene = this.scene;
-    const hemi = new THREE.HemisphereLight(0xd4e6ff, 0x4d5a36, 0.9);
+    const hemi = new THREE.HemisphereLight(0xd4e6ff, 0x5a6a40, 1.25);
     scene.add(hemi);
 
-    const sun = new THREE.DirectionalLight(0xfff0d2, 2.7);
+    const sun = new THREE.DirectionalLight(0xffe2b2, 3.4);
     sun.position.copy(this.sunDir).multiplyScalar(90);
     sun.castShadow = true;
     const size = this.quality === 'high' ? 2048 : 1024;
@@ -189,7 +192,7 @@ export class World {
     bounce.position.set(-0.5, 0.45, 0.7);
     scene.add(bounce);
 
-    this.ambient = new THREE.AmbientLight(0x40506a, 0.24);
+    this.ambient = new THREE.AmbientLight(0x56657e, 0.34);
     scene.add(this.ambient);
 
     // camera-side fill so the hero and enemies never fall into silhouette
@@ -293,7 +296,7 @@ export class World {
     geo.computeBoundingSphere();
     const gt = meadowTexture();      // blades, clover and soil; hue still from the vertex colours
     gt.repeat.set(TILES * 1.6, TILES * 1.6);
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: gt });
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: gt, bumpMap: gt, bumpScale: 1.6 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
     mesh.castShadow = false;
@@ -303,43 +306,123 @@ export class World {
 
   /* -------------------------------------------------- distant mesas */
   buildDistantRidges() {
-    // outer plain so the horizon reads as ground, not a void behind the rim
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(96, 660, 40, 1),
-      new THREE.MeshLambertMaterial({ color: 0x4f6e3c })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 9;
-    this.scene.add(ring);
-
-    // a mountain range all round, snow on the tops
-    const b = new Builder();
-    for (let i = 0; i < 40; i++) {
-      const a = (i / 40) * TAU + rnd(-0.07, 0.07);
-      const dist = 230 + rnd(0, 170);
-      const x = Math.cos(a) * dist, z = Math.sin(a) * dist;
-      const r0 = rnd(48, 105), h = rnd(70, 165);
-      const seg = 6 + Math.floor(rng() * 3), rot = rnd(0, TAU);
-      b.add(new THREE.ConeGeometry(r0, h, seg, 1), pick([0x5d666c, 0x6b7378, 0x535b62]), {
-        pos: [x, 9 + h / 2, z], rot: [0, rot, 0], jitter: 0.06
-      });
-      const cap = rnd(0.28, 0.42);
-      b.add(new THREE.ConeGeometry(r0 * cap * 1.04, h * cap, seg, 1), PAL.snow, {
-        pos: [x, 9 + h - (h * cap) / 2 + 0.4, z], rot: [0, rot, 0], jitter: 0.03
-      });
+    // ---- the lowland: a huge rolling disc far below, seen through the pass
+    const R0 = 95, R1 = 2600, RS = 40, AS = 112;
+    const pos = [], col = [], idx = [];
+    for (let i = 0; i <= RS; i++) {
+      const rr = R0 * Math.pow(R1 / R0, i / RS);
+      for (let j = 0; j < AS; j++) {
+        const a = (j / AS) * TAU, x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+        const n = fbm(x * 0.004 + 50, z * 0.004, 4), n2 = fbm(x * 0.02, z * 0.02, 2);
+        pos.push(x, LOWLAND_Y + (n - 0.5) * 80 * smoothstep(260, 900, rr) + (n2 - 0.5) * 5, z);
+        _c1.setHex(0x46703a).lerp(_c2.setHex(0x27441f), clamp((n2 - 0.42) * 3, 0, 1));
+        _c1.lerp(_c3.setHex(0x9aa465), clamp((n - 0.6) * 4, 0, 1) * 0.55);
+        col.push(_c1.r, _c1.g, _c1.b);
+      }
     }
-    // forested foothills in front of them
-    for (let i = 0; i < 30; i++) {
-      const a = (i / 30) * TAU + rnd(-0.1, 0.1);
-      const dist = 170 + rnd(0, 50);
-      const w = rnd(40, 80), h = rnd(14, 34);
-      b.add(new THREE.CylinderGeometry(w * 0.45, w, h, 6, 1), pick([0x34502c, 0x2c4527, 0x3d5a32]), {
-        pos: [Math.cos(a) * dist, 9 + h * 0.46, Math.sin(a) * dist], rot: [0, rnd(0, TAU), 0], jitter: 0.05
-      });
+    for (let i = 0; i < RS; i++) for (let j = 0; j < AS; j++) {
+      const a = i * AS + j, b = i * AS + (j + 1) % AS, c = (i + 1) * AS + j, d = (i + 1) * AS + (j + 1) % AS;
+      idx.push(a, b, c, b, d, c);
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    lg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    lg.setIndex(idx); lg.computeVertexNormals();
+    const low = new THREE.Mesh(lg, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    low.frustumCulled = false;
+    this.scene.add(low);
+
+    const b = new Builder(), far = new Builder(), glow = new Builder();
+    // ---- mountains ringing the world, snow on the tops
+    for (let i = 0; i < 46; i++) {
+      const a = (i / 46) * TAU + rnd(-0.06, 0.06), dist = 520 + rnd(0, 420);
+      const x = Math.cos(a) * dist, z = Math.sin(a) * dist;
+      const r0 = rnd(110, 240), h = rnd(240, 540), seg = 6 + Math.floor(rng() * 3), rot = rnd(0, TAU);
+      b.add(new THREE.ConeGeometry(r0, h, seg, 1), pick([0x5d666c, 0x6b7378, 0x535b62]), { pos: [x, LOWLAND_Y - 10 + h / 2, z], rot: [0, rot, 0], jitter: 0.05 });
+      const cap = rnd(0.3, 0.45);
+      b.add(new THREE.ConeGeometry(r0 * cap * 1.04, h * cap, seg, 1), PAL.snow, { pos: [x, LOWLAND_Y - 10 + h - (h * cap) / 2 + 0.6, z], rot: [0, rot, 0], jitter: 0.03 });
+    }
+    // ---- forest across the lowland, in stands
+    for (let k = 0; k < 2600 && far.pos.length < 1.1e6; k++) {
+      const a = rnd(0, TAU), rr = rnd(125, 760);
+      const x = Math.cos(a) * rr, z = Math.sin(a) * rr;
+      if (fbm(x * 0.012 + 9, z * 0.012, 2) < 0.52) continue;
+      const n = fbm(x * 0.004 + 50, z * 0.004, 4);
+      pineInto(far, x, LOWLAND_Y + (n - 0.5) * 80 * smoothstep(260, 900, rr) - 0.5, z, rnd(2.6, 4.2));
+    }
+    // ---- a colossus far out in the lowland: a hooded warden over a sword, 140 m tall
+    {
+      const M = new THREE.Matrix4(), L = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+      const a = GAP_A + 0.14, d = 340, cx = Math.cos(a) * d, cz = Math.sin(a) * d, S = 7.4;
+      M.compose(new THREE.Vector3(cx, LOWLAND_Y - 2, cz), q.setFromEuler(e.set(0, Math.atan2(-cx, -cz), 0)), new THREE.Vector3(S, S, S));
+      const part = (bld, geo, c, p, r = [0, 0, 0], sc = [1, 1, 1]) => {
+        L.compose(new THREE.Vector3(...p), q.setFromEuler(e.set(...r)), new THREE.Vector3(...sc));
+        bld.add(geo, c, { matrix: new THREE.Matrix4().multiplyMatrices(M, L), jitter: 0.03 });
+      };
+      part(b, new THREE.BoxGeometry(9, 4, 9), PAL.ruinDark, [0, 2, 0]);
+      part(b, new THREE.CylinderGeometry(1.9, 3.4, 8.5, 12), PAL.ruin, [0, 8.2, 0]);
+      part(b, new THREE.CapsuleGeometry(1.9, 2.4, 4, 10), PAL.ruin, [0, 13.8, 0], [0, 0, 0], [1.25, 1, 0.9]);
+      for (const sx of [-1, 1]) {
+        part(b, new THREE.SphereGeometry(1.35, 10, 8), PAL.ruinLight, [sx * 2.3, 15.5, 0]);
+        part(b, new THREE.CapsuleGeometry(0.75, 2.6, 4, 8), PAL.ruin, [sx * 2.0, 13.5, 1.0], [-0.5, 0, sx * 0.35]);
+      }
+      part(b, new THREE.SphereGeometry(1.6, 12, 10), PAL.ruinDark, [0, 17.7, -0.2], [0, 0, 0], [1, 1.12, 1]);
+      part(b, new THREE.BoxGeometry(0.8, 11, 0.25), PAL.ruinLight, [0, 7.0, 2.4]);
+      part(b, new THREE.BoxGeometry(3.8, 0.5, 0.5), PAL.ruinDark, [0, 12.6, 2.4]);
+      for (const sx of [-1, 1]) part(glow, new THREE.SphereGeometry(0.2, 8, 6), PAL.rune, [sx * 0.42, 17.6, 1.35]);
+    }
+    // ---- a citadel on a far mesa
+    {
+      const a = GAP_A - 0.32, d = 560, cx = Math.cos(a) * d, cz = Math.sin(a) * d, top = LOWLAND_Y + 70;
+      b.add(new THREE.CylinderGeometry(58, 80, 80, 9), 0x6c6a62, { pos: [cx, LOWLAND_Y + 30, cz], jitter: 0.05 });
+      for (let k = 0; k < 7; k++) {
+        const ta = (k / 7) * TAU, tr = k ? rnd(18, 40) : 0, tx = cx + Math.cos(ta) * tr, tz = cz + Math.sin(ta) * tr;
+        const th = k ? rnd(40, 75) : 120, rad = k ? rnd(5, 8) : 11;
+        b.add(new THREE.CylinderGeometry(rad * 0.9, rad, th, 10), PAL.ruin, { pos: [tx, top + th / 2, tz], jitter: 0.04 });
+        b.add(new THREE.ConeGeometry(rad * 1.2, th * 0.4, 10), PAL.slate, { pos: [tx, top + th + th * 0.2, tz] });
+        glow.add(new THREE.BoxGeometry(1.4, 2.6, 1.4), 0xffc070, { pos: [tx + rad * 0.9, top + th * 0.7, tz] });
+      }
+      b.add(new THREE.CylinderGeometry(46, 46, 14, 18, 1, true), PAL.ruinDark, { pos: [cx, top + 7, cz] });
     }
     const mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
     mesh.frustumCulled = false;
-    this.scene.add(mesh);
+    const farTrees = new THREE.Mesh(far.build(), new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+    farTrees.frustumCulled = false;
+    const g = new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true }));
+    this.scene.add(mesh, farTrees, g);
+
+    // ---- a lake and its river at the foot of the pass, catching the sky
+    const wm = new THREE.MeshLambertMaterial({ color: 0x6f9db4, transparent: true, opacity: 0.88 });
+    const la = GAP_A + 0.05, lakeD = 215;
+    const lake = new THREE.Mesh(new THREE.CircleGeometry(48, 40), wm);
+    lake.rotation.x = -Math.PI / 2;
+    lake.position.set(Math.cos(la) * lakeD, LOWLAND_Y + 0.6, Math.sin(la) * lakeD);
+    lake.scale.set(1.6, 1, 1);
+    this.scene.add(lake);
+    const rv = new THREE.Mesh(new THREE.PlaneGeometry(9, lakeD - 120), wm);
+    rv.rotation.set(-Math.PI / 2, 0, -la + Math.PI / 2);
+    rv.position.set(Math.cos(la) * (lakeD + 120) / 2, LOWLAND_Y + 0.55, Math.sin(la) * (lakeD + 120) / 2);
+    this.scene.add(rv);
+
+    // ---- clouds: soft billboards drifting high over everything
+    const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+    const cx2 = cv.getContext('2d');
+    for (let k = 0; k < 14; k++) {
+      const x = 30 + Math.random() * 68, y = 50 + Math.random() * 30, r = 16 + Math.random() * 22;
+      const gr = cx2.createRadialGradient(x, y, 0, x, y, r);
+      gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      cx2.fillStyle = gr; cx2.beginPath(); cx2.arc(x, y, r, 0, TAU); cx2.fill();
+    }
+    const ct = new THREE.CanvasTexture(cv); ct.colorSpace = THREE.SRGBColorSpace;
+    this.clouds = [];
+    for (let k = 0; k < 22; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ct, color: 0xfff6ec, transparent: true, depthWrite: false, fog: false, opacity: rnd(0.55, 0.85) }));
+      const a = rnd(0, TAU), d = rnd(320, 1100);
+      sp.position.set(Math.cos(a) * d, rnd(150, 330), Math.sin(a) * d);
+      const sc = rnd(260, 560); sp.scale.set(sc, sc * 0.45, 1);
+      this.scene.add(sp);
+      this.clouds.push({ sp, a, d, w: rnd(0.002, 0.005) });
+    }
   }
 
   /* -------------------------------------------------- rocks */
@@ -512,6 +595,21 @@ export class World {
       }
       this.obstacles.push({ x, z, r: 0.95, h: hh });
     }
+    // the overlook: a parapet along the brink of the pass
+    {
+      const R = 94.6, a0 = GAP_A - 0.36, a1 = GAP_A + 0.36, n = 26;
+      let prev = null;
+      for (let k = 0; k <= n; k++) {
+        const a = a0 + (a1 - a0) * (k / n), x = Math.cos(a) * R, z = Math.sin(a) * R, y = terrainHeight(x, z);
+        b.add(new THREE.BoxGeometry(0.45, 1.15, 0.45), PAL.ruinDark, { pos: [x, y + 0.5, z], rot: [0, -a, 0], jitter: 0.04 });
+        if (prev) {
+          const mx = (x + prev[0]) / 2, mz = (z + prev[1]) / 2, my = (y + prev[2]) / 2;
+          b.add(new THREE.BoxGeometry(0.42, 0.22, Math.hypot(x - prev[0], z - prev[1]) + 0.2), PAL.ruinLight, { pos: [mx, my + 1.12, mz], rot: [0, Math.atan2(x - prev[0], z - prev[1]), 0], jitter: 0.04 });
+        }
+        prev = [x, z, y];
+      }
+    }
+
     // rune bands round the four great pillars
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * TAU + Math.PI / 4;
@@ -934,6 +1032,7 @@ export class World {
       // stands, not a lawn of single trees
       if (fbm(x * 0.03 + 40, z * 0.03, 2) < (r > 66 ? 0.42 : 0.55)) continue;
       if (waterDist(x, z) < 2.5 || terrainNormal(x, z, _v).y < 0.7 || !this.isClear(x, z, 1.4)) continue;
+      if (gapAmount(x, z) > 0.2 && r > 74) continue;           // keep the view through the pass open
       pineInto(b, x, terrainHeight(x, z), z, rnd(0.8, 1.45));
       if (r < ARENA_R) this.obstacles.push({ x, z, r: 0.55, h: 8 });
       placed++;
@@ -1286,6 +1385,10 @@ export class World {
     }
 
     if (this.waterMat) this.waterMat.uniforms.uTime.value = t;
+    if (this.clouds) for (const c of this.clouds) {
+      c.a += c.w * dt;
+      c.sp.position.x = Math.cos(c.a) * c.d; c.sp.position.z = Math.sin(c.a) * c.d;
+    }
 
     // drifting dust, wrapped around the player
     if (this.dust && this.dustData) {
