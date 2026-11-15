@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, rnd, rng, pick,
-  terrainHeight, Builder, raySphere, angleTo, ARENA_R
+  terrainHeight, Builder, raySphere, angleTo, ARENA_R, addRim
 } from './core.js';
 
 const _d = new THREE.Object3D();
 _d.rotation.order = 'YXZ';
 const _v = new THREE.Vector3();
 const _col = new THREE.Color();
+const _tm = new THREE.Matrix4(), _tr = new THREE.Matrix4(), _tt = new THREE.Matrix4();
+const DEATH_HOLD = 1.3;   // seconds a body lies there before sinking
+const DEATH_T = 2.1;      // seconds until it is gone
 
 /* ------------------------------------------------------------------ palettes */
 const SKIN = {
@@ -239,7 +242,8 @@ class TypeRender {
     this.type = type;
     this.geos = type.parts();
     this.parts = [];
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    // cool violet rim: hostiles read as a silhouette even against bright ground
+    const mat = addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), type.boss ? 0xff7a40 : 0xb08cff, 0.5, 2.4);
     for (const name of type.partList) {
       const geo = this.geos[name];
       if (!geo) continue;
@@ -295,7 +299,7 @@ export class Enemies {
     scene.add(this.eyeMesh);
 
     // trailing boss body: one instanced mesh for every segment of every boss
-    this.segMesh = new THREE.InstancedMesh(bossSegmentGeo(), new THREE.MeshLambertMaterial({ vertexColors: true }), BOSS_SEGS * 2);
+    this.segMesh = new THREE.InstancedMesh(bossSegmentGeo(), addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), 0xff7a40, 0.5, 2.4), BOSS_SEGS * 2);
     this.segMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.segMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BOSS_SEGS * 2 * 3), 3);
     this.segMesh.castShadow = true;
@@ -361,6 +365,8 @@ export class Enemies {
       this.fx.damageNumber(point, amount, head);
     }
     if (this.audio) this.audio.hitmarker(head);
+    if (dir) e.lastDir = dir;
+    e.lastAmount = amount;
     if (this.onHit) this.onHit(e, head, e.hp <= 0);
     // a big hit breaks a brute's charge; it waits before trying again
     if ((e.state === 'windup' || e.state === 'charge') && amount > 60) e.chargeCd = rnd(3, 5);
@@ -383,6 +389,17 @@ export class Enemies {
     e.alive = false;
     e.dying = 0;
     e.state = 'dead';
+    // the killing blow throws the body: away from the shot, up, and tumbling over
+    if (!e.type.boss) {
+      const d = e.lastDir || new THREE.Vector3(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
+      const hx = d.x, hz = d.z, hl = Math.hypot(hx, hz) || 1;
+      const heavy = e.type.heavy ? 0.35 : 1;
+      const push = (3 + Math.min(e.lastAmount || 30, 160) * 0.045) * heavy;
+      e.dv = new THREE.Vector3((hx / hl) * push, (3.2 + push * 0.35) * heavy, (hz / hl) * push);
+      e.tumbleAxis = new THREE.Vector3(hz / hl, 0, -hx / hl);     // falls away from the shooter
+      e.tumbleW = (e.type.heavy ? 3 : 7) * (0.8 + rng() * 0.4);
+      e.tumble = 0;
+    }
     if (this.fx) {
       const p = new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z);
       this.fx.ecoBurst(p, e.type.boss ? 0xff8040 : (e.key === 'wasp' ? 0xffd060 : 0x37e0c8), e.type.boss ? 40 : 16, e.type.boss ? 2 : 1);
@@ -474,11 +491,15 @@ export class Enemies {
       const e = this.list[i];
       if (!e.alive) {
         e.dying += dt;
-        if (e.dying > 1.1) { this.list.splice(i, 1); continue; }
-        // sink + shrink
-        e.scale = Math.max(0, 1 - e.dying / 0.9);
-        e.pos.y -= dt * 1.6;
-        if (e.segs) for (const sg of e.segs) sg.y -= dt * 1.6;
+        if (e.dying > DEATH_T) { this.list.splice(i, 1); continue; }
+        if (e.dv) this.updateCorpse(e, dt);
+        else {
+          // the boss sinks in place
+          e.pos.y -= dt * 1.6;
+          if (e.segs) for (const sg of e.segs) sg.y -= dt * 1.6;
+        }
+        // lie there a moment, then sink and fade
+        e.scale = clamp(1 - (e.dying - DEATH_HOLD) / (DEATH_T - DEATH_HOLD), 0, 1);
         i++;
         continue;
       }
@@ -674,6 +695,25 @@ export class Enemies {
     e.scale = damp(e.scale, 1, 10, dt);
   }
 
+  /** a thrown body: gravity, a bounce, friction, and a tumble that stops lying down */
+  updateCorpse(e, dt) {
+    const v = e.dv;
+    v.y -= 20 * dt;
+    let nx = e.pos.x + v.x * dt, nz = e.pos.z + v.z * dt;
+    [nx, nz] = this.world.resolveCollisions(nx, nz, e.type.radius * 0.6);
+    e.pos.x = nx; e.pos.z = nz; e.pos.y += v.y * dt;
+    const g = terrainHeight(nx, nz) - (e.dying > DEATH_HOLD ? (e.dying - DEATH_HOLD) * 1.2 : 0);
+    if (e.pos.y < g) {
+      e.pos.y = g;
+      if (v.y < -2.5 && !e.bounced) {
+        e.bounced = true; v.y *= -0.32; v.x *= 0.55; v.z *= 0.55;
+        if (this.fx) this.fx.puff(new THREE.Vector3(nx, g + 0.15, nz), null, 0xa5835c, 0.6, 3, 0.7, 1.4);
+      } else { v.y = 0; const f = Math.exp(-6 * dt); v.x *= f; v.z *= f; }
+    }
+    // tumble towards lying flat (about 1.45 rad), slowing as it settles
+    if (e.tumble < 1.45) e.tumble = Math.min(1.45, e.tumble + e.tumbleW * dt);
+  }
+
   /** follow-the-leader body: each segment sits a fixed gap behind the one in front */
   updateSegments(e, dt) {
     let px = e.pos.x, pz = e.pos.z;
@@ -862,6 +902,14 @@ export class Enemies {
           if (n >= part.mesh.instanceMatrix.count) break;
           this.placePart(e, part.name, _d, time);
           _d.updateMatrix();
+          if (!e.alive && e.tumbleAxis) {
+            // rotate the whole body about its centre, so limbs fall with it
+            const cy = e.pos.y + e.type.height * 0.45;
+            _tm.makeTranslation(e.pos.x, cy, e.pos.z)
+              .multiply(_tr.makeRotationAxis(e.tumbleAxis, e.tumble))
+              .multiply(_tt.makeTranslation(-e.pos.x, -cy, -e.pos.z));
+            _d.matrix.premultiply(_tm);
+          }
           part.mesh.setMatrixAt(n, _d.matrix);
           // tint: white flash on hit, darken while spawning, fade on death
           const f = e.flash * 0.9;
@@ -870,7 +918,7 @@ export class Enemies {
           if (e.state === 'spawn') { const s = e.scale; cr *= s; cg *= s; cb *= s * 1.2; }
           if (e.state === 'windup') { const w = 0.5 + 0.5 * Math.sin(e.stateT * 30); cr += 0.9 * w; cg += 0.15 * w; }
           if (e.enraged) { cr *= 1.25; cg *= 0.85; cb *= 0.8; }
-          if (!e.alive) { const fader = clamp(1 - e.dying / 0.9, 0, 1); cr *= fader; cg *= fader; cb *= fader; }
+          if (!e.alive) { const fader = clamp(1 - (e.dying - DEATH_HOLD) / (DEATH_T - DEATH_HOLD), 0, 1); cr *= fader; cg *= fader; cb *= fader; }
           _col.setRGB(cr, cg, cb);
           part.mesh.setColorAt(n, _col);
           n++;
@@ -926,8 +974,8 @@ export class Enemies {
       case 'body': {
         toWorld(0, bob, 0);
         d.rotation.set(staggerLean + attackLean * 0.5, yaw, 0);
-        // death crumple
-        if (!e.alive) d.rotation.set(1.2, yaw, 0.3);
+        // the boss still crumples; everyone else is tumbled as a whole in render()
+        if (!e.alive && t.boss) d.rotation.set(1.2, yaw, 0.3);
         d.scale.setScalar(sc);
         break;
       }

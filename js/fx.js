@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, lerp, rnd, rng, radialSprite, smokeTexture, TAU } from './core.js';
+import { clamp, lerp, rnd, rng, radialSprite, smokeTexture, TAU, terrainHeight } from './core.js';
 
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
@@ -114,6 +114,11 @@ export class FX {
     scene.add(this.flashCone);
     this.coneLife = 0;
 
+    // ---- debris: rock and shell chunks that fly, spin, bounce and settle
+    this.debrisPool = new Pool(scene, new THREE.DodecahedronGeometry(0.5, 0),
+      new THREE.MeshLambertMaterial({ flatShading: true }), quality === 'fast' ? 50 : 110);
+    this.debrisPool.mesh.castShadow = true;
+
     // ---- damage numbers (DOM)
     this.dmgLayer = document.getElementById('dmgLayer');
     this.numbers = [];
@@ -217,7 +222,45 @@ export class FX {
     this.spark(pos, dir, color, 3, 7, 0.09, 0.18);
   }
 
+  /** n chunks thrown out of pos; they obey gravity and bounce on the real ground */
+  debris(pos, n = 10, power = 1, colors = [0x4a3a2d, 0x2f2620, 0x6a5643, 0x3a2f27]) {
+    for (let i = 0; i < n; i++) {
+      const a = rnd(0, TAU), up = rnd(0.45, 1);
+      const sp = rnd(3, 8) * power;
+      this.debrisPool.add({
+        x: pos.x, y: pos.y + 0.2, z: pos.z,
+        vx: Math.cos(a) * sp * (1 - up * 0.5), vy: sp * up + 2, vz: Math.sin(a) * sp * (1 - up * 0.5),
+        rx: rnd(0, TAU), ry: rnd(0, TAU), wx: rnd(-12, 12), wy: rnd(-12, 12),
+        size: rnd(0.16, 0.38) * Math.sqrt(power), life: rnd(2.2, 3.2), color: colors[i % colors.length],
+      });
+    }
+  }
+
+  updateDebris(dt) {
+    const P = this.debrisPool;
+    P.items = P.items.filter((d) => {
+      d.life -= dt;
+      if (d.life <= 0) return false;
+      d.vy -= 22 * dt;
+      d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      d.rx += d.wx * dt; d.ry += d.wy * dt;
+      const g = terrainHeight(d.x, d.z) + d.size * 0.5;
+      if (d.y < g) {
+        d.y = g;
+        if (d.vy < -1.5) { d.vy *= -0.38; d.vx *= 0.62; d.vz *= 0.62; d.wx *= 0.5; d.wy *= 0.5; }
+        else { d.vy = 0; const f = Math.exp(-7 * dt); d.vx *= f; d.vz *= f; d.wx *= f; d.wy *= f; }
+      }
+      return true;
+    });
+    P.flush((d, i, o) => {
+      o.position.set(d.x, d.y, d.z);
+      o.rotation.set(d.rx, d.ry, 0);
+      o.scale.setScalar(d.size * clamp(d.life / 0.5, 0, 1));
+    });
+  }
+
   explosion(pos, radius = 4, color = 0xff8a30) {
+    this.debris(pos, 12, radius / 4.8);
     this.spark(pos, null, 0xffd080, 26, 12, 0.40, 1.0);
     this.spark(pos, null, color, 18, 8, 0.55, 1.1);
     this.puff(pos, null, 0x6b5236, radius * 0.5, 9, 1.5, 3.2);
@@ -259,6 +302,7 @@ export class FX {
   /* ---------------- update ---------------- */
   update(dt) {
     const cam = this.camera;
+    this.updateDebris(dt);
 
     // sparks
     this.sparks.items = this.sparks.items.filter(p => {

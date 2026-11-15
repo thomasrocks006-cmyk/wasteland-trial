@@ -49,6 +49,27 @@ pierce, regeneration.
   Every segment can be shot. Its health bar sits at the top. Below half it
   enrages: faster, and it throws a ring of low bolts you jump or roll through.
 
+## Music and sound
+
+An original score, synthesised live in `audio.js` (no files). One key (D minor),
+three moods that cut on a bar line: **explore** (title and between waves: harp,
+strings, wooden flute), **combat** (string ostinato, taiko, horns) and **boss**
+(brass stabs, choir, timpani). Everything is voiced from about 150 Hz up with
+added harmonics, because a phone speaker plays nothing below that; the old score
+was 27-115 Hz bass under a melody at 1.5% volume, which is why it seemed missing.
+Reverb is a send (the old wiring looped it back into the master, which browsers
+mute). On iOS it plays through the silent switch.
+
+## Feel and physics
+
+- A kill throws the body away from the shot; it tumbles, bounces, lies there,
+  then sinks. Explosions throw rock debris that bounces on the real ground.
+- Bomber charges skip once off the ground before going off.
+- Dropped supplies pop out of the kill, bounce, and slide to you within 5 m.
+- A tiny freeze on every kill, slow motion on the boss kill, kill-streak calls
+  (DOUBLE KILL to UNTOUCHABLE) with a score bonus, a camera that follows with a
+  little weight, and a wider view while sprinting.
+
 ## Self-test
 
 Add `?smoke=1` to the address. The game runs a scripted pass (24 checks) over
@@ -70,7 +91,7 @@ RELOAD button, instead of a frozen screen.
 
 | | |
 |---|---|
-| Left thumb | move (push to the edge to sprint) |
+| Left thumb | move, exactly where you push relative to the screen (push to the edge to sprint) |
 | Right thumb drag | look / aim |
 | Fire button | shoot (hold for automatic) |
 | DODGE | roll in the stick direction (0.42 s of invulnerability) |

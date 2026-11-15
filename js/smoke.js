@@ -388,6 +388,43 @@ export async function runSmoke() {
   });
 
 
+  // ---- b19: score, physics, loot
+  await check('the music follows the fight', async () => {
+    const want = d.GAME.waveActive ? (d.GAME.wave % 5 === 0 ? 'boss' : 'combat') : 'explore';
+    assert(d.audio.nextMood === want, `mood ${d.audio.nextMood}, expected ${want}`);
+    return want;
+  });
+
+  await check('a kill throws the body away from the shot', async () => {
+    d.enemies.clear();
+    const p = d.player, f = camDir();
+    const e = d.enemies.spawn('grunt', p.pos.x + f[0] * 8, p.pos.z + f[1] * 8);
+    e.state = 'chase'; e.spawnT = 1; e.scale = 1; e.speed = 0;
+    await wait(80, 2);
+    const x0 = e.pos.x, z0 = e.pos.z;
+    const T = d.camera.position.constructor;
+    d.enemies.hit(e, 999, e.pos.clone(), new T(f[0], 0, f[1]), false, null);
+    await wait(500, 6);
+    const moved = (e.pos.x - x0) * f[0] + (e.pos.z - z0) * f[1];
+    const tumble = e.tumble || 0;
+    d.enemies.clear();
+    assert(moved > 0.3, `body barely moved along the shot (${moved.toFixed(2)}m)`);
+    assert(tumble > 0.3, `no tumble (${tumble.toFixed(2)})`);
+    return `${moved.toFixed(1)}m, tumble ${tumble.toFixed(2)}`;
+  });
+
+  await check('dropped loot pops out and comes to you', async () => {
+    const s = d.weapons.state[2];
+    s.reserve = 0;
+    const p = d.player, f = camDir();
+    d.pickups.spawn(p.pos.x + f[0] * 3.5, p.pos.z + f[1] * 3.5, 'ammo', true);
+    const it = d.pickups.items[d.pickups.items.length - 1];
+    assert(it.air && it.vy > 0, 'did not pop up');
+    for (let i = 0; i < 80 && s.reserve === 0; i++) await wait(50, 1);
+    assert(s.reserve > 0, 'never reached you');
+    return 'collected';
+  });
+
   // ---- report
   await check('no uncaught exceptions (whole run)', async () => {
     assert(!window.__smokeErrors || window.__smokeErrors.length === 0,

@@ -535,3 +535,56 @@ export function disposeTree(obj) {
     }
   });
 }
+
+/* ---------------- character surfacing ---------------- */
+/** Rim light: a thin bright edge where a surface turns away from the camera, so
+ *  characters separate from the busy ground. Works on Lambert materials. */
+export function addRim(mat, color, strength = 0.4, power = 3.0) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.rimColor = { value: new THREE.Color(color) };
+    sh.uniforms.rimStrength = { value: strength };
+    sh.fragmentShader = 'uniform vec3 rimColor;\nuniform float rimStrength;\n' + sh.fragmentShader.replace(
+      '#include <opaque_fragment>',
+      `outgoingLight += rimColor * rimStrength * pow(1.0 - saturate(dot(geometryNormal, geometryViewDir)), ${power.toFixed(1)});
+#include <opaque_fragment>`);
+  };
+  mat.customProgramCacheKey = () => 'rim' + power.toFixed(1);
+  return mat;
+}
+
+/** Woven cloth with seams and grime, kept near white: hue comes from vertex colour. */
+export function fabricTexture() {
+  const S = 256;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const r = mulberry32(5150);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // twill: diagonal ribs plus a fine cross thread
+      const twill = Math.sin((x + y) * 0.9) * 0.035 + Math.sin(x * 2.6) * Math.sin(y * 2.6) * 0.02;
+      const blot = Math.sin(x * 0.045 + Math.sin(y * 0.06) * 2) * Math.sin(y * 0.038) * 0.05;
+      const l = 0.9 + twill + blot + (r() - 0.5) * 0.05;
+      const c = clamp(Math.round(l * 255), 0, 255);
+      const i = (y * S + x) * 4;
+      img.data[i] = c; img.data[i + 1] = c * 0.99; img.data[i + 2] = c * 0.97; img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // stitched seams
+  ctx.strokeStyle = 'rgba(40,30,22,0.35)'; ctx.lineWidth = 1.2; ctx.setLineDash([3, 3]);
+  for (const v of [42, 170]) { ctx.beginPath(); ctx.moveTo(0, v); ctx.lineTo(S, v); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(120, 0); ctx.lineTo(120, S); ctx.stroke();
+  ctx.setLineDash([]);
+  // scuffs and dust
+  for (let i = 0; i < 160; i++) {
+    ctx.fillStyle = r() > 0.5 ? `rgba(60,44,30,${0.05 + r() * 0.1})` : `rgba(255,240,215,${0.05 + r() * 0.08})`;
+    ctx.beginPath(); ctx.ellipse(r() * S, r() * S, 1 + r() * 6, 1 + r() * 3, r() * 3, 0, Math.PI * 2); ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}

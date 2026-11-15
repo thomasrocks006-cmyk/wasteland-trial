@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { clamp, lerp, rnd, TAU, Builder, deg } from './core.js';
+import { clamp, lerp, rnd, TAU, Builder, deg, addRim } from './core.js';
 
 /* ============================================================ definitions
    Every gun is deliberately different in weight, cadence and punishment.
@@ -41,59 +41,81 @@ export const WEAPONS = [
 ];
 
 /* ============================================================ gun models */
-function crystal(color, r = 0.055) {
-  return new THREE.OctahedronGeometry(r, 0);
-}
-
+/* Gun models. Local axes: -y is the barrel (along the forearm), +z is the top of
+   the gun when shouldered, the grip sits at the origin in the hand. Every gun has
+   a lit body plus glowing accents in its own colour, which read at phone size. */
 export function buildGunModel(id) {
-  const b = new Builder();
+  const b = new Builder();          // body
+  const gl = new Builder();         // glow accents
   const muzzle = new THREE.Object3D();
   const group = new THREE.Group();
-  const M = 0x9a9288, MD = 0x5c554c, ACC = [];
-  const C = { blaster: 0xe2762c, scatter: 0xf0b23c, beam: 0x37e0c8, bomber: 0xc8301f }[id];
+  const M = 0x9a9288, MD = 0x4f4943, ML = 0xb9b1a4, GRIP = 0x2e241b;
+  const C = { blaster: 0xff8a3c, scatter: 0xffc44a, beam: 0x5ff0e0, bomber: 0xff4a2a }[id];
+  const cyl = (r0, r1, l, seg = 10) => new THREE.CylinderGeometry(r0, r1, l, seg);
+  const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
+  // shared furniture: pistol grip and trigger guard
+  b.add(box(0.05, 0.06, 0.13), GRIP, { pos: [0, 0.03, -0.08], rot: [0.32, 0, 0], jitter: 0.02 });
+  b.add(box(0.012, 0.07, 0.012), MD, { pos: [0, -0.03, -0.06] });
 
   if (id === 'blaster') {
-    b.add(new THREE.BoxGeometry(0.085, 0.16, 0.10), M, { pos: [0, -0.02, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.06, 0.09, 0.13), MD, { pos: [0, -0.10, -0.02], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.026, 0.030, 0.30, 8), M, { pos: [0, -0.24, 0.005] });
-    b.add(new THREE.CylinderGeometry(0.038, 0.038, 0.03, 8), ACC.length ? 0 : 0xe2762c, { pos: [0, -0.40, 0.005] });
-    b.add(new THREE.BoxGeometry(0.05, 0.05, 0.06), MD, { pos: [0, 0.06, -0.05], jitter: 0.02 });
-    muzzle.position.set(0, -0.42, 0.005);
+    b.add(box(0.09, 0.22, 0.11), M, { pos: [0, -0.06, 0.01], jitter: 0.015 });
+    b.add(box(0.072, 0.17, 0.075), MD, { pos: [0, -0.25, 0.015], jitter: 0.015 });          // shroud
+    b.add(cyl(0.026, 0.03, 0.32), ML, { pos: [0, -0.30, 0.015] });
+    b.add(cyl(0.04, 0.036, 0.05), MD, { pos: [0, -0.45, 0.015] });                           // muzzle brake
+    b.add(box(0.03, 0.2, 0.014), MD, { pos: [0, -0.08, 0.072] });                             // top rail
+    b.add(box(0.026, 0.035, 0.045), MD, { pos: [0, 0.01, 0.09] });                            // rear sight
+    b.add(box(0.046, 0.05, 0.1), MD, { pos: [0, -0.1, -0.07], rot: [-0.12, 0, 0] });          // magazine
+    b.add(box(0.06, 0.09, 0.05), M, { pos: [0, 0.09, 0.0] });                                 // stock stub
+    gl.add(box(0.012, 0.17, 0.014), C, { pos: [0.047, -0.06, 0.02] });
+    gl.add(box(0.012, 0.17, 0.014), C, { pos: [-0.047, -0.06, 0.02] });
+    gl.add(new THREE.TorusGeometry(0.037, 0.008, 5, 14), C, { pos: [0, -0.475, 0.015], rot: [Math.PI / 2, 0, 0] });
+    gl.add(box(0.016, 0.006, 0.02), C, { pos: [0, 0.01, 0.114] });                           // sight dot
+    muzzle.position.set(0, -0.48, 0.015);
   } else if (id === 'scatter') {
-    b.add(new THREE.BoxGeometry(0.13, 0.20, 0.13), M, { pos: [0, -0.04, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.10, 0.10, 0.20), MD, { pos: [0, -0.12, -0.06], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.033, 0.036, 0.34, 8), M, { pos: [-0.036, -0.26, 0.01] });
-    b.add(new THREE.CylinderGeometry(0.033, 0.036, 0.34, 8), M, { pos: [0.036, -0.26, 0.01] });
-    // vent ribs
-    for (let i = 0; i < 4; i++) {
-      b.add(new THREE.BoxGeometry(0.16, 0.014, 0.05), MD, { pos: [0, -0.12 - i * 0.045, 0.06] });
-    }
-    b.add(new THREE.BoxGeometry(0.10, 0.045, 0.07), 0xf0b23c, { pos: [0, -0.44, 0.01], jitter: 0.03 });
-    muzzle.position.set(0, -0.46, 0.01);
+    b.add(box(0.14, 0.22, 0.13), M, { pos: [0, -0.05, 0.01], jitter: 0.02 });
+    b.add(cyl(0.034, 0.038, 0.36), ML, { pos: [-0.037, -0.3, 0.02] });
+    b.add(cyl(0.034, 0.038, 0.36), ML, { pos: [0.037, -0.3, 0.02] });
+    b.add(box(0.15, 0.06, 0.05), MD, { pos: [0, -0.3, -0.03] });                              // pump grip
+    for (let i = 0; i < 4; i++) b.add(box(0.17, 0.012, 0.05), MD, { pos: [0, -0.14 - i * 0.045, 0.065] });
+    b.add(box(0.12, 0.06, 0.09), MD, { pos: [0, -0.47, 0.02] });                              // muzzle block
+    b.add(box(0.07, 0.12, 0.06), GRIP, { pos: [0, 0.11, 0.0], rot: [-0.1, 0, 0] });           // stock
+    gl.add(box(0.1, 0.012, 0.012), C, { pos: [0, -0.505, 0.055] });
+    gl.add(box(0.1, 0.012, 0.012), C, { pos: [0, -0.505, -0.015] });
+    gl.add(box(0.012, 0.15, 0.012), C, { pos: [0.072, -0.05, 0.04] });
+    gl.add(box(0.012, 0.15, 0.012), C, { pos: [-0.072, -0.05, 0.04] });
+    muzzle.position.set(0, -0.51, 0.02);
   } else if (id === 'beam') {
-    b.add(new THREE.BoxGeometry(0.10, 0.17, 0.11), M, { pos: [0, -0.03, 0], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.07, 0.11, 0.17), MD, { pos: [0, -0.11, -0.05], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.018, 0.022, 0.62, 7), M, { pos: [0, -0.40, 0.01] });
-    for (let i = 0; i < 5; i++) {
-      b.add(new THREE.TorusGeometry(0.045, 0.010, 4, 9), 0x37e0c8, { pos: [0, -0.20 - i * 0.085, 0.01], rot: [Math.PI / 2, 0, 0] });
-    }
-    b.add(new THREE.BoxGeometry(0.045, 0.28, 0.05), MD, { pos: [0, -0.20, -0.10], rot: [0.12, 0, 0], jitter: 0.02 });
-    muzzle.position.set(0, -0.72, 0.01);
+    b.add(box(0.1, 0.2, 0.11), M, { pos: [0, -0.04, 0.01], jitter: 0.015 });
+    b.add(cyl(0.018, 0.022, 0.66, 8), ML, { pos: [0, -0.42, 0.015] });
+    b.add(box(0.05, 0.3, 0.05), MD, { pos: [0, -0.22, -0.055], rot: [0.08, 0, 0] });          // capacitor spine
+    b.add(cyl(0.035, 0.035, 0.14), MD, { pos: [0, -0.02, 0.1], rot: [0, 0, 0] });            // scope tube
+    b.add(box(0.02, 0.04, 0.05), MD, { pos: [0, -0.02, 0.07] });
+    b.add(box(0.06, 0.13, 0.06), GRIP, { pos: [0, 0.12, 0.0] });
+    for (let i = 0; i < 5; i++) gl.add(new THREE.TorusGeometry(0.046, 0.011, 5, 12), C, { pos: [0, -0.2 - i * 0.085, 0.015], rot: [Math.PI / 2, 0, 0] });
+    gl.add(cyl(0.024, 0.024, 0.006), C, { pos: [0, -0.095, 0.1] });                           // scope lens
+    gl.add(box(0.012, 0.22, 0.012), C, { pos: [0, -0.22, -0.083] });
+    muzzle.position.set(0, -0.76, 0.015);
   } else {
-    // bomber: drum + claw
-    b.add(new THREE.BoxGeometry(0.13, 0.17, 0.14), M, { pos: [0, -0.02, 0], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.095, 0.095, 0.14, 10), MD, { pos: [0, -0.11, 0], rot: [0, 0, 0], jitter: 0.02 });
-    b.add(new THREE.CylinderGeometry(0.062, 0.062, 0.15, 10), 0xc8301f, { pos: [0, -0.11, 0], jitter: 0.03 });
-    b.add(new THREE.CylinderGeometry(0.050, 0.058, 0.24, 8), M, { pos: [0, -0.27, 0.01] });
-    b.add(new THREE.BoxGeometry(0.09, 0.035, 0.09), MD, { pos: [0, -0.40, 0.01], jitter: 0.02 });
-    b.add(new THREE.BoxGeometry(0.10, 0.07, 0.06), 0xc8301f, { pos: [0, 0.02, -0.10], jitter: 0.03 });
-    muzzle.position.set(0, -0.42, 0.01);
+    // bomber: a drum launcher
+    b.add(box(0.13, 0.19, 0.14), M, { pos: [0, -0.02, 0.01], jitter: 0.02 });
+    b.add(cyl(0.1, 0.1, 0.15, 12), MD, { pos: [0, -0.13, 0.0], jitter: 0.015 });             // drum
+    b.add(cyl(0.055, 0.062, 0.28, 10), ML, { pos: [0, -0.3, 0.02] });
+    b.add(cyl(0.07, 0.06, 0.06, 10), MD, { pos: [0, -0.46, 0.02] });                          // flared mouth
+    b.add(box(0.1, 0.035, 0.1), MD, { pos: [0, -0.4, 0.02] });
+    b.add(box(0.03, 0.06, 0.09), MD, { pos: [0, -0.3, -0.07] });                              // fore grip
+    b.add(box(0.08, 0.12, 0.07), GRIP, { pos: [0, 0.12, 0.0] });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU;
+      gl.add(cyl(0.017, 0.017, 0.152, 6), C, { pos: [Math.cos(a) * 0.07, -0.13, Math.sin(a) * 0.07] });
+    }
+    gl.add(new THREE.TorusGeometry(0.062, 0.008, 5, 14), C, { pos: [0, -0.49, 0.02], rot: [Math.PI / 2, 0, 0] });
+    muzzle.position.set(0, -0.49, 0.02);
   }
 
-  const mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const mesh = new THREE.Mesh(b.build(), addRim(new THREE.MeshLambertMaterial({ vertexColors: true }), 0xffe2b8, 0.3, 3.0));
   mesh.castShadow = true;
-  group.add(mesh);
-  group.add(muzzle);
+  const glow = new THREE.Mesh(gl.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
+  group.add(mesh, glow, muzzle);
   group.scale.setScalar(1.55);
   group.userData.muzzle = muzzle;
   group.userData.color = C;

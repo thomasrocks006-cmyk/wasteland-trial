@@ -2,6 +2,54 @@
  * All sound is synthesised at runtime — no audio files, no download, works offline.
  * Each weapon has its own noise/filter/envelope fingerprint so they feel physically different.
  */
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+/* chord voicings (MIDI), D minor */
+const CHORDS = {
+  Dm: [50, 57, 62, 65], Dm9: [50, 57, 64, 65], Bb: [46, 53, 58, 62], Bbmaj7: [46, 53, 57, 62],
+  F: [53, 57, 60, 65], C: [48, 55, 60, 64], Gm: [55, 58, 62, 67], A: [45, 52, 57, 61], Eb: [51, 58, 63, 67],
+};
+
+/* An original theme. Melody rows are [bar, sixteenth, midi note, length in sixteenths]. */
+const SCORE = {
+  explore: {
+    bpm: 76,
+    chords: ['Dm9', 'Bbmaj7', 'Gm', 'A', 'Dm9', 'Bbmaj7', 'F', 'A'],
+    melody: [
+      [0, 0, 69, 6], [0, 6, 74, 2], [0, 8, 72, 4], [0, 12, 69, 4],
+      [1, 0, 70, 8], [1, 8, 69, 4], [1, 12, 65, 4],
+      [2, 0, 67, 6], [2, 6, 70, 2], [2, 8, 69, 4], [2, 12, 67, 4],
+      [3, 0, 69, 16],
+      [4, 0, 74, 6], [4, 6, 76, 2], [4, 8, 77, 4], [4, 12, 76, 4],
+      [5, 0, 74, 8], [5, 8, 72, 4], [5, 12, 70, 4],
+      [6, 0, 72, 6], [6, 6, 69, 2], [6, 8, 65, 8],
+      [7, 0, 73, 8], [7, 8, 76, 8],
+    ],
+  },
+  combat: {
+    bpm: 104,
+    chords: ['Dm', 'Bb', 'F', 'C', 'Dm', 'Bb', 'C', 'A'],
+    melody: [
+      [0, 0, 69, 6], [0, 6, 67, 2], [0, 8, 69, 8],
+      [1, 0, 70, 6], [1, 6, 69, 2], [1, 8, 65, 8],
+      [2, 0, 72, 6], [2, 6, 70, 2], [2, 8, 69, 4], [2, 12, 65, 4],
+      [3, 0, 67, 12], [3, 12, 64, 4],
+      [4, 0, 74, 6], [4, 6, 72, 2], [4, 8, 74, 8],
+      [5, 0, 77, 6], [5, 6, 74, 2], [5, 8, 70, 8],
+      [6, 0, 72, 4], [6, 4, 74, 4], [6, 8, 76, 8],
+      [7, 0, 73, 16],
+    ],
+  },
+  boss: {
+    bpm: 120,
+    chords: ['Dm', 'Eb', 'Dm', 'A', 'Dm', 'Eb', 'C', 'A'],
+    melody: [
+      [0, 0, 74, 16], [1, 0, 75, 16], [2, 0, 77, 8], [2, 8, 76, 8], [3, 0, 73, 16],
+      [4, 0, 69, 16], [5, 0, 70, 16], [6, 0, 72, 16], [7, 0, 73, 16],
+    ],
+  },
+};
+
 export class Audio {
   constructor() {
     this.ctx = null;
@@ -30,8 +78,17 @@ export class Audio {
     comp.attack.value = 0.003;
     comp.release.value = 0.22;
 
-    this.master.connect(comp);
+    // gentle saturation adds harmonics, so low thumps are heard on a phone speaker
+    const sat = this.ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(1.8 * x) / Math.tanh(1.8); }
+    sat.curve = curve; sat.oversample = '2x';
+    this.bus = this.ctx.createGain();          // everything ends here: dry master + reverb return
+    this.master.connect(this.bus);
+    this.bus.connect(sat); sat.connect(comp);
     comp.connect(this.ctx.destination);
+    // iOS: play through the silent switch, like a game, not like a web page
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { }
 
     // white noise buffer
     const len = Math.floor(this.ctx.sampleRate * 2);
@@ -71,8 +128,10 @@ export class Audio {
     this.reverb.buffer = ir;
     this.wet = this.ctx.createGain();
     this.wet.gain.value = 0.30;
+    // a send: master -> reverb -> bus. It used to feed back into master, a loop with
+    // no delay in it, which browsers mute, so the reverb was never heard
     this.reverb.connect(this.wet);
-    this.wet.connect(this.master);
+    this.wet.connect(this.bus);
     this.master.connect(this.reverb);
   }
 
@@ -216,6 +275,16 @@ export class Audio {
     g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
     o.connect(g); g.connect(this.master);
     o.start(t); o.stop(t + dur + 0.02);
+    // overtone a phone can play (the fundamental is often below what it reproduces)
+    const h = this.ctx.createOscillator();
+    h.type = 'triangle';
+    h.frequency.setValueAtTime(f0 * 2.4, t);
+    h.frequency.exponentialRampToValueAtTime(Math.max(60, f1 * 2.4), t + dur * 0.6);
+    const hg = this.ctx.createGain();
+    hg.gain.setValueAtTime(amp * vol * 0.35, t);
+    hg.gain.exponentialRampToValueAtTime(0.0008, t + dur * 0.6);
+    h.connect(hg); hg.connect(this.master);
+    h.start(t); h.stop(t + dur * 0.6 + 0.02);
   }
 
   explosion(dist = 0) {
@@ -498,154 +567,272 @@ export class Audio {
   }
 
   /* ---------------------------------------------------------- music
-     A small generative score: one chord progression, four layers, and the
-     layers fade in as the fight intensifies. D minor because it suits ruins. */
+     An original adventure score, synthesised live. Three moods share one key
+     (D minor) so they can cut into each other on a bar line:
+       explore  76 bpm  harp, warm strings, a wooden-flute melody   (title, between waves)
+       combat  104 bpm  string ostinato, taiko, horns carrying the theme
+       boss    120 bpm  low brass stabs, choir, timpani rolls
+     Everything is voiced from about 150 Hz up and given harmonics, because a phone
+     speaker plays nothing below that: the old score's bass and kick were 27-115 Hz
+     and its melody peaked at 1.5% volume, so on a phone it was silent. */
   startMusic() {
-    if (this.musicGain) return;
+    if (this.musicGain || !this.ctx) return;
     const t = this.t;
+    this.musicLevel = 0.42;
     this.musicGain = this.ctx.createGain();
     this.musicGain.gain.value = 0.0;
-    this.musicGain.connect(this.master);
-    this.musicGain.connect(this.reverb);
+    this.musicGain.connect(this.master);       // through master so SOUND OFF silences it; master also sends to the reverb
+    this.musicGain.gain.setTargetAtTime(this.musicLevel, t, 1.5);
 
-    this.padGain = this.ctx.createGain(); this.padGain.gain.value = 0.55;
-    this.melGain = this.ctx.createGain(); this.melGain.gain.value = 0.0;
-    this.percGain = this.ctx.createGain(); this.percGain.gain.value = 0.0;
-    this.padGain.connect(this.musicGain);
-    this.melGain.connect(this.musicGain);
-    this.percGain.connect(this.musicGain);
+    // one shared vibrato for every sustained voice
+    const lfo = this.ctx.createOscillator(); lfo.frequency.value = 5.2;
+    this.vib = this.ctx.createGain(); this.vib.gain.value = 9;          // cents
+    lfo.connect(this.vib); lfo.start(t);
 
-    this.bpm = 84;
+    this.mood = 'explore'; this.nextMood = 'explore';
+    this.density = 0.3;
     this.musicStep = 0;
-    this.nextTime = t + 0.1;
-    this.musicTimer = setInterval(() => this.scheduleMusic(), 50);
-    this.musicGain.gain.setTargetAtTime(0.5, t, 2.0);
+    this.nextTime = t + 0.12;
+    this.musicTimer = setInterval(() => this.scheduleMusic(), 40);
   }
+
+  /** 'explore' | 'combat' | 'boss'; takes effect on the next bar line */
+  setMood(m) { this.nextMood = m; }
 
   scheduleMusic() {
-    if (!this.ctx || this.ctx.state !== 'running') { this.nextTime = this.ctx.currentTime + 0.05; return; }
-    const eighth = (60 / this.bpm) * 0.5;
-    while (this.nextTime < this.ctx.currentTime + 0.4) {
-      this.playStep(this.musicStep, this.nextTime);
-      this.nextTime += eighth;
-      this.musicStep = (this.musicStep + 1) % 32;
+    if (!this.ctx) return;
+    if (this.ctx.state !== 'running') { this.nextTime = this.ctx.currentTime + 0.05; return; }
+    while (this.nextTime < this.ctx.currentTime + 0.3) {
+      if (this.musicStep % 16 === 0 && this.nextMood !== this.mood) {
+        this.mood = this.nextMood;
+        this.musicStep = 0;
+        if (this.mood !== 'explore') this.stinger(this.nextTime);
+      }
+      const sixteenth = 60 / SCORE[this.mood].bpm / 4;
+      this.playStep(this.musicStep, this.nextTime, sixteenth);
+      this.nextTime += sixteenth;
+      this.musicStep = (this.musicStep + 1) % 128;
     }
   }
 
-  playStep(step, t) {
-    const CH = [
-      { pad: [146.83, 174.61, 220.00], root: 73.42 },   // Dm
-      { pad: [116.54, 146.83, 174.61], root: 58.27 },   // Bb
-      { pad: [174.61, 220.00, 261.63], root: 87.31 },   // F
-      { pad: [130.81, 164.81, 196.00], root: 65.41 },   // C
-    ];
-    const bar = Math.floor(step / 8) % 4;
-    const chord = CH[bar];
-    const eighth = (60 / this.bpm) * 0.5;
+  playStep(step, t, s16) {
+    const S = SCORE[this.mood];
+    const bar = Math.floor(step / 16), st = step % 16;
+    const chord = CHORDS[S.chords[bar]];
+    const dens = this.density;
 
-    if (step % 8 === 0) this.pad(chord.pad, t, eighth * 8 * 1.05);
-    if (step % 8 === 0) this.bassNote(chord.root, t, eighth * 3.6);
-    if (step % 8 === 4) this.bassNote(chord.root * 1.5, t, eighth * 1.6);
-
-    // percussion only once the fight is on
-    if (this.percGain.gain.value > 0.02) {
-      if (step % 4 === 0) this.kick(t);
-      if (step % 2 === 1) this.hat(t, 0.5);
-      if (step % 8 === 7) this.hat(t, 1.0);
+    // sustained harmony
+    if (st === 0) {
+      if (this.mood === 'boss') this.choir(chord, t, s16 * 16 * 1.02, 0.6);
+      else this.strings(chord, t, s16 * 16 * 1.04, this.mood === 'explore' ? 0.55 : 0.42);
     }
 
-    // a plain melodic motif, pentatonic so it never clashes with the chords
-    const MEL = {
-      16: 587.33, 18: 440.00, 20: 392.00, 22: 440.00,
-      24: 523.25, 26: 440.00, 28: 392.00, 30: 293.66,
-    };
-    if (MEL[step] && this.melGain.gain.value > 0.02) this.pluck(MEL[step], t);
-  }
-
-  pad(freqs, t, dur) {
-    for (const f of freqs) {
-      for (const det of [-4, 4]) {
-        const o = this.ctx.createOscillator();
-        o.type = 'sawtooth';
-        o.frequency.value = f * Math.pow(2, det / 1200);
-        const lp = this.ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 620;
-        lp.Q.value = 0.7;
-        const g = this.ctx.createGain();
-        g.gain.setValueAtTime(0.0001, t);
-        g.gain.linearRampToValueAtTime(0.026, t + dur * 0.35);
-        g.gain.linearRampToValueAtTime(0.0001, t + dur);
-        o.connect(lp); lp.connect(g); g.connect(this.padGain);
-        o.start(t); o.stop(t + dur + 0.05);
+    // melody
+    for (const [b, at, n, len] of S.melody) {
+      if (b === bar && at === st) {
+        const dur = len * s16;
+        if (this.mood === 'explore') this.flute(n, t, dur);
+        else if (this.mood === 'combat') { if (dens > 0.25) this.horn(n, t, dur); }
+        else this.choirLead(n, t, dur);
       }
     }
+
+    if (this.mood === 'explore') {
+      // harp: chord tones up an octave, rising then falling, every eighth
+      if (st % 2 === 0) {
+        const idx = [0, 1, 2, 3, 2, 3, 1, 2][st / 2];
+        this.harp(chord[idx] + 12, t, st === 0 ? 1 : 0.7);
+      }
+      if (st === 0 && bar % 2 === 0) this.timpani(chord[0], t, 0.35);
+      if (st === 8 || st === 14) this.shaker(t, 0.35);
+    } else if (this.mood === 'combat') {
+      // driving low-string ostinato on eighths (an octave above the old bass, so it carries)
+      if (st % 2 === 0) {
+        const r = chord[0] + 12;
+        const off = [0, 12, 0, 7, 0, 12, 7, 12][st / 2];
+        this.ostinato(r + off, t, s16 * 1.7);
+      }
+      if (st === 0 || st === 8) this.taiko(t, st === 0 ? 1 : 0.8);
+      if (st === 6 && dens > 0.45) this.taiko(t, 0.5);
+      if (st === 4 || st === 12) this.snare(t, 0.55);
+      if (bar % 4 === 3 && st >= 12) this.snare(t, 0.3 + (st - 12) * 0.12);   // fill into the next phrase
+      if (dens > 0.6 && st % 2 === 1) this.shaker(t, 0.25);
+    } else {
+      // boss: chromatic sixteenth ostinato, brass stabs in a dotted rhythm, timpani
+      const r = chord[0] + 12;
+      this.ostinato(r + [0, 0, 12, 0, 7, 0, 12, 1][st % 8], t, s16 * 0.9, 0.8);
+      if (st === 0 || st === 3 || st === 6) this.brassStab(chord, t, s16 * 2.2);
+      if (st === 0 || st === 10) this.timpani(chord[0], t, 1);
+      if (st === 4 || st === 12) this.snare(t, 0.7);
+      if (bar % 2 === 1 && st >= 12) this.timpani(chord[0], t, 0.45 + (st - 12) * 0.12);
+    }
   }
 
-  bassNote(f, t, dur) {
-    const o = this.ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = f;
-    const g = this.ctx.createGain();
+  /* ---- instruments: each returns nothing and cleans itself up */
+  _env(g, t, a, peak, d, sustain, rel, end) {
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.075, t + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
-    o.connect(g); g.connect(this.musicGain);
-    o.start(t); o.stop(t + dur + 0.02);
+    g.gain.linearRampToValueAtTime(peak, t + a);
+    if (d) g.gain.setTargetAtTime(peak * sustain, t + a, d);
+    g.gain.setTargetAtTime(0.0001, end, rel);
+  }
+  _osc(type, f, t, stop, dest, cents = 0, vib = false) {
+    const o = this.ctx.createOscillator();
+    o.type = type; o.frequency.value = f; o.detune.value = cents;
+    if (vib) {
+      this.vib.connect(o.detune);
+      o.onended = () => { try { this.vib.disconnect(o.detune); } catch { } };   // else every note stays referenced
+    }
+    o.connect(dest); o.start(t); o.stop(stop);
+    return o;
+  }
+  _out(gain, pan = 0) {
+    const g = this.ctx.createGain();
+    if (pan && this.ctx.createStereoPanner) {
+      const p = this.ctx.createStereoPanner(); p.pan.value = pan;
+      g.connect(p); p.connect(this.musicGain);
+    } else g.connect(this.musicGain);
+    return g;
   }
 
-  pluck(f, t) {
-    const o = this.ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = f;
-    const g = this.ctx.createGain();
+  strings(chord, t, dur, vel) {
+    chord.forEach((n, i) => {
+      const f = mtof(n + (n < 52 ? 12 : 0));            // keep the lowest voice audible
+      const g = this._out(0, (i - 1.5) * 0.25);
+      const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1900; lp.Q.value = 0.5;
+      lp.connect(g);
+      for (const c of [-8, 0, 7]) this._osc('sawtooth', f, t, t + dur + 0.8, lp, c, true);
+      this._env(g, t, Math.min(0.6, dur * 0.25), 0.024 * vel, 0, 1, 0.35, t + dur);
+    });
+  }
+  ostinato(n, t, dur, vel = 1) {
+    const g = this._out(0, 0.15);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.2;
+    lp.frequency.setValueAtTime(2600, t); lp.frequency.exponentialRampToValueAtTime(700, t + dur);
+    lp.connect(g);
+    this._osc('sawtooth', mtof(n), t, t + dur + 0.1, lp, -6);
+    this._osc('sawtooth', mtof(n), t, t + dur + 0.1, lp, 6);
+    this._env(g, t, 0.008, 0.07 * vel, 0, 1, 0.05, t + dur);
+  }
+  horn(n, t, dur) {
+    const g = this._out(0, -0.1);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 0.8;
+    lp.frequency.setValueAtTime(500, t); lp.frequency.linearRampToValueAtTime(1700, t + 0.07);
+    lp.frequency.setTargetAtTime(1150, t + 0.07, 0.2);
+    lp.connect(g);
+    const f = mtof(n);
+    this._osc('sawtooth', f, t, t + dur + 0.4, lp, -4, true);
+    this._osc('square', f / 2, t, t + dur + 0.4, lp, 3);
+    this._osc('sawtooth', f, t, t + dur + 0.4, lp, 5, true);
+    this._env(g, t, 0.06, 0.085, 0.3, 0.75, 0.12, t + dur * 0.96);
+  }
+  flute(n, t, dur) {
+    const g = this._out(0, 0.12);
+    const f = mtof(n);
+    this._osc('sine', f, t, t + dur + 0.4, g, 0, true);
+    const tri = this.ctx.createGain(); tri.gain.value = 0.25; tri.connect(g);
+    this._osc('triangle', f, t, t + dur + 0.4, tri, 0, true);
+    // breath
+    const nz = this.ctx.createBufferSource(); nz.buffer = this.noiseBuf; nz.loop = true;
+    const bp = this.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 6;
+    const ng = this.ctx.createGain(); ng.gain.value = 0.25;
+    nz.connect(bp); bp.connect(ng); ng.connect(g); nz.start(t); nz.stop(t + dur + 0.4);
+    this._env(g, t, 0.07, 0.075, 0.4, 0.8, 0.15, t + dur * 0.95);
+  }
+  harp(n, t, vel) {
+    const g = this._out(0, (n % 5 - 2) * 0.15);
+    const f = mtof(n);
+    this._osc('triangle', f, t, t + 1.5, g);
+    const h = this.ctx.createGain(); h.gain.value = 0.3; h.connect(g);
+    this._osc('sine', f * 2, t, t + 1.5, h);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.045, t + 0.008);
-    g.gain.exponentialRampToValueAtTime(0.0004, t + 0.5);
-    o.connect(g); g.connect(this.melGain);
-    o.start(t); o.stop(t + 0.55);
+    g.gain.linearRampToValueAtTime(0.05 * vel, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0003, t + 1.4);
+  }
+  choir(chord, t, dur, vel) {
+    // "ah": saws through two vowel formants
+    const g = this._out(0, 0);
+    const f1 = this.ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 760; f1.Q.value = 3;
+    const f2 = this.ctx.createBiquadFilter(); f2.type = 'bandpass'; f2.frequency.value = 1180; f2.Q.value = 4;
+    f1.connect(g); f2.connect(g);
+    chord.forEach((n) => {
+      const f = mtof(n + 12);
+      for (const c of [-10, 9]) { this._osc('sawtooth', f, t, t + dur + 1, f1, c, true); this._osc('sawtooth', f, t, t + dur + 1, f2, c, true); }
+    });
+    this._env(g, t, 0.5, 0.05 * vel, 0, 1, 0.4, t + dur);
+  }
+  choirLead(n, t, dur) { this.choir([n - 12], t, dur, 1.6); this.horn(n - 12, t, dur); }
+  brassStab(chord, t, dur) {
+    const g = this._out(0, 0);
+    const lp = this.ctx.createBiquadFilter(); lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2200, t); lp.frequency.exponentialRampToValueAtTime(500, t + dur);
+    lp.connect(g);
+    for (const n of chord.slice(0, 3)) this._osc('sawtooth', mtof(n + 12), t, t + dur + 0.1, lp, -5);
+    this._env(g, t, 0.01, 0.06, 0, 1, 0.06, t + dur);
+  }
+  timpani(n, t, vel) {
+    const f = mtof(n < 45 ? n + 12 : n);
+    const g = this._out(0, -0.2);
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(f * 1.35, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.04);
+    o.connect(g); o.start(t); o.stop(t + 1.1);
+    // the overtone is what a phone speaker actually plays
+    const h = this.ctx.createGain(); h.gain.value = 0.55; h.connect(g);
+    this._osc('sine', f * 2.6, t, t + 0.4, h);
+    g.gain.setValueAtTime(0.18 * vel, t);
+    g.gain.exponentialRampToValueAtTime(0.0003, t + 1.0);
+    this._hit(t, 900, 0.06 * vel, 0.07);
+  }
+  taiko(t, vel) {
+    const g = this._out(0, 0);
+    const o = this.ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(62, t + 0.22);
+    o.connect(g); o.start(t); o.stop(t + 0.5);
+    const h = this.ctx.createGain(); h.gain.value = 0.6; h.connect(g);
+    const o2 = this.ctx.createOscillator(); o2.type = 'triangle';
+    o2.frequency.setValueAtTime(330, t); o2.frequency.exponentialRampToValueAtTime(170, t + 0.12);
+    o2.connect(h); o2.start(t); o2.stop(t + 0.3);
+    g.gain.setValueAtTime(0.22 * vel, t);
+    g.gain.exponentialRampToValueAtTime(0.0003, t + 0.45);
+    this._hit(t, 1400, 0.09 * vel, 0.05);
+  }
+  snare(t, vel) { this._hit(t, 2600, 0.07 * vel, 0.11, 'bandpass'); }
+  shaker(t, vel) { this._hit(t, 6500, 0.03 * vel, 0.05, 'highpass'); }
+  _hit(t, f, amp, dur, type = 'lowpass') {
+    const n = this.ctx.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
+    const fl = this.ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = type === 'bandpass' ? 0.8 : 0.7;
+    const g = this._out(0, 0);
+    n.connect(fl); fl.connect(g);
+    g.gain.setValueAtTime(amp, t); g.gain.exponentialRampToValueAtTime(0.0003, t + dur);
+    n.start(t + Math.random() * 0.003); n.stop(t + dur + 0.02);
+  }
+  /** kill streak: a short horn call that climbs with the streak */
+  streak(n) {
+    if (!this.musicGain || !this.enabled) return;
+    const t = this.t, top = Math.min(4, 1 + Math.floor(n / 3));
+    [69, 74, 77, 81].slice(0, top + 1).forEach((m, i) => this.horn(m, t + i * 0.08, i === top ? 0.35 : 0.1));
+    this.taiko(t, 0.7);
   }
 
-  kick(t) {
-    const o = this.ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(115, t);
-    o.frequency.exponentialRampToValueAtTime(44, t + 0.18);
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.10, t);
-    g.gain.exponentialRampToValueAtTime(0.0006, t + 0.2);
-    o.connect(g); g.connect(this.percGain);
-    o.start(t); o.stop(t + 0.22);
+  /** a rising swell and hit when the music moves into a fight */
+  stinger(t) {
+    this.timpani(50, t, 1);
+    this.taiko(t, 1);
+    this.brassStab(CHORDS.Dm, t, 0.5);
   }
 
-  hat(t, amp) {
-    const n = this.ctx.createBufferSource();
-    n.buffer = this.noiseBuf; n.loop = true;
-    const hp = this.ctx.createBiquadFilter();
-    hp.type = 'highpass'; hp.frequency.value = 7000;
-    const g = this.ctx.createGain();
-    g.gain.setValueAtTime(0.02 * amp, t);
-    g.gain.exponentialRampToValueAtTime(0.0003, t + 0.05);
-    n.connect(hp); hp.connect(g); g.connect(this.percGain);
-    n.start(t); n.stop(t + 0.06);
-  }
+  /** fight density within a mood (wave number): more layers as it climbs */
+  setMusicIntensity(v) { this.density = v; }
 
-  /** called when the fight is heavy: bring the rhythm in */
-  setMusicIntensity(v) {
-    if (!this.musicGain || !this.ctx) return;
-    const t = this.t;
-    this.padGain.gain.setTargetAtTime(0.45 + v * 0.35, t, 1.2);
-    this.melGain.gain.setTargetAtTime(v > 0.35 ? 0.7 : 0.0, t, 1.0);
-    this.percGain.gain.setTargetAtTime(v > 0.22 ? 0.55 : 0.0, t, 0.9);
-  }
-
-  /** music ducks for a beat under gunfire */
+  /** gunfire dips the music a little, at most a few times a second */
   duck() {
     if (!this.musicGain || !this.ctx) return;
     const t = this.t;
-    this.musicGain.gain.cancelScheduledValues(t);
-    this.musicGain.gain.setTargetAtTime(0.22, t, 0.04);
-    this.musicGain.gain.setTargetAtTime(0.5, t + 0.18, 0.35);
+    if (t - (this._lastDuck || 0) < 0.25) return;
+    this._lastDuck = t;
+    const g = this.musicGain.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(this.musicLevel * 0.72, t, 0.03);
+    g.setTargetAtTime(this.musicLevel, t + 0.12, 0.3);
   }
 
   setIntensity(v) {

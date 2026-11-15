@@ -80,16 +80,38 @@ class Pickups {
     scene.add(this.healthMesh, this.ammoMesh);
     this.d = new THREE.Object3D();
   }
-  spawn(x, z, type) {
+  /** pop: thrown up out of a kill, it falls, bounces once and settles */
+  spawn(x, z, type, pop = false) {
     if (this.items.length > 20) this.items.shift();
-    this.items.push({ x, z, type, t: rnd(0, TAU), alive: true, y: terrainHeight(x, z) });
+    const a = rnd(0, TAU);
+    this.items.push({
+      x, z, type, t: rnd(0, TAU), alive: true, y: terrainHeight(x, z),
+      h: pop ? 1.3 : 0.55, vy: pop ? rnd(4, 5.5) : 0, vx: pop ? Math.cos(a) * 1.6 : 0, vz: pop ? Math.sin(a) * 1.6 : 0,
+      air: pop, bounced: false,
+    });
   }
   update(dt, time, player) {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
+      it.t += dt;
+      if (it.air) {
+        it.vy -= 18 * dt; it.h += it.vy * dt;
+        it.x += it.vx * dt; it.z += it.vz * dt;
+        if (it.h <= 0.55 && it.vy < 0) {
+          it.h = 0.55;
+          if (!it.bounced) { it.bounced = true; it.vy *= -0.4; it.vx *= 0.5; it.vz *= 0.5; }
+          else { it.air = false; it.vx = it.vz = 0; }
+        }
+      }
       if (!player.alive) continue;
       const dx = player.pos.x - it.x, dz = player.pos.z - it.z;
       const d = Math.hypot(dx, dz);
+      const wanted = it.type === 'ammo' || player.hp < player.maxHp;
+      // within reach it slides to you, faster as it closes
+      if (wanted && !it.air && d < 5 && d > 0.01) {
+        const sp = Math.min(d, (5 + (5 - d) * 4) * dt);
+        it.x += (dx / d) * sp; it.z += (dz / d) * sp;
+      }
       if (d < 1.5) {
         if (it.type === 'health') {
           if (player.hp >= player.maxHp) continue;
@@ -106,11 +128,10 @@ class Pickups {
         this.items.splice(i, 1);
         continue;
       }
-      it.t += dt;
     }
     let hn = 0, an = 0;
     for (const it of this.items) {
-      const y = terrainHeight(it.x, it.z) + 0.55 + Math.sin(it.t * 2.2) * 0.14;
+      const y = terrainHeight(it.x, it.z) + it.h + (it.air ? 0 : Math.sin(it.t * 2.2) * 0.14);
       this.d.position.set(it.x, y, it.z);
       this.d.rotation.set(it.t * 0.7, it.t * 1.4, 0);
       const s = 1 + Math.sin(it.t * 3) * 0.08;
@@ -649,6 +670,7 @@ function startWave(w) {
   audio.waveStart();
   audio.setIntensity(clamp(0.25 + w * 0.08, 0, 1));
   audio.setMusicIntensity(clamp(0.15 + w * 0.12, 0, 1));
+  audio.setMood(w % 5 === 0 ? 'boss' : 'combat');
 
   const wi = $('waveIntro');
   $('wiNum').textContent = w;
@@ -700,18 +722,36 @@ function addKillScore(e) {
   if (e.type.boss) showCallout('IRONCOIL DOWN');
 }
 
+/* time warp: a tiny freeze on every kill (hit-stop), slow motion for the boss */
+const warp = { t: 0, scale: 1 };
+function timeWarp(scale, dur) {
+  if (warp.t <= 0 || scale <= warp.scale) { warp.scale = scale; warp.t = Math.max(warp.t, dur); }
+}
+const STREAKS = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 5: 'RAMPAGE', 8: 'UNSTOPPABLE', 12: 'UNTOUCHABLE' };
+let streak = 0, lastKillT = -9;
+
 enemies.onKill = (e) => {
   addKillScore(e);
+  if (e.type.boss) timeWarp(0.22, 1.6);
+  else timeWarp(0.06, 0.05);
+  streak = GAME.time - lastKillT < 1.4 ? streak + 1 : 1;
+  lastKillT = GAME.time;
+  if (STREAKS[streak]) {
+    GAME.score += 60 * streak;
+    ui.score.textContent = GAME.score.toLocaleString('en-AU');
+    showCallout(STREAKS[streak]);
+    audio.streak(streak);
+  }
   player.addEco((e.type.boss ? 40 : 7) * RUN.charge);
   if (RUN.leech) player.heal(RUN.leech);
   // drops
   const r = rng() / RUN.scav;
   if (e.type.boss) {
-    for (let i = 0; i < 4; i++) pickups.spawn(e.pos.x + rnd(-2, 2), e.pos.z + rnd(-2, 2), i < 2 ? 'health' : 'ammo');
+    for (let i = 0; i < 4; i++) pickups.spawn(e.pos.x + rnd(-2, 2), e.pos.z + rnd(-2, 2), i < 2 ? 'health' : 'ammo', true);
   } else if (r < 0.14) {
-    pickups.spawn(e.pos.x, e.pos.z, 'health');
+    pickups.spawn(e.pos.x, e.pos.z, 'health', true);
   } else if (r < 0.34) {
-    pickups.spawn(e.pos.x, e.pos.z, 'ammo');
+    pickups.spawn(e.pos.x, e.pos.z, 'ammo', true);
   }
 };
 
@@ -828,6 +868,7 @@ function resetRun() {
 function endRun() {
   GAME.state = 'dead';
   audio.gameOver();
+  audio.setMood('explore');
   ui.draft.classList.add('hidden'); GAME.drafting = false;
   const acc = accuracy();
   const secs = Math.round((performance.now() - GAME.runStart) / 1000);
@@ -886,6 +927,7 @@ $('btnQuit').addEventListener('click', () => {
   $('title').classList.remove('hidden');
   refreshTitleStats();
   audio.setIntensity(0);
+  audio.setMood('explore');
 });
 $('btnRetry').addEventListener('click', () => {
   $('death').classList.add('hidden');
@@ -907,7 +949,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b18';
+const BUILD = 'b19';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
@@ -969,6 +1011,7 @@ function spawnGrenade(pos, vel, ex, dmg) {
   slot.life = 4;
   slot.ex = ex;
   slot.dmg = dmg;
+  slot.bounced = false;
   activeGrenades.push(slot);
 }
 
@@ -991,7 +1034,17 @@ function updateGrenades(dt) {
       const dy = e.pos.y + e.type.height * 0.5 - g.pos.y;
       if (dx * dx + dz * dz < (e.type.radius + 0.35) ** 2 && Math.abs(dy) < e.type.height * 0.6) { boom = true; break; }
     }
-    if (!boom && g.pos.y < terrainHeight(g.pos.x, g.pos.z) + 0.12) boom = true;
+    const gy = terrainHeight(g.pos.x, g.pos.z) + 0.12;
+    if (!boom && g.pos.y < gy) {
+      // first touch skips off the ground; the second (or a short fuse) sets it off
+      if (!g.bounced) {
+        g.bounced = true; g.pos.y = gy;
+        g.vel.y = Math.abs(g.vel.y) * 0.42; g.vel.x *= 0.62; g.vel.z *= 0.62;
+        g.life = Math.min(g.life, 0.6);
+        fx.puff(g.pos.clone(), null, 0xa5835c, 0.35, 2, 0.5, 1.2);
+        audio.click(0, 0.14, 260);
+      } else boom = true;
+    }
 
     if (boom) {
       if (enemies.explode(g.pos.clone(), g.ex.radius, g.dmg, g.ex.falloff) > 0) weapons.shotsHit++;
@@ -1040,6 +1093,8 @@ function frame(now) {
   if (Math.abs(renderer.domElement.clientWidth - sw) > 3 || Math.abs(renderer.domElement.clientHeight - sh) > 3) {
     resize();
   }
+
+  if (warp.t > 0) { warp.t -= dt; dt *= warp.scale; if (warp.t <= 0) warp.scale = 1; }
 
   if (GAME.state === 'playing' || GAME.state === 'dead') GAME.time += dt;
 
@@ -1103,7 +1158,8 @@ function frame(now) {
 
   if (GAME.state === 'playing' || GAME.state === 'dying' || GAME.state === 'dead') {
     player.applyToCamera(camera);
-    camera.fov = damp(camera.fov, player.aim ? 46 : (window.innerHeight > window.innerWidth ? 78 : 62), 9, dt);
+    const sprinting = input.sprint && Math.hypot(player.vel.x, player.vel.z) > 6;
+    camera.fov = damp(camera.fov, player.aim ? 46 : (window.innerHeight > window.innerWidth ? 78 : 62) + (sprinting ? 7 : 0), 9, dt);
     camera.updateProjectionMatrix();
   }
 
@@ -1146,6 +1202,7 @@ function updateWaves(dt) {
       GAME.waveActive = false;
       GAME.breather = 7.0;
       audio.waveClear();
+      audio.setMood('explore');
       showCallout('WAVE CLEARED');
       const bonus = 250 * GAME.wave;
       GAME.score += bonus;
@@ -1287,7 +1344,8 @@ document.addEventListener('visibilitychange', () => {
 });
 // iOS needs the audio context resumed inside a gesture
 ['pointerdown', 'touchstart'].forEach((ev) => {
-  window.addEventListener(ev, () => { audio.resume(); }, { passive: true });
+  // the first touch anywhere starts the score, so the title screen has music too
+  window.addEventListener(ev, () => { audio.init(); audio.resume(); audio.startMusic(); }, { passive: true });
 });
 // block iOS pinch-zoom and double-tap zoom
 document.addEventListener('gesturestart', (e) => e.preventDefault());

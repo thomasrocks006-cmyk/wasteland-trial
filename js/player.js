@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, deg,
-  terrainHeight, Builder, ARENA_R
+  terrainHeight, Builder, ARENA_R, addRim, fabricTexture
 } from './core.js';
 
 /* The runner: a wasteland scout in a navy jacket, red headwrap and a cyan visor.
@@ -64,7 +64,10 @@ export function buildHero() {
   // back strap
   torso.add(new THREE.BoxGeometry(0.07, 0.46, 0.02), C.boot, { pos: [0.12, 1.32, -0.17], rot: [0, 0, 0.22] });
 
-  const torsoMesh = new THREE.Mesh(torso.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+  // cloth texture over the vertex colours, and a warm rim so the hero reads against sand
+  const cloth = fabricTexture();
+  const heroMat = () => addRim(new THREE.MeshLambertMaterial({ vertexColors: true, map: cloth }), 0xffe2b8, 0.42, 2.6);
+  const torsoMesh = new THREE.Mesh(torso.buildUV(3.2), heroMat());
   torsoMesh.castShadow = true;
 
   /* --- limbs built with the joint at the origin --- */
@@ -74,7 +77,7 @@ export function buildHero() {
     b.add(new THREE.CylinderGeometry(0.055, 0.062, 0.28, 6), C.skin, { pos: [0, -0.43, 0], jitter: 0.02 });
     b.add(new THREE.BoxGeometry(0.10, 0.11, 0.10), C.glove, { pos: [0, -0.58, 0], jitter: 0.02 });
     b.add(new THREE.BoxGeometry(0.115, 0.05, 0.115), C.teal, { pos: [0, -0.315, 0], jitter: 0.02 });
-    return b.build();
+    return b.buildUV(3.2);
   };
   const legGeo = () => {
     const b = new Builder();
@@ -83,10 +86,10 @@ export function buildHero() {
     b.add(new THREE.BoxGeometry(0.14, 0.13, 0.14), C.boot, { pos: [0, -0.74, 0], jitter: 0.02 });
     b.add(new THREE.BoxGeometry(0.145, 0.09, 0.30), C.boot, { pos: [0, -0.79, 0.07], jitter: 0.02 });
     b.add(new THREE.BoxGeometry(0.15, 0.05, 0.16), C.metal, { pos: [0, -0.73, 0.02] });
-    return b.build();
+    return b.buildUV(3.2);
   };
 
-  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const mat = heroMat();
   const mk = (geo) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; return m; };
 
   // the hero faces local +z, so its right hand is on -x (the gun used to sit in the left)
@@ -488,8 +491,13 @@ export class Player {
     const cy = this.camYaw + this.recoilYaw;
     const cp = this.camPitch + this.recoilPitch;
 
+    // the camera follows with a little weight: quick sideways, softer up and down
+    if (!this._follow) this._follow = this.pos.clone();
+    const f = this._follow;
+    f.x = damp(f.x, this.pos.x, 18, dt); f.z = damp(f.z, this.pos.z, 18, dt); f.y = damp(f.y, this.pos.y, 9, dt);
+    if (f.distanceToSquared(this.pos) > 16) f.copy(this.pos);      // teleports (spawn, respawn) snap
     const pivot = this._camTarget.set(
-      this.pos.x, this.pos.y + this.camHeight, this.pos.z
+      f.x, f.y + this.camHeight, f.z
     );
 
     // camera direction
