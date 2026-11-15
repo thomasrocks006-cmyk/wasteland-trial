@@ -281,9 +281,15 @@ export function riverNearest(x, z) {
 }
 
 /* ---------------- the forest trail ----------------
-   From the shrine ring out to the parapet at the pass, swinging wide of the lake.
-   The forest is planted along it (world.js); the ground is worn to dirt on it. */
-const TRAIL_CTRL = [[9, -11], [16, -24], [22, -38], [33, -50], [48, -58], [63, -61], [75, -57], [83, -50]];
+   A long walk: from the west of the shrine it loops most of the way round the
+   valley through the forest (fording the river once, below the cascade, and
+   passing two watchtowers) and ends at the parapet at the pass. The forest is
+   planted along it in sections of different character (world.js). */
+const TRAIL_CTRL = [
+  [-14, 0], [-30, -6], [-46, -14], [-62, -22], [-71, -4], [-66, 16], [-56, 28],
+  [-50, 36], [-44, 46], [-34, 58], [-16, 66], [2, 70], [16, 65], [28, 57], [42, 48],
+  [56, 36], [63, 22], [65, 6], [67, -10], [74, -30], [83, -50],
+];
 export const TRAIL = (() => {
   const pts = [], P = TRAIL_CTRL;
   for (let i = 0; i < P.length - 1; i++) {
@@ -296,8 +302,11 @@ export const TRAIL = (() => {
     }
   }
   pts.push({ x: P[P.length - 1][0], z: P[P.length - 1][1] });
+  let len = 0;
+  for (let i = 0; i < pts.length; i++) { if (i) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z); pts[i].s = len; }
   return pts;
 })();
+export const TRAIL_LEN = TRAIL[TRAIL.length - 1].s;
 export function trailNearest(x, z) {
   let best = Infinity, bi = 0;
   for (let i = 0; i < TRAIL.length; i++) {
@@ -307,7 +316,7 @@ export function trailNearest(x, z) {
   return { d: Math.sqrt(best), i: bi };
 }
 
-let LAST_WD = Infinity;
+let LAST_WD = Infinity, LAST_TD = Infinity;
 /** carve channel, banks and lake bed into a raw height */
 function carve(x, z, h) {
   const L = Math.hypot(x - LAKE.x, z - LAKE.z);
@@ -316,7 +325,8 @@ function carve(x, z, h) {
   const useLake = L - LAKE.r < rn.d - RIVER_W;
   const d = useLake ? L : rn.d, W = useLake ? LAKE.r : RIVER_W, wy = useLake ? LAKE_Y : rn.wy;
   LAST_WD = d - W;
-  const depth = useLake ? 1.7 : 0.9;
+  // where the trail fords the river the bed is shallow: ankle-deep, stepping stones
+  const depth = useLake ? 1.7 : 0.9 * (useLake ? 1 : smoothstep(1.5, 5, LAST_TD));
   if (d > W + 14) return h;
   const bank = Math.max(h, wy + 0.4);
   if (d < W) return wy - 0.12 - depth * (1 - (d / W) * (d / W));
@@ -360,9 +370,10 @@ function heightTable() {
     const z = -GRID_EXT + j * GRID_STEP;
     for (let i = 0; i < n; i++) {
       const x = -GRID_EXT + i * GRID_STEP;
+      LAST_TD = trailNearest(x, z).d;
       HEIGHTS[j * n + i] = carve(x, z, terrainRaw(x, z));
       WD[j * n + i] = LAST_WD;
-      TD[j * n + i] = trailNearest(x, z).d;
+      TD[j * n + i] = LAST_TD;
     }
   }
   return HEIGHTS;
@@ -940,6 +951,26 @@ export function barkTexture() {
     img.data[i] = c; img.data[i + 1] = c * 0.96; img.data[i + 2] = c * 0.9; img.data[i + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+
+/** birch bark: white with dark horizontal lenticels and scars */
+export function birchTexture() {
+  const r = mulberry32(8383);
+  const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = 'rgb(236,232,222)'; ctx.fillRect(0, 0, 128, 256);
+  for (let i = 0; i < 140; i++) {
+    const y = r() * 256, x = r() * 128, w = 6 + r() * 30, h = 1 + r() * 3.5;
+    ctx.fillStyle = `rgba(30,26,22,${0.35 + r() * 0.5})`;
+    ctx.fillRect(x, y, w, h); ctx.fillRect(x - 128, y, w, h);
+  }
+  for (let i = 0; i < 12; i++) {
+    ctx.fillStyle = `rgba(40,34,28,${0.4 + r() * 0.4})`;
+    ctx.beginPath(); ctx.ellipse(r() * 128, r() * 256, 4 + r() * 8, 8 + r() * 14, 0, 0, Math.PI * 2); ctx.fill();
+  }
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   return tex;

@@ -99,6 +99,16 @@ frond cards (alpha cut, crown-shaped normals, swaying, casting leaf-shaped
 shadows); trunks carry bark with relief; shafts of light angle down from the sun.
 The valley's fir stands use the same trees. Birds sing more under the trees.
 
+## b25: the long forest walk
+
+The trail now leaves the west of the shrine and loops most of the way round the
+valley (342 m, about a minute's walk) before ending at the parapet. Sections:
+young wood, dark firs (with light shafts), a shallow ford with stepping stones
+below the cascade, a birch grove, a clearing with a ring of standing stones round
+a rune-lit altar, the old giants (huge mossy trees, ferns, low mist, a watchtower
+through the trees), then thinning to the view. The forest is built in 40 m chunks
+so the camera and shadow pass skip what's out of view.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

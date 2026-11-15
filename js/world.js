@@ -4,7 +4,7 @@ import {
   terrainHeight, terrainNormal, Builder, ARENA_R, RIM_R,
   grassTexture, smokeTexture, radialSprite, groundTexture, stoneTexture, clothTexture,
   GRID_SEG, GRID_EXT, gridHeight, RIVER, RIVER_W, LAKE, LAKE_Y, waterDist, needleTexture, meadowTexture,
-  GAP_A, LOWLAND_Y, gapAmount, TRAIL, trailDist, MeshBuilder, leafTexture, needleSprayTexture, fernTexture, barkTexture
+  GAP_A, LOWLAND_Y, gapAmount, TRAIL, TRAIL_LEN, trailDist, MeshBuilder, leafTexture, needleSprayTexture, fernTexture, barkTexture, birchTexture
 } from './core.js';
 
 const _v = new THREE.Vector3();
@@ -1344,71 +1344,103 @@ export class World {
   }
 
   /* -------------------------------------------------- the forest
-     Along the trail from the shrine to the overlook: broadleaf giants on both sides
-     arching over the path, firs behind, and a floor of ferns, bushes, logs, stones
-     and mushrooms. Leaves are textured cards with crown-shaped normals, cast
-     leaf-shaped shadows, and sway in the wind; shafts of light come through. */
+     A long trail from the shrine round the valley to the overlook, planted in
+     sections of different character:
+       young wood -> dark firs -> the ford -> birch grove -> a clearing of
+       standing stones -> the old giants -> thinning to the view.
+     Foliage is textured cards (crown-shaped normals, alpha cut, swaying, casting
+     leaf-shaped shadows); bark has relief. The forest is built in chunks along
+     the trail so the camera and the shadow pass skip what is out of view. */
   buildForest() {
     const UP = new THREE.Vector3(0, 1, 0);
     const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler();
     const X = new THREE.Vector3(), Y = new THREE.Vector3(), Z = new THREE.Vector3();
-    const bark = new MeshBuilder(), leaves = new MeshBuilder(), needles = new MeshBuilder(), ferns = new MeshBuilder();
-    const stones = new Builder(), shrooms = new Builder({ smooth: true });
     const PLANE = new THREE.PlaneGeometry(1, 1);
-    this.forestCount = { broadleaf: 0, fir: 0 };
     const LEAF_TINTS = [0xffffff, 0xe6f5d6, 0xd2e8bc, 0xf2f0c8, 0xdfeeb4];
+    const BIRCH_TINTS = [0xf4ffc0, 0xe8ffb0, 0xfff4b0, 0xe0f8b8];
+    this.forestCount = { broadleaf: 0, fir: 0, birch: 0, giant: 0 };
 
-    const cyl = (a, b, r0, r1, col, seg = 8) => {
+    // chunks along the trail: each holds its own builders, so whole chunks cull
+    const CHUNK = 40;
+    const chunks = [];
+    const chunkFor = (s) => {
+      const k = Math.min(Math.floor(s / CHUNK), 64);
+      if (!chunks[k]) chunks[k] = { bark: new MeshBuilder(), birch: new MeshBuilder(), leaves: new MeshBuilder(), needles: new MeshBuilder(), ferns: new MeshBuilder() };
+      return chunks[k];
+    };
+    const valley = { bark: new MeshBuilder(), birch: new MeshBuilder(), leaves: new MeshBuilder(), needles: new MeshBuilder(), ferns: new MeshBuilder() };
+    let C = valley;                       // the builders the helpers below write into
+    const stones = new Builder(), shrooms = new Builder({ smooth: true }), glow = new Builder();
+
+    const cyl = (mb, a, b, r0, r1, col, seg = 8) => {
       const dir = new THREE.Vector3().subVectors(b, a), len = dir.length(); dir.normalize();
       M.compose(P.copy(a).addScaledVector(dir, len / 2), Q.setFromUnitVectors(UP, dir), S.set(1, 1, 1));
-      bark.add(new THREE.CylinderGeometry(r1, r0, len, seg, 1), col, M);
+      mb.add(new THREE.CylinderGeometry(r1, r0, len, seg, 1), col, M);
     };
     const crownNormal = (crown) => (v, out) => out.subVectors(v, crown).normalize().addScaledVector(UP, 0.45).normalize();
-    const cards = (mb, center, crown, n, size, spread) => {
+    const cards = (mb, center, crown, n, size, spread, tints = LEAF_TINTS) => {
       for (let k = 0; k < n; k++) {
         P.set(center.x + rnd(-1, 1) * spread, center.y + rnd(-0.6, 1) * spread * 0.8, center.z + rnd(-1, 1) * spread);
         const sc = size * rnd(0.75, 1.15);
         M.compose(P, Q.setFromEuler(E.set(rnd(0, TAU), rnd(0, TAU), rnd(0, TAU))), S.set(sc, sc, sc));
-        mb.add(PLANE, pick(LEAF_TINTS), M, crownNormal(crown));
+        mb.add(PLANE, pick(tints), M, crownNormal(crown));
       }
     };
 
-    const broadleaf = (x, y, z, s, tx, tz) => {
+    const broadleaf = (x, y, z, s, tx, tz, mossy = false) => {
       const H = rnd(9, 13) * s;
       const top = new THREE.Vector3(x + tx * 0.07 * H, y + H, z + tz * 0.07 * H);
       const col = pick([0x6b5a48, 0x5e5040, 0x77654f]);
-      cyl(new THREE.Vector3(x, y - 0.3, z), top, 0.48 * s, 0.2 * s, col, 10);
-      cyl(new THREE.Vector3(x, y - 0.3, z), new THREE.Vector3(x, y + 1.0, z), 0.85 * s, 0.5 * s, col, 10);   // root flare
+      cyl(C.bark, new THREE.Vector3(x, y - 0.3, z), top, 0.48 * s, 0.2 * s, col, 10);
+      cyl(C.bark, new THREE.Vector3(x, y - 0.3, z), new THREE.Vector3(x, y + 1.0 * s, z), 0.85 * s, 0.5 * s, mossy ? 0x55603e : col, 10);
+      if (mossy) cyl(C.bark, new THREE.Vector3(x, y + 0.6 * s, z), new THREE.Vector3(x, y + 3.2 * s, z), 0.53 * s, 0.44 * s, 0x5d6a42, 10);
       const crown = new THREE.Vector3(top.x, y + H * 0.85, top.z);
       const toward = Math.atan2(tz, tx);
       for (let k = 0; k < 6; k++) {
         const h = rnd(0.5, 0.86), start = new THREE.Vector3(x + (top.x - x) * h, y + H * h, z + (top.z - z) * h);
         const az = rng() < 0.6 ? toward + rnd(-0.8, 0.8) : rnd(0, TAU), el = rnd(0.45, 0.95), len = rnd(3, 5.6) * s;
         const end = start.clone().add(new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)).multiplyScalar(len));
-        cyl(start, end, 0.17 * s, 0.05 * s, col, 6);
-        cards(leaves, end, crown, 9, 2.8 * s, 1.5 * s);
+        cyl(C.bark, start, end, 0.17 * s, 0.05 * s, col, 6);
+        cards(C.leaves, end, crown, 9, 2.8 * s, 1.5 * s);
       }
-      cards(leaves, top.clone().addScaledVector(UP, 0.6), crown, 13, 3.1 * s, 2.0 * s);
+      cards(C.leaves, top.clone().addScaledVector(UP, 0.6), crown, 13, 3.1 * s, 2.0 * s);
       this.obstacles.push({ x, z, r: 0.6 * s, h: H });
-      this.forestCount.broadleaf++;
+      this.forestCount[s > 1.5 ? 'giant' : 'broadleaf']++;
+    };
+
+    const birch = (x, y, z, s) => {
+      const H = rnd(9, 13) * s, lean = rnd(-0.06, 0.06), lz = rnd(-0.06, 0.06);
+      const top = new THREE.Vector3(x + lean * H, y + H, z + lz * H);
+      cyl(C.birch, new THREE.Vector3(x, y - 0.2, z), top, 0.2 * s, 0.08 * s, 0xffffff, 9);
+      const crown = new THREE.Vector3(top.x, y + H * 0.8, top.z);
+      for (let k = 0; k < 4; k++) {
+        const h = rnd(0.55, 0.9), start = new THREE.Vector3(x + (top.x - x) * h, y + H * h, z + (top.z - z) * h);
+        const az = rnd(0, TAU), el = rnd(0.6, 1.1), len = rnd(1.8, 3.2) * s;
+        const end = start.clone().add(new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el)).multiplyScalar(len));
+        cyl(C.birch, start, end, 0.06 * s, 0.025 * s, 0xd8d0c4, 5);
+        cards(C.leaves, end, crown, 7, 1.9 * s, 1.1 * s, BIRCH_TINTS);
+      }
+      cards(C.leaves, top, crown, 9, 2.2 * s, 1.3 * s, BIRCH_TINTS);
+      this.obstacles.push({ x, z, r: 0.3 * s, h: H });
+      this.forestCount.birch++;
     };
 
     const fir = (x, y, z, s) => {
       const H = rnd(10, 16) * s;
-      cyl(new THREE.Vector3(x, y - 0.2, z), new THREE.Vector3(x, y + H, z), 0.32 * s, 0.05 * s, 0x4e3c2c, 7);
+      cyl(C.bark, new THREE.Vector3(x, y - 0.2, z), new THREE.Vector3(x, y + H, z), 0.32 * s, 0.05 * s, 0x4e3c2c, 7);
       const axisNormal = (v, out) => out.set(v.x - x, 0.35, v.z - z).normalize();
-      for (let h = 1.7 * s; h < H - 0.4; h += 0.6 * s) {
+      for (let h = 1.7 * s; h < H - 0.4; h += 0.75 * s) {
         const t = h / H, R = (1 - t) * 2.9 * s + 0.4 * s, off = rnd(0, TAU);
-        for (let k = 0; k < 7; k++) {
-          const az = off + (k / 7) * TAU + rnd(-0.2, 0.2), droop = rnd(0.25, 0.55), roll = rnd(0.35, 0.8);
+        for (let k = 0; k < 6; k++) {
+          const az = off + (k / 6) * TAU + rnd(-0.2, 0.2), droop = rnd(0.25, 0.55), roll = rnd(0.35, 0.8);
           X.set(Math.cos(az) * Math.cos(droop), -Math.sin(droop), Math.sin(az) * Math.cos(droop));
           Y.crossVectors(UP, X).normalize();
           Z.crossVectors(X, Y);
           Y.multiplyScalar(Math.cos(roll)).addScaledVector(Z, Math.sin(roll)).normalize();
           Z.crossVectors(X, Y);
-          M.makeBasis(X, Y, Z); M.scale(S.set(R, R * 0.45, 1));
+          M.makeBasis(X, Y, Z); M.scale(S.set(R, R * 0.5, 1));
           M.setPosition(P.set(x, y + h, z).addScaledVector(X, R * 0.5));
-          needles.add(PLANE, pick([0xffffff, 0xe8f4e0, 0xd6e8cc]), M, axisNormal);
+          C.needles.add(PLANE, pick([0xffffff, 0xe8f4e0, 0xd6e8cc]), M, axisNormal);
         }
       }
       this.obstacles.push({ x, z, r: 0.45 * s, h: H });
@@ -1422,65 +1454,124 @@ export class World {
         X.crossVectors(Y, UP).normalize(); Z.crossVectors(X, Y);
         M.makeBasis(X, Y, Z); M.scale(S.set(L * 0.5, L, 1));
         M.setPosition(P.set(x, y + 0.02, z).addScaledVector(Y, L * 0.5));
-        ferns.add(PLANE, pick([0xffffff, 0xe0f0c8, 0xf4f0c0]), M, (v, out) => out.set(v.x - x, 1.2, v.z - z).normalize());
+        C.ferns.add(PLANE, pick([0xffffff, 0xe0f0c8, 0xf4f0c0]), M, (v, out) => out.set(v.x - x, 1.2, v.z - z).normalize());
       }
     };
+    const mushrooms = (x, y0, z) => {
+      for (let m = 0; m < 3; m++) {
+        const mx = x + rnd(-0.3, 0.3), mz = z + rnd(-0.3, 0.3), hh = rnd(0.08, 0.16);
+        shrooms.add(new THREE.CylinderGeometry(0.025, 0.03, hh, 6), 0xe8e0cc, { pos: [mx, y0 + hh / 2, mz] });
+        shrooms.add(new THREE.SphereGeometry(0.075, 10, 6, 0, TAU, 0, Math.PI / 2), pick([0xa8442a, 0xc89a5a, 0x8a6a48]), { pos: [mx, y0 + hh, mz], scale: [1, 0.7, 1] });
+      }
+    };
+    const mossStone = (x, y0, z, sz) => stones.add(new THREE.DodecahedronGeometry(sz, 0), pick([0x6f7a5c, 0x5e6a50, 0x7d8270]), { pos: [x, y0 + sz * 0.3, z], rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.05 });
 
     const ok = (x, z, pad) => Math.hypot(x, z) < ARENA_R - 3 && Math.hypot(x, z) > 16 && waterDist(x, z) > 2 && this.isClear(x, z, pad) && terrainNormal(x, z, _v).y > 0.72;
 
-    // walk the trail, planting both sides
-    for (let i = 2; i < TRAIL.length - 1; i += 1) {
-      const a = TRAIL[i - 1], c = TRAIL[i + 1];
+    /* the sections, by distance along the trail (fraction of its length) */
+    const L = TRAIL_LEN;
+    const section = (s) => {
+      const f = s / L;
+      if (f < 0.12) return 'young';
+      if (f < 0.27) return 'firs';
+      if (f < 0.34) return 'ford';
+      if (f < 0.52) return 'birch';
+      if (f < 0.6) return 'clearing';
+      if (f < 0.86) return 'giants';
+      return 'edge';
+    };
+    // the clearing's centre, off to one side of the path
+    let clearing = null;
+
+    for (let i = 2; i < TRAIL.length - 1; i++) {
+      const q = TRAIL[i], a = TRAIL[i - 1], c = TRAIL[i + 1], sec = section(q.s);
+      C = chunkFor(q.s);
       let tx = c.x - a.x, tz = c.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+      // the last stretch thins out so the view opens up
+      const thin = sec === 'edge' ? 1 - (q.s / L - 0.86) / 0.14 : 1;
+      if (sec === 'clearing' && !clearing) clearing = { x: q.x - tz * 12, z: q.z + tx * 12 };
       for (const side of [-1, 1]) {
-        const nx = -tz * side, nz = tx * side;          // out from the path on this side
-        // rows of trees, dense at the path edge and deep behind: a wall of trunks either side
-        if (rng() < 0.85) {                                                         // front row
-          const d = rnd(3.3, 6), x = TRAIL[i].x + nx * d + rnd(-0.5, 0.5), z = TRAIL[i].z + nz * d + rnd(-0.5, 0.5);
-          if (ok(x, z, 1.1) && trailDist(x, z) > 3.0) broadleaf(x, terrainHeight(x, z), z, rnd(0.9, 1.25), -nx, -nz);
+        const nx = -tz * side, nz = tx * side;
+        const at = (d, j = 0.6) => [q.x + nx * d + rnd(-j, j), q.z + nz * d + rnd(-j, j)];
+        const plant = (p, kind, s) => {
+          const [x, z] = p;
+          if (kind === 'broad') { if (ok(x, z, 1.1) && trailDist(x, z) > 3.0) broadleaf(x, terrainHeight(x, z), z, s, -nx, -nz); }
+          else if (kind === 'giant') { if (ok(x, z, 2.4) && trailDist(x, z) > 4.2) broadleaf(x, terrainHeight(x, z), z, s, -nx, -nz, true); }
+          else if (kind === 'birch') { if (ok(x, z, 0.7) && trailDist(x, z) > 2.4) birch(x, terrainHeight(x, z), z, s); }
+          // firs' low boughs spread about 3 m: stand them back so the path stays clear at head height
+          else if (ok(x, z, 1.1) && trailDist(x, z) > 4.2) fir(x, terrainHeight(x, z), z, s);
+        };
+        if (sec === 'young' || sec === 'edge') {
+          if (rng() < 0.85 * thin) plant(at(rnd(3.3, 6), 0.5), 'broad', rnd(0.9, 1.25));
+          if (rng() < 0.7 * thin) plant(at(rnd(6, 10), 0.8), rng() < 0.5 ? 'broad' : 'fir', rnd(0.85, 1.2));
+          if (rng() < 0.6 * thin) plant(at(rnd(10, 16), 1), 'fir', rnd(0.9, 1.3));
+          if (rng() < 0.4 * thin) plant(at(rnd(16, 24), 1.5), 'fir', rnd(1.0, 1.4));
+        } else if (sec === 'firs') {
+          // dense and dark: firs right to the path edge, rank on rank
+          for (const [d, p0] of [[[4.3, 6.5], 0.95], [[6.5, 10], 0.9], [[10, 15], 0.8], [[15, 22], 0.6]]) if (rng() < p0) plant(at(rnd(d[0], d[1]), 0.8), 'fir', rnd(0.95, 1.4));
+        } else if (sec === 'ford') {
+          if (rng() < 0.5) plant(at(rnd(5, 9), 0.8), rng() < 0.5 ? 'broad' : 'fir', rnd(0.9, 1.2));
+          if (rng() < 0.4) plant(at(rnd(9, 16), 1), 'fir', rnd(1.0, 1.3));
+        } else if (sec === 'birch') {
+          // a pale, bright grove: many slender birches, a few firs behind
+          for (const [d, p0] of [[[2.6, 5], 0.95], [[4.5, 8], 0.9], [[8, 13], 0.8], [[13, 20], 0.5]]) if (rng() < p0) plant(at(rnd(d[0], d[1]), 0.8), 'birch', rnd(0.85, 1.2));
+          if (rng() < 0.3) plant(at(rnd(12, 20), 1), 'fir', rnd(1.0, 1.3));
+        } else if (sec === 'clearing') {
+          if (rng() < 0.6) plant(at(rnd(16, 24), 1), rng() < 0.5 ? 'broad' : 'fir', rnd(1.0, 1.3));
+        } else if (sec === 'giants') {
+          // old giants: huge, mossy and wide-spaced, with firs in the gaps
+          if (rng() < 0.35) plant(at(rnd(5, 9), 1), 'giant', rnd(1.7, 2.2));
+          if (rng() < 0.3) plant(at(rnd(10, 18), 1.5), 'giant', rnd(1.6, 2.1));
+          if (rng() < 0.4) plant(at(rnd(7, 15), 1), 'fir', rnd(1.0, 1.4));
         }
-        if (rng() < 0.7) {                                                          // second row
-          const d = rnd(6, 10), x = TRAIL[i].x + nx * d + rnd(-0.8, 0.8), z = TRAIL[i].z + nz * d + rnd(-0.8, 0.8);
-          if (ok(x, z, 1.1)) { if (rng() < 0.5) broadleaf(x, terrainHeight(x, z), z, rnd(0.85, 1.2), -nx, -nz); else fir(x, terrainHeight(x, z), z, rnd(0.85, 1.2)); }
-        }
-        if (rng() < 0.6) {                                                          // firs behind
-          const d = rnd(10, 16), x = TRAIL[i].x + nx * d + rnd(-1, 1), z = TRAIL[i].z + nz * d + rnd(-1, 1);
-          if (ok(x, z, 1.1)) fir(x, terrainHeight(x, z), z, rnd(0.9, 1.3));
-        }
-        if (rng() < 0.4) {                                                          // backdrop
-          const d = rnd(16, 24), x = TRAIL[i].x + nx * d + rnd(-1.5, 1.5), z = TRAIL[i].z + nz * d + rnd(-1.5, 1.5);
-          if (ok(x, z, 1.2)) fir(x, terrainHeight(x, z), z, rnd(1.0, 1.4));
-        }
-        for (let k = 0; k < 2; k++) {
-          const d = rnd(1.8, 7), x = TRAIL[i].x + nx * d + rnd(-0.5, 0.5), z = TRAIL[i].z + nz * d + rnd(-0.5, 0.5);
+        // the floor
+        const floorN = sec === 'firs' ? 1 : sec === 'clearing' ? 0 : 2;
+        for (let k = 0; k < floorN; k++) {
+          const [x, z] = at(rnd(1.8, 7), 0.5);
           if (!ok(x, z, 0.3) || trailDist(x, z) < 1.7) continue;
           const y0 = terrainHeight(x, z), roll = rng();
-          if (roll < 0.55) fern(x, y0, z, rnd(0.8, 1.3));
-          else if (roll < 0.8) cards(leaves, new THREE.Vector3(x, y0 + 0.55, z), new THREE.Vector3(x, y0 - 0.2, z), 8, 1.25, 0.55);   // bush
-          else if (roll < 0.9) {
-            for (let m = 0; m < 3; m++) {                                        // mushrooms
-              const mx = x + rnd(-0.3, 0.3), mz = z + rnd(-0.3, 0.3), hh = rnd(0.08, 0.16);
-              shrooms.add(new THREE.CylinderGeometry(0.025, 0.03, hh, 6), 0xe8e0cc, { pos: [mx, y0 + hh / 2, mz] });
-              shrooms.add(new THREE.SphereGeometry(0.075, 10, 6, 0, TAU, 0, Math.PI / 2), pick([0xa8442a, 0xc89a5a, 0x8a6a48]), { pos: [mx, y0 + hh, mz], scale: [1, 0.7, 1] });
-            }
-          } else {
-            const sz = rnd(0.35, 0.8);                                            // mossy stone
-            stones.add(new THREE.DodecahedronGeometry(sz, 0), pick([0x6f7a5c, 0x5e6a50, 0x7d8270]), { pos: [x, y0 + sz * 0.3, z], rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.05 });
-          }
+          if (sec === 'giants' && roll < 0.75) fern(x, y0, z, rnd(1.1, 1.6));
+          else if (sec === 'birch' && roll < 0.55) cards(C.leaves, new THREE.Vector3(x, y0 + 0.45, z), new THREE.Vector3(x, y0 - 0.2, z), 6, 1.0, 0.45, BIRCH_TINTS);
+          else if (roll < 0.55) fern(x, y0, z, rnd(0.8, 1.3));
+          else if (roll < 0.78) cards(C.leaves, new THREE.Vector3(x, y0 + 0.55, z), new THREE.Vector3(x, y0 - 0.2, z), 8, 1.25, 0.55);
+          else if (roll < 0.9) mushrooms(x, y0, z);
+          else mossStone(x, y0, z, rnd(0.35, 0.8));
         }
-        if (rng() < 0.05) {                                                       // a fallen log beside the path
-          const d = rnd(3, 6), x = TRAIL[i].x + nx * d, z = TRAIL[i].z + nz * d;
+        if (rng() < (sec === 'giants' ? 0.12 : 0.05)) {                         // a fallen log
+          const [x, z] = at(rnd(3, 6), 0.5);
           if (ok(x, z, 1)) {
-            const ang = Math.atan2(tz, tx) + rnd(-0.4, 0.4), L = rnd(3, 5.5), y0 = terrainHeight(x, z) + 0.3;
-            cyl(new THREE.Vector3(x - Math.cos(ang) * L / 2, y0, z - Math.sin(ang) * L / 2), new THREE.Vector3(x + Math.cos(ang) * L / 2, y0, z + Math.sin(ang) * L / 2), 0.36, 0.3, 0x5f5a40, 9);
+            const ang = Math.atan2(tz, tx) + rnd(-0.4, 0.4), Ll = rnd(3, 6), y0 = terrainHeight(x, z) + 0.3;
+            cyl(C.bark, new THREE.Vector3(x - Math.cos(ang) * Ll / 2, y0, z - Math.sin(ang) * Ll / 2), new THREE.Vector3(x + Math.cos(ang) * Ll / 2, y0, z + Math.sin(ang) * Ll / 2), 0.36, 0.3, 0x5f5a40, 9);
           }
         }
       }
     }
-    // the valley's fir stands
+
+    // the ford: stepping stones across the shallows
+    for (let i = 1; i < TRAIL.length; i++) {
+      const q = TRAIL[i];
+      if (waterDist(q.x, q.z) > 0.5) continue;
+      const y0 = terrainHeight(q.x, q.z);
+      stones.add(new THREE.CylinderGeometry(0.42, 0.5, 0.5, 7), pick([0x7d8284, 0x6c7274]), { pos: [q.x + rnd(-0.3, 0.3), y0 + 0.12, q.z + rnd(-0.3, 0.3)], rot: [0, rnd(0, TAU), 0], scale: [1, 0.7, 1], jitter: 0.05 });
+    }
+    // the clearing: a ring of standing stones round a low rune-lit altar, and a broken arch
+    if (clearing) {
+      const { x: cx, z: cz } = clearing, y0 = terrainHeight(cx, cz);
+      for (let k = 0; k < 9; k++) {
+        const a = (k / 9) * TAU, x = cx + Math.cos(a) * 6.5, z = cz + Math.sin(a) * 6.5, hh = rnd(2.2, 3.6);
+        if (trailDist(x, z) < 2.5) continue;
+        stones.add(new THREE.BoxGeometry(1.0, hh, 0.6), pick([PAL.ruinDark, PAL.rockDark, 0x6f7a5c]), { pos: [x, terrainHeight(x, z) + hh / 2 - 0.25, z], rot: [rnd(-0.06, 0.06), -a, rnd(-0.06, 0.06)], jitter: 0.05 });
+        this.obstacles.push({ x, z, r: 0.7, h: hh });
+      }
+      stones.add(new THREE.CylinderGeometry(1.3, 1.5, 0.8, 9), PAL.ruinDark, { pos: [cx, y0 + 0.3, cz], jitter: 0.04 });
+      glow.add(new THREE.TorusGeometry(1.05, 0.05, 4, 24), PAL.rune, { pos: [cx, y0 + 0.73, cz], rot: [Math.PI / 2, 0, 0] });
+      this.obstacles.push({ x: cx, z: cz, r: 1.5, h: 0.8 });
+    }
+    // the valley's fir stands go into the valley builders
+    C = valley;
     for (const [x, y, z, s] of (this.firSpots || [])) fir(x, y, z, s);
 
-    // materials: alpha-cut cards, swaying, with leaf-shaped shadows
+    /* materials, shared by every chunk */
     const sway = (mat, amp) => {
       mat.onBeforeCompile = (sh) => {
         sh.uniforms.uTime = this.time;
@@ -1489,26 +1580,40 @@ export class World {
           transformed.x += sw * ${amp.toFixed(3)};
           transformed.z += cos(uTime * 1.2 + transformed.z * 0.31) * ${(amp * 0.8).toFixed(3)};`);
       };
+      mat.customProgramCacheKey = () => 'sway' + amp;
       return mat;
     };
-    const cardMesh = (mb, tex, amp) => {
-      const m = new THREE.Mesh(mb.build(), sway(new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true }), amp));
-      m.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.45 });
-      m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false;
-      this.scene.add(m);
-      return m;
-    };
+    const cardMat = (tex, amp) => ({
+      mat: sway(new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.45, side: THREE.DoubleSide, vertexColors: true }), amp),
+      depth: new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: tex, alphaTest: 0.45 }),
+    });
     const bt = barkTexture(); bt.repeat.set(2, 3);
-    const trunks = new THREE.Mesh(bark.build(), new THREE.MeshLambertMaterial({ vertexColors: true, map: bt, bumpMap: bt, bumpScale: 4 }));
-    trunks.castShadow = true; trunks.receiveShadow = true; trunks.frustumCulled = false;
-    this.scene.add(trunks);
-    cardMesh(leaves, leafTexture(), 0.06);
-    cardMesh(needles, needleSprayTexture(), 0.04);
-    cardMesh(ferns, fernTexture(), 0.03);
+    const brt = birchTexture(); brt.repeat.set(1, 2);
+    const MATS = {
+      bark: { mat: new THREE.MeshLambertMaterial({ vertexColors: true, map: bt, bumpMap: bt, bumpScale: 4 }) },
+      birch: { mat: new THREE.MeshLambertMaterial({ vertexColors: true, map: brt, bumpMap: brt, bumpScale: 1.5 }) },
+      leaves: cardMat(leafTexture(), 0.06),
+      needles: cardMat(needleSprayTexture(), 0.04),
+      ferns: cardMat(fernTexture(), 0.03),
+    };
+    const emit = (set, cull) => {
+      for (const key of Object.keys(MATS)) {
+        const mb = set[key];
+        if (!mb || mb.p.length === 0) continue;
+        const m = new THREE.Mesh(mb.build(), MATS[key].mat);
+        if (MATS[key].depth) m.customDepthMaterial = MATS[key].depth;
+        m.castShadow = true; m.receiveShadow = true;
+        m.frustumCulled = cull;                 // chunks cull; bounding spheres come from the geometry
+        this.scene.add(m);
+      }
+    };
+    for (const ch of chunks) if (ch) emit(ch, true);
+    emit(valley, false);
     const st = new THREE.Mesh(stones.buildUV(0.6), stoneMat()); st.castShadow = true; st.receiveShadow = true; this.scene.add(st);
-    const mu = new THREE.Mesh(shrooms.build(), new THREE.MeshLambertMaterial({ vertexColors: true })); this.scene.add(mu);
+    this.scene.add(new THREE.Mesh(shrooms.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
+    if (glow.pos.length) this.scene.add(new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true })));
 
-    // shafts of light through the canopy, angled from the sun
+    // shafts of light: thickest in the dark firs and among the giants
     const sh = document.createElement('canvas'); sh.width = 16; sh.height = 128;
     const sx = sh.getContext('2d'), gr = sx.createLinearGradient(0, 0, 0, 128);
     gr.addColorStop(0, 'rgba(255,240,200,0.9)'); gr.addColorStop(1, 'rgba(255,240,200,0)');
@@ -1516,14 +1621,28 @@ export class World {
     const shTex = new THREE.CanvasTexture(sh);
     this.shafts = [];
     Y.copy(this.sunDir); X.crossVectors(UP, Y).normalize(); Z.crossVectors(X, Y);
-    for (let i = 6; i < TRAIL.length - 4; i += 9) {
-      const q = TRAIL[i], m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 20), new THREE.MeshBasicMaterial({
+    for (let i = 6; i < TRAIL.length - 4; i += 5) {
+      const q = TRAIL[i], sec = section(q.s);
+      if (!(sec === 'firs' || sec === 'giants' || (sec === 'young' && i % 10 === 6))) continue;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 20), new THREE.MeshBasicMaterial({
         map: shTex, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: true
       }));
       M.makeBasis(X, Y, Z); m.quaternion.setFromRotationMatrix(M);
-      m.position.set(q.x + rnd(-2, 2), terrainHeight(q.x, q.z), q.z + rnd(-2, 2)).addScaledVector(Y, 10);
+      m.position.set(q.x + rnd(-2.5, 2.5), terrainHeight(q.x, q.z), q.z + rnd(-2.5, 2.5)).addScaledVector(Y, 10);
       this.scene.add(m);
       this.shafts.push({ m, seed: rng() * 10 });
+    }
+    // low mist drifting among the giants
+    if (!this.mist) this.mist = [];
+    const mt = smokeTexture();
+    for (let i = 0; i < TRAIL.length; i += 7) {
+      const q = TRAIL[i];
+      if (section(q.s) !== 'giants') continue;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: mt, color: 0xe8f0ec, transparent: true, depthWrite: false, opacity: 0.22 }));
+      const y0 = terrainHeight(q.x, q.z) + 1.2;
+      sp.position.set(q.x + rnd(-5, 5), y0, q.z + rnd(-5, 5)); sp.scale.set(rnd(8, 13), rnd(3, 4.5), 1);
+      this.scene.add(sp);
+      this.mist.push({ sp, base: y0, seed: rng() * 10 });
     }
   }
 
