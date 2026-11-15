@@ -2,10 +2,16 @@ import * as THREE from 'three';
 import {
   TAU, clamp, lerp, smoothstep, rnd, rng, fbm, pick,
   terrainHeight, terrainNormal, Builder, ARENA_R, RIM_R,
-  grassTexture, smokeTexture, radialSprite, groundTexture, GRID_SEG, GRID_EXT, gridHeight
+  grassTexture, smokeTexture, radialSprite, groundTexture, stoneTexture, clothTexture,
+  GRID_SEG, GRID_EXT, gridHeight
 } from './core.js';
 
 const _v = new THREE.Vector3();
+let STONE_MAT = null;
+function stoneMat() {
+  if (!STONE_MAT) STONE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, map: stoneTexture() });
+  return STONE_MAT;
+}
 const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color();
 
 const PAL = {
@@ -52,6 +58,7 @@ export class World {
     this.buildRuins();
     this.buildMidfield();
     this.buildLandmarks();
+    this.buildOrnaments();
     this.buildVegetation();
     this.buildGroundDetail();
     this.buildDust();
@@ -470,8 +477,8 @@ export class World {
       this.obstacles.push({ x, z, r: 2.6, h: 2.2 });
     }
 
-    const geo = b.build();
-    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+    const geo = b.buildUV(0.4);
+    const mesh = new THREE.Mesh(geo, stoneMat());
     mesh.castShadow = true; mesh.receiveShadow = true;
     this.scene.add(mesh);
   }
@@ -605,19 +612,111 @@ export class World {
       });
     }
 
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
-    const mesh = new THREE.Mesh(b.build(), mat);
+    const mat = stoneMat();
+    const mesh = new THREE.Mesh(b.buildUV(0.4), mat);
     mesh.receiveShadow = true;
     // without a cast shadow these props read as stickers on the sand
     mesh.castShadow = true;
     mesh.frustumCulled = false;
     this.scene.add(mesh);
 
-    const deb = new THREE.Mesh(small.build(), mat);
+    const deb = new THREE.Mesh(small.buildUV(0.4), mat);
     deb.receiveShadow = true;
     deb.castShadow = false;
     deb.frustumCulled = false;
     this.scene.add(deb);
+  }
+
+  /* -------------------------------------------------- ornaments
+     Things that make it look inhabited rather than abstract: fire, cloth, and
+     figures watching you. */
+  buildOrnaments() {
+    const b = new Builder();
+    this.flames = [];
+    this.banners = [];
+
+    const brazier = (x, z, withLight) => {
+      const y0 = terrainHeight(x, z);
+      b.add(new THREE.CylinderGeometry(0.26, 0.44, 1.0, 6), PAL.ruinDark, { pos: [x, y0 + 0.5, z], jitter: 0.05 });
+      b.add(new THREE.CylinderGeometry(0.64, 0.32, 0.32, 8), PAL.metalRust, { pos: [x, y0 + 1.16, z], jitter: 0.05 });
+      b.add(new THREE.CylinderGeometry(0.52, 0.52, 0.06, 8), 0x241710, { pos: [x, y0 + 1.31, z] });
+      const mat = new THREE.SpriteMaterial({
+        map: radialSprite('rgba(255,226,150,1)', 'rgba(255,80,10,0)', 64),
+        blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.95
+      });
+      const sp = new THREE.Sprite(mat);
+      sp.position.set(x, y0 + 1.6, z);
+      sp.scale.set(1.5, 2.2, 1);
+      this.scene.add(sp);
+      const f = { sp, base: y0 + 1.6, seed: rng() * 10 };
+      if (withLight) {
+        const L = new THREE.PointLight(0xff8b3a, 2.6, 18, 2);
+        L.position.set(x, y0 + 1.8, z);
+        this.scene.add(L);
+        f.light = L;
+      }
+      this.flames.push(f);
+      this.obstacles.push({ x, z, r: 0.7 });
+    };
+
+    // a ring of fire around the monument, and two out at the arch
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * TAU + 0.4;
+      brazier(Math.cos(a) * 11.5, Math.sin(a) * 11.5, i < 2);
+    }
+    brazier(-36.9 + 4.5, -59.2 - 3.2, true);
+    brazier(-71.1 - 3.5, -34.8 + 2.5, false);
+
+    // ---- banners hanging from the inner arch
+    const cloth = new THREE.MeshLambertMaterial({ map: clothTexture(), side: THREE.DoubleSide });
+    const banner = (x, z, yTop, rotY, w = 1.7, h = 3.4) => {
+      const g = new THREE.PlaneGeometry(w, h, 1, 3);
+      const m = new THREE.Mesh(g, cloth);
+      m.position.set(x, yTop - h / 2, z);
+      m.rotation.y = rotY;
+      this.scene.add(m);
+      this.banners.push({ m, seed: rng() * 10, rotY });
+    };
+    // two on each inner leg of the close arch
+    for (const [lx, lz] of [[-36.9, -59.2], [-71.1, -34.8]]) {
+      const dy = terrainHeight(lx, lz);
+      banner(lx + 3.0, lz + 3.0, dy + 8.5, Math.atan2(-3.0, -3.0));
+      banner(lx - 2.6, lz - 2.6, dy + 15.5, Math.atan2(2.6, 2.6), 1.4, 4.2);
+    }
+
+    // ---- carved relief band along the arch legs: small blocks breaking the face
+    for (const [lx, lz] of [[-36.9, -59.2], [-71.1, -34.8]]) {
+      const dy = terrainHeight(lx, lz);
+      for (let k = 0; k < 7; k++) {
+        const yy = dy + 4 + k * 2.4;
+        const out = 4.2;
+        b.add(new THREE.BoxGeometry(1.5, 1.1, 0.7), PAL.ruinLight, {
+          pos: [lx + Math.cos(0.62) * out, yy, lz - Math.sin(0.62) * out],
+          rot: [0, 0.62, 0], jitter: 0.07
+        });
+      }
+    }
+
+    // ---- guardian figures flanking the monument steps
+    const guardian = (x, z, rotY) => {
+      const y0 = terrainHeight(x, z);
+      b.add(new THREE.BoxGeometry(1.5, 0.5, 1.5), PAL.ruinDark, { pos: [x, y0 + 0.25, z], rot: [0, rotY, 0] });
+      b.add(new THREE.BoxGeometry(0.95, 2.1, 0.7), PAL.ruin, { pos: [x, y0 + 1.55, z], rot: [0, rotY, 0], jitter: 0.05 });
+      b.add(new THREE.BoxGeometry(0.72, 0.78, 0.66), PAL.ruinLight, { pos: [x, y0 + 3.0, z], rot: [0, rotY, 0], jitter: 0.05 });
+      // helmet crest and spear
+      b.add(new THREE.BoxGeometry(0.26, 0.34, 0.9), PAL.metalRust, { pos: [x, y0 + 3.5, z], rot: [0, rotY, 0] });
+      b.add(new THREE.CylinderGeometry(0.09, 0.09, 4.6, 5), PAL.metal, {
+        pos: [x + Math.cos(rotY + 1.4) * 0.75, y0 + 2.4, z + Math.sin(rotY + 1.4) * 0.75], jitter: 0.04
+      });
+      this.obstacles.push({ x, z, r: 0.85 });
+    };
+    guardian(-8.4, 8.4, Math.atan2(-1, 1));
+    guardian(8.4, -8.4, Math.atan2(1, -1));
+
+    const mesh = new THREE.Mesh(b.buildUV(0.45), stoneMat());
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
   }
 
   /* -------------------------------------------------- horizon landmarks
@@ -700,7 +799,7 @@ export class World {
       });
     }
 
-    const mesh = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true }));
+    const mesh = new THREE.Mesh(b.buildUV(0.35), stoneMat());
     mesh.name = 'landmarks';
     mesh.castShadow = false;
     mesh.receiveShadow = false;
@@ -902,6 +1001,25 @@ export class World {
   /* -------------------------------------------------- per frame */
   update(dt, t, playerPos, camera) {
     this.time.value = t;
+
+    // firelight: flicker the flames and their lights
+    if (this.flames) {
+      for (let i = 0; i < this.flames.length; i++) {
+        const f = this.flames[i];
+        const w = Math.sin(t * 9 + f.seed) * 0.5 + Math.sin(t * 23.7 + f.seed * 2) * 0.25;
+        f.sp.scale.set(1.35 + w * 0.22, 2.0 + w * 0.5, 1);
+        f.sp.position.y = f.base + w * 0.06;
+        if (f.light) f.light.intensity = 2.4 + w * 0.9;
+      }
+    }
+    // banners stir in the wind
+    if (this.banners) {
+      for (let i = 0; i < this.banners.length; i++) {
+        const bn = this.banners[i];
+        bn.m.rotation.z = Math.sin(t * 1.6 + bn.seed) * 0.045;
+        bn.m.rotation.y = bn.rotY + Math.sin(t * 0.9 + bn.seed * 1.7) * 0.07;
+      }
+    }
 
     // sun sprite follows the camera a little so it never leaves the dome
     if (this.sunSprite) {

@@ -302,6 +302,10 @@ player.onLand = (v) => {
   audio.land();
   fx.puff(new THREE.Vector3(player.pos.x, player.pos.y + 0.1, player.pos.z), null, 0xa5835c, 0.5, 3, 0.6, 1.2);
 };
+player.onJump = () => {
+  audio.click(0, 0.14, 520);
+  fx.puff(new THREE.Vector3(player.pos.x, player.pos.y + 0.06, player.pos.z), null, 0xa5835c, 0.32, 2, 0.45, 1.0);
+};
 player.onHurt = () => { audio.playerHurt(); };
 player.onDodge = () => {
   audio.click(0, 0.2, 380);
@@ -339,7 +343,7 @@ function tryMode(m) {
 /* ================================================================ input */
 const input = {
   mx: 0, my: 0, lookX: 0, lookY: 0, jump: false, sprint: false,
-  fireHeld: false, aim: false, jumpQueued: false, dodge: false, dodgeQueued: false,
+  fireHeld: false, aim: false, jumpQueued: false, jumpHeld: false, jumpHeldTouch: false, dodge: false, dodgeQueued: false,
 };
 let sensitivity = 1;
 
@@ -465,8 +469,8 @@ bindZone(stickZone, {
       const scale = ((mag - dead) / (1 - dead)) / mag;
       nx *= scale; ny *= scale;
     } else { nx = 0; ny = 0; }
-    input.mx = clamp(nx, -1, 1);
-    input.my = clamp(-ny, -1, 1);
+    input.mx = clamp(nx * invMove, -1, 1);
+    input.my = clamp(-ny * invMove, -1, 1);
     input.sprint = mag > 0.93;
   },
   up() {
@@ -533,7 +537,7 @@ function bindHold(el, onDown, onUp) {
   window.addEventListener('blur', () => { if (held) up(); });
 }
 bindHold($('btnFire'), () => { input.fireHeld = true; }, () => { input.fireHeld = false; });
-bindHold($('btnJump'), () => { input.jumpQueued = true; });
+bindHold($('btnJump'), () => { input.jumpQueued = true; input.jumpHeldTouch = true; }, () => { input.jumpHeldTouch = false; });
 bindHold($('btnDodge'), () => { input.dodgeQueued = true; });
 onPress($('btnLight'), () => tryMode('light'));
 onPress($('btnDark'), () => tryMode('dark'));
@@ -902,8 +906,8 @@ function refreshTitleStats() {
 }
 refreshTitleStats();
 
-let invX = 1, invY = 1;
-const BUILD = 'b17';
+let invX = 1, invY = 1, invMove = 1;
+const BUILD = 'b18';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
@@ -913,6 +917,7 @@ const SETTERS = {
   sens: (v) => { sensitivity = parseFloat(v); },
   invX: (v) => { invX = parseFloat(v); },
   invY: (v) => { invY = parseFloat(v); },
+  invMove: (v) => { invMove = parseFloat(v); },
   quality: (v) => { QUALITY = v; renderer.setPixelRatio(pixelRatioFor(QUALITY)); resize(); },
   snd: (v) => { audio.setEnabled(v === 'on'); },
 };
@@ -1044,6 +1049,7 @@ function frame(now) {
     if (kx || ky) { input.mx = kx; input.my = ky; kbMoving = true; }
     else if (kbMoving) { input.mx = 0; input.my = 0; kbMoving = false; }
     input.jump = input.jumpQueued || keys['Space'];
+    input.jumpHeld = input.jumpHeldTouch || !!keys['Space'];
     input.jumpQueued = false;
     input.dodge = input.dodgeQueued || keys['KeyC'];
     input.dodgeQueued = false;

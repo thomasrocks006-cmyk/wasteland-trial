@@ -119,6 +119,9 @@ export class Player {
     this.vy = 0;
     this.yaw = Math.PI;
     this.grounded = true;
+    this.coyote = 0;
+    this.jumpBuffer = 0;
+    this.landDip = 0;
 
     this.camYaw = Math.PI;
     this.camPitch = -0.06;
@@ -291,6 +294,7 @@ export class Player {
     this.recoilVelY *= Math.exp(-9 * dt);
     this.recoilYaw += this.recoilVelY * dt;
     this.shake = Math.max(0, this.shake - dt * 2.6);
+    this.landDip = damp(this.landDip || 0, 0, 11, dt);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
     this.iframe = Math.max(0, this.iframe - dt);
 
@@ -357,11 +361,21 @@ export class Player {
     this.knock.multiplyScalar(Math.exp(-5 * dt));
 
     // ---- jump + gravity
-    if (input.jump && this.grounded) {
-      this.vy = 7.6;
+    // ---- jump: buffered input + coyote time, height cut on release
+    this.coyote = this.grounded ? 0.12 : Math.max(0, this.coyote - dt);
+    if (input.jump) this.jumpBuffer = 0.15;
+    else this.jumpBuffer = Math.max(0, this.jumpBuffer - dt);
+    if (this.jumpBuffer > 0 && this.coyote > 0 && this.vy <= 0.01) {
+      this.vy = 8.4;
       this.grounded = false;
+      this.coyote = 0;
+      this.jumpBuffer = 0;
+      if (this.onJump) this.onJump();
     }
-    this.vy -= 26 * dt;
+    // holding the button carries you up; letting go cuts the arc short. Falling
+    // is heavier than rising, which is what stops it feeling floaty.
+    const grav = this.vy > 0 ? (input.jumpHeld ? 27 : 44) : 34;
+    this.vy -= grav * dt;
 
     let nx = this.pos.x + this.vel.x * dt;
     let nz = this.pos.z + this.vel.z * dt;
@@ -374,6 +388,7 @@ export class Player {
       this.pos.y = gh;
       if (this.vy < -6 && this.onLand) this.onLand(-this.vy);
       if (this.vy < -5) this.landSquash = clamp(-this.vy / 14, 0, 0.55);
+      if (this.vy < -4) this.landDip = clamp(-this.vy / 20, 0, 0.42);
       this.vy = 0;
       this.grounded = true;
     } else {
@@ -453,7 +468,7 @@ export class Player {
   updateCamera(dt) {
     const aiming = this.aim;
     const targetDist = aiming ? 2.35 : 4.35;
-    const targetHeight = aiming ? 1.66 : 1.78;
+    const targetHeight = (aiming ? 1.66 : 1.78) - (this.landDip || 0);
     const shoulder = aiming ? 0.60 : 0.86;
 
     if (this.camDist === undefined) this.camDist = targetDist;

@@ -348,6 +348,43 @@ export async function runSmoke() {
     return 'guarded';
   });
 
+  // ---- jump and the move-invert setting
+  await check('jump leaves the ground and lands again', async () => {
+    const p = d.player;
+    p.pos.y = d.terrainHeight(p.pos.x, p.pos.z); p.vy = 0; p.grounded = true;
+    const y0 = p.pos.y;
+    let peak = y0;
+    const btn = document.getElementById('btnJump');
+    btn.dispatchEvent(mk('pointerdown', 700, 300, 6161));
+    for (let i = 0; i < 14; i++) { await wait(60, 1); peak = Math.max(peak, p.pos.y); }
+    btn.dispatchEvent(mk('pointerup', 700, 300, 6161));
+    assert(peak - y0 > 0.35, `did not leave the ground (${(peak - y0).toFixed(2)}m)`);
+    for (let i = 0; i < 30; i++) { await wait(60, 1); if (p.grounded) break; }
+    assert(p.grounded, 'never came back down');
+    return `apex +${(peak - y0).toFixed(2)}m`;
+  });
+
+  await check('MOVE invert setting actually reverses the stick', async () => {
+    const p = d.player;
+    const sel = document.getElementById('invMove');
+    assert(sel, 'no invMove control in the UI');
+    sel.value = '-1'; sel.dispatchEvent(new Event('change'));
+    const f = camDir();
+    const before = [p.pos.x, p.pos.z];
+    const z = document.getElementById('stickZone');
+    z.dispatchEvent(mk('pointerdown', 130, 290, 555));
+    for (let i = 1; i <= 5; i++) z.dispatchEvent(mk('pointermove', 130, 290 - (50 * i) / 5, 555));
+    await wait(550);
+    z.dispatchEvent(mk('pointerup', 130, 240, 555));
+    await wait(150);
+    const mv = [p.pos.x - before[0], p.pos.z - before[1]];
+    const mag = Math.hypot(mv[0], mv[1]) || 1;
+    const dot = (mv[0] * f[0] + mv[1] * f[1]) / mag;
+    sel.value = '1'; sel.dispatchEvent(new Event('change'));
+    assert(dot < -0.5, `invert did not reverse the stick (alignment ${dot.toFixed(2)})`);
+    return 'reversed';
+  });
+
   // ---- report
   await check('no uncaught exceptions (whole run)', async () => {
     assert(!window.__smokeErrors || window.__smokeErrors.length === 0,

@@ -92,6 +92,111 @@ function duneHeight(x, z) {
   return h;
 }
 
+/** Neutral limestone: hue still comes from vertex colour, this only adds the
+ *  surface. Kept close to white so multiplying it never muddies the palette. */
+export function stoneTexture() {
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const r = mulberry32(7788);
+
+  const grid = (per) => {
+    const g = new Float32Array(per * per);
+    for (let i = 0; i < g.length; i++) g[i] = r();
+    return g;
+  };
+  const sample = (g, per, x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const fx = x - xi, fy = y - yi;
+    const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+    const at = (a, b) => g[((b % per) + per) % per * per + ((a % per) + per) % per];
+    return lerp(lerp(at(xi, yi), at(xi + 1, yi), u), lerp(at(xi, yi + 1), at(xi + 1, yi + 1), u), v);
+  };
+  const g1 = grid(12), g2 = grid(48);
+
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+      const n = sample(g1, 12, u * 12, v * 12) * 0.55 + sample(g2, 48, u * 48, v * 48) * 0.45;
+      // faint bedding planes, like cut limestone
+      const strata = Math.sin(v * Math.PI * 9 + n * 2.2) * 0.045;
+      const grain = (r() - 0.5) * 0.05;
+      const l = 0.9 + (n - 0.5) * 0.22 + strata + grain;
+      const c = clamp(Math.round(l * 255), 0, 255);
+      const i = (y * S + x) * 4;
+      img.data[i] = c; img.data[i + 1] = c; img.data[i + 2] = c; img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // pitting and chips
+  for (let i = 0; i < 1400; i++) {
+    const x = r() * S, y = r() * S, rad = 1.4 + r() * 5.0;
+    ctx.beginPath();
+    ctx.ellipse(x, y, rad, rad * (0.6 + r() * 0.6), r() * Math.PI, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(84,74,64,${0.28 + r() * 0.4})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(x + rad * 0.3, y - rad * 0.3, rad * 0.7, rad * 0.5, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,250,240,${0.14 + r() * 0.2})`;
+    ctx.fill();
+  }
+  // hairline cracks
+  for (let i = 0; i < 110; i++) {
+    let x = r() * S, y = r() * S;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 5; k++) {
+      x += (r() - 0.5) * 40; y += (r() - 0.3) * 30;
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = `rgba(70,60,52,${0.35 + r() * 0.3})`;
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
+/** Hanging cloth for banners: a woven panel with a sun disc and wear. */
+export function clothTexture() {
+  const W = 128, H = 256;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const r = mulberry32(3311);
+  ctx.fillStyle = '#8d3f2e'; ctx.fillRect(0, 0, W, H);
+  // weave
+  for (let y = 0; y < H; y += 2) {
+    ctx.fillStyle = `rgba(0,0,0,${0.04 + r() * 0.05})`;
+    ctx.fillRect(0, y, W, 1);
+  }
+  // borders
+  ctx.fillStyle = '#c9a24a'; ctx.fillRect(0, 0, W, 10); ctx.fillRect(0, H - 12, W, 12);
+  ctx.fillRect(0, 0, 8, H); ctx.fillRect(W - 8, 0, 8, H);
+  // sun disc
+  ctx.beginPath(); ctx.arc(W / 2, H * 0.34, 34, 0, Math.PI * 2);
+  ctx.fillStyle = '#d8b05a'; ctx.fill();
+  ctx.beginPath(); ctx.arc(W / 2, H * 0.34, 24, 0, Math.PI * 2);
+  ctx.fillStyle = '#8d3f2e'; ctx.fill();
+  // wear and holes
+  for (let i = 0; i < 90; i++) {
+    const x = r() * W, y = r() * H;
+    ctx.fillStyle = `rgba(0,0,0,${0.05 + r() * 0.12})`;
+    ctx.fillRect(x, y, 2 + r() * 5, 1 + r() * 3);
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 /** The raw noise field — only ever evaluated at grid corners. */
 export function terrainRaw(x, z) {
   const r = Math.hypot(x, z);
@@ -188,6 +293,33 @@ export class Builder {
     g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
     g.computeVertexNormals();
     g.computeBoundingSphere();
+    return g;
+  }
+
+  /** Box-projected UVs so a stone map lands on every face without stretching.
+   *  Each triangle is projected along whichever axis its normal points at. */
+  buildUV(scale = 0.35) {
+    const g = this.build();
+    const p = g.attributes.position.array;
+    const n = p.length / 3;
+    const uv = new Float32Array(n * 2);
+    for (let t = 0; t < n; t += 3) {
+      const i0 = t * 3, i1 = (t + 1) * 3, i2 = (t + 2) * 3;
+      const ax = p[i1] - p[i0], ay = p[i1 + 1] - p[i0 + 1], az = p[i1 + 2] - p[i0 + 2];
+      const bx = p[i2] - p[i0], by = p[i2 + 1] - p[i0 + 1], bz = p[i2 + 2] - p[i0 + 2];
+      let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+      nx = Math.abs(nx); ny = Math.abs(ny); nz = Math.abs(nz);
+      let axis = 1;
+      if (nx > ny && nx > nz) axis = 0; else if (nz > ny && nz > nx) axis = 2;
+      for (let q = 0; q < 3; q++) {
+        const o = (t + q) * 3, uvo = (t + q) * 2;
+        const x = p[o], y = p[o + 1], z = p[o + 2];
+        if (axis === 1) { uv[uvo] = x * scale; uv[uvo + 1] = z * scale; }
+        else if (axis === 0) { uv[uvo] = z * scale; uv[uvo + 1] = y * scale; }
+        else { uv[uvo] = x * scale; uv[uvo + 1] = y * scale; }
+      }
+    }
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     return g;
   }
 }
