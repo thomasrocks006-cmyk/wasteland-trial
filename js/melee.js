@@ -49,6 +49,41 @@ const MOCAP = {
   sweep: SPECS.sword.sweep,
 };
 
+/* Finishing moves as short staged sequences (Ryse-style). Between stages the action holds for a beat and a prompt
+   shows over the man: ATTACK (gold) or GUARD (steel). The right button in time is PERFECT (more health and flow);
+   all of them is FLAWLESS. A miss does not stop the kill. Stage keys: clip from..to at speed, standing dist from him;
+   at hitAt a non-lethal blow (cut / bash / pommel), at killAt the killing one; roll: round to his back. */
+const EXEC = {
+  overhead: [
+    { clip: 'Sword_Heavy_Combo', from: 1.4, to: 1.64, speed: 0.75, stand: 1.45 },
+    { prompt: 'attack' },
+    { clip: 'Sword_Heavy_Combo', from: 1.64, to: 2.05, speed: 0.85, stand: 1.45, killAt: 1.8, heavy: true },
+  ],
+  combo: [
+    { clip: 'Sword_Regular_B', from: 0.0, to: 0.42, speed: 1.05, stand: 1.4, hitAt: 0.27, cut: true },
+    { prompt: 'attack' },
+    { clip: 'Sword_Regular_C', from: 0.45, to: 0.86, speed: 0.95, stand: 1.4, killAt: 0.64 },
+  ],
+  bash: [
+    { clip: 'Shield_OneShot', from: 0.0, to: 0.24, speed: 1.0, stand: 1.1, hitAt: 0.1, bash: true },
+    { prompt: 'guard' },
+    { clip: 'Melee_Hook', from: 0.0, to: 0.36, speed: 1.0, stand: 1.05, hitAt: 0.27, pommel: true },
+    { prompt: 'attack' },
+    { clip: 'Sword_Regular_A', from: 0.0, to: 0.43, speed: 0.95, stand: 1.3, killAt: 0.27 },
+  ],
+  thrust: [
+    { clip: 'Punch_Cross', from: 0.0, to: 0.1, speed: 0.6, stand: 1.25, thrust: true },
+    { prompt: 'attack' },
+    { clip: 'Punch_Cross', from: 0.1, to: 0.62, speed: 0.9, stand: 1.2, killAt: 0.22, thrust: true },
+  ],
+  roll: [
+    { roll: true },
+    { prompt: 'attack' },
+    { clip: 'Sword_Regular_A', from: 0.0, to: 0.43, speed: 1.0, stand: 1.3, killAt: 0.27 },
+  ],
+};
+const PROMPT_WINDOW = 0.8;
+
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _tip = new THREE.Vector3(), _base = new THREE.Vector3();
 const _sc = new THREE.Vector3(), _sn = new THREE.Vector3(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _g0 = new THREE.Vector3(), _g1 = new THREE.Vector3(), _sq = new THREE.Quaternion(), _ws = new THREE.Vector3();
 const _r1 = new THREE.Vector3(), _r2 = new THREE.Vector3(), _r3 = new THREE.Vector3();
@@ -113,7 +148,7 @@ export class Melee {
   press() {
     const ws = this.ws, pl = this.pl;
     ws.idleT = 0;
-    if (this.exec) return;
+    if (this.exec) { this.execInput('attack'); return; }
     if (pl.guard) return this.shieldBash();
     // sheathed: draw and cut in one move, so the first press is always a blow
     if (!ws.drawn || ws.drawT > 0) { ws.ready(); ws.drawT = 0; if (ws.audio.shot) ws.audio.shot('draw', 0); }
@@ -454,7 +489,8 @@ export class Melee {
   }
   /** GUARD pressed: if a yellow blow is coming, commit to answering it */
   tryCounter() {
-    if (this.exec || !this.pl.alive || this.counter) return false;
+    if (this.exec) { this.execInput('guard'); return false; }
+    if (!this.pl.alive || this.counter) return false;
     const { list, red } = this.counterable();
     if (!list.length) {
       if (red && this.ws.ctx.onCounterRed) this.ws.ctx.onCounterRed();
@@ -545,7 +581,8 @@ export class Melee {
   startExec(e) {
     const pl = this.pl, ws = this.ws, h = this.hero;
     const bearing = Math.atan2(pl.pos.x - e.pos.x, pl.pos.z - e.pos.z), behind = Math.abs(angleTo(e.yaw, bearing)) > 2.2;
-    const list = behind ? ['thrust', 'overhead'] : ['overhead', 'thrust', 'roll', 'slam'];
+    const staged = this.mocap;
+    const list = staged ? (behind ? ['thrust', 'overhead'] : ['overhead', 'combo', 'bash', 'roll', 'thrust']) : behind ? ['thrust', 'overhead'] : ['overhead', 'thrust', 'roll', 'slam'];
     this.execIdx = (this.execIdx || 0) + 1;
     const v = list[this.execIdx % list.length];
     const usedFlow = this.flowReady && !(ws.ctx.isExecutable && ws.ctx.isExecutable(e));
@@ -555,7 +592,15 @@ export class Melee {
     const from = pl.pos.clone();
     const away = _a.set(from.x - e.pos.x, 0, from.z - e.pos.z); const dl = away.length() || 1; away.multiplyScalar(1 / dl);
     this.exec = { e, v, t: 0, killed: false, from, away: away.clone(), stage: 0, usedFlow };
-    pl.camCue = { dist: v === 'roll' ? 0.7 : 0.58, shoulder: v === 'overhead' ? -1.0 : 0.9, height: -0.2, fov: 0.78, t: 2.0 };
+    // the finisher is framed from the side of the pair, on whichever side is open (not through a pillar or a shield)
+    {
+      const mx = (pl.pos.x + e.pos.x) / 2, mz = (pl.pos.z + e.pos.z) / 2, px = -away.z, pz = away.x;
+      const open = (sd, d) => !(ws.ctx.blocked && ws.ctx.blocked(mx, mz, mx + px * sd * d, mz + pz * sd * d));
+      const side = open(1, 3.0) ? 1 : open(-1, 3.0) ? -1 : 1, dist = open(side, 3.0) ? 2.9 : 1.9;
+      pl.execView = { e, side, dist };
+    }
+    if (staged) Object.assign(this.exec, { stages: EXEC[v], si: -1, st: 0, perfect: 0, prompts: 0, prompt: null });
+    pl.camCue = { dist: v === 'roll' ? 0.7 : 0.58, shoulder: v === 'overhead' ? -1.0 : 0.9, height: -0.2, fov: 0.78, t: staged ? 4.0 : 2.0 };
     if (ws.audio.roar) ws.audio.roar(5);
     if (ws.ctx.onExecStart) ws.ctx.onExecStart(v, e);
   }
@@ -564,6 +609,7 @@ export class Melee {
     const x = this.exec, pl = this.pl, h = this.hero, ws = this.ws, e = x.e;
     if (!pl.alive || (!e.alive && !x.killed)) return this.endExec(false);
     x.t += dt;
+    if (x.stages) return this.runStages(dt, x);
     pl.moveMul = 0; pl.iframe = Math.max(pl.iframe, 0.5); pl.faceLock = Math.max(pl.faceLock, 0.3);
     h.root.updateMatrixWorld(true);
     const stand = (dist, k) => {                                  // glide the hero to a spot at dist from the target, on his own side
@@ -622,6 +668,92 @@ export class Melee {
     if (x.t > 3.2) return this.endExec(x.killed);
   }
 
+  /** the staged (Ryse-style) finishers */
+  runStages(dt, x) {
+    const pl = this.pl, h = this.hero, ws = this.ws, e = x.e;
+    pl.moveMul = 0; pl.iframe = Math.max(pl.iframe, 0.5); pl.faceLock = Math.max(pl.faceLock, 0.3);
+    h.root.updateMatrixWorld(true);
+    const stand = (dist, k) => {
+      const tx = e.pos.x + x.away.x * dist, tz = e.pos.z + x.away.z * dist;
+      pl.pos.x += (tx - pl.pos.x) * clamp(k, 0, 1); pl.pos.z += (tz - pl.pos.z) * clamp(k, 0, 1);
+      pl.pos.y = terrainHeight(pl.pos.x, pl.pos.z); pl.vel.set(0, 0, 0); pl.knock.set(0, 0, 0);
+    };
+    const face = () => { pl.faceOverride = { yaw: Math.atan2(e.pos.x - pl.pos.x, e.pos.z - pl.pos.z), t: 0.2 }; pl.yaw = pl.faceOverride.yaw; };
+    const at = new THREE.Vector3(e.pos.x, e.pos.y + 1.2, e.pos.z), dir = new THREE.Vector3(-x.away.x, 0, -x.away.z);
+    const next = () => {
+      x.si++; x.st = 0; x.hitDone = false;
+      const S = x.stages[x.si];
+      if (!S) return this.endExec(x.killed);
+      if (S.prompt) {
+        x.prompt = { kind: S.prompt, t: 0, result: null };
+        if (h.layer) h.holdLayer(true);                                   // the action holds for the beat of the prompt
+        x.prompts++; if (ws.ctx.onExecPrompt) ws.ctx.onExecPrompt(S.prompt, e);
+      } else if (S.roll) { x.sx = pl.pos.x; x.sz = pl.pos.z; h.playOnce('Roll', { from: 0.05, speed: 2.5 }); }
+      else { h.playOnce(S.clip, { from: S.from, speed: S.speed }); h.setThrust(S.thrust ? 1 : 0); }
+    };
+    if (x.si < 0) next();
+    if (!this.exec) return;
+    const S = x.stages[x.si];
+    x.st += dt;
+    face();
+    if (S.prompt) {
+      const P = x.prompt; P.t += dt;
+      if (P.result || P.t >= PROMPT_WINDOW) {
+        const ok = P.result === 'perfect';
+        if (ok) { x.perfect++; pl.heal(5); this.addFlow(1); if (ws.audio.impact) ws.audio.impact('steel', 0.5); }
+        if (ws.ctx.onExecPromptEnd) ws.ctx.onExecPromptEnd(P.result || 'late');
+        x.prompt = null; h.holdLayer(false); next();
+      }
+      return;
+    }
+    if (S.roll) {
+      const k = clamp(x.st / 0.5, 0, 1), side = x.side || (x.side = Math.sign(angleTo(Math.atan2(x.away.x, x.away.z), e.yaw) || 1));
+      const bx = e.pos.x - Math.sin(e.yaw) * 1.25, bz = e.pos.z - Math.cos(e.yaw) * 1.25;
+      const mx = (x.sx + bx) / 2 + Math.cos(e.yaw) * 1.6 * side, mz = (x.sz + bz) / 2 - Math.sin(e.yaw) * 1.6 * side, u = 1 - k;
+      pl.pos.x = u * u * x.sx + 2 * u * k * mx + k * k * bx; pl.pos.z = u * u * x.sz + 2 * u * k * mz + k * k * bz;
+      pl.pos.y = terrainHeight(pl.pos.x, pl.pos.z); pl.vel.set(0, 0, 0);
+      if (k >= 1) { h.stopLayer(); x.away.set(-Math.sin(e.yaw), 0, -Math.cos(e.yaw)); next(); }
+      return;
+    }
+    stand(S.stand || 1.3, dt * 10);
+    const L = h.layer ? h.layerTime : S.to;
+    if (S.hitAt !== undefined && !x.hitDone && L >= S.hitAt) {
+      x.hitDone = true;
+      if (S.bash) { if (ws.audio.impact) ws.audio.impact('shield', 1.4); h.shieldBash(0.3); if (e.view) { e.view.kick = 1.6; e.view.playReact('Idle_Shield_Break', 1.2, 0.05); } }
+      else if (S.pommel) { if (ws.audio.impact) ws.audio.impact('armour', 1.3); if (e.view) e.view.playReact('Hit_Knockback', 1.4); if (ws.fx.spark) ws.fx.spark(at, dir.clone().negate(), 0xffe0b0, 8, 4, 0.06, 0.2); }
+      else { if (ws.audio.impact) ws.audio.impact('flesh', 1.1); if (ws.fx.bleed) ws.fx.bleed(at, dir.clone().setY(0.2), 1.3); if (e.view) { e.view.addWound(at, 1.2); e.view.playReact('Hit_Knockback', 1.3); } this.blood = Math.min(1, this.blood + 0.2); }
+      pl.shake = Math.min(2, pl.shake + 0.45); if (ws.ctx.haptic) ws.ctx.haptic(30);
+      if (ws.ctx.timeWarp) ws.ctx.timeWarp(0.25, 0.08);
+    }
+    if (S.killAt !== undefined && !x.killed && L >= S.killAt) this.execKill(x, !!S.heavy);
+    if (L >= S.to - 1e-3 || !h.layer || x.st > 2.5) next();
+    if (this.exec && x.t > 9) this.endExec(x.killed);
+  }
+  /** the killing blow of a staged finisher */
+  execKill(x, heavy) {
+    const pl = this.pl, ws = this.ws, e = x.e;
+    x.killed = true;
+    const dir = new THREE.Vector3(-x.away.x, 0, -x.away.z), at = new THREE.Vector3(e.pos.x, e.pos.y + 1.2, e.pos.z);
+    ws.ctx.applyDamage(e, e.hp + 999, at, dir, true, ws.def, { exec: true });
+    pl.shake = Math.min(2.4, pl.shake + 1.0);
+    if (ws.fx.bleed) ws.fx.bleed(at, dir.clone().setY(0.3), 2.2);
+    if (ws.fx.ring) ws.fx.ring(at, 0xffffff, 1.6, 0.25);
+    if (ws.audio.impact) { ws.audio.impact('flesh', 1.6); ws.audio.impact('armour', 0.8); }
+    if (ws.ctx.haptic) ws.ctx.haptic(70);
+    if (ws.ctx.timeWarp) ws.ctx.timeWarp(0.16, heavy ? 0.6 : 0.45);
+    this.blood = Math.min(1, this.blood + 0.35);
+    const flawless = x.prompts > 0 && x.perfect === x.prompts;
+    pl.heal(14 + (flawless ? 12 : 0));
+    if (flawless) { pl.stam = pl.maxStam; this.addFlow(1); }
+    if (x.usedFlow) { this.flow = 0; if (ws.ctx.onFlow) ws.ctx.onFlow(0); } else this.addFlow(2);
+    if (ws.ctx.onExecuted) ws.ctx.onExecuted(e, x.v, { perfect: x.perfect, prompts: x.prompts, flawless });
+  }
+  /** a button pressed during a finisher: the right one in the prompt's beat is PERFECT, the wrong one a miss */
+  execInput(kind) {
+    const x = this.exec; if (!x || !x.prompt || x.prompt.result) return;
+    x.prompt.result = kind === x.prompt.kind ? 'perfect' : 'miss';
+  }
+
   /** a new run: drop any swing, finishing move, flow or bash still in flight */
   reset() {
     if (this.exec) this.endExec(false);
@@ -630,6 +762,9 @@ export class Melee {
 
   endExec(ok) {
     const pl = this.pl, h = this.hero;
+    if (this.exec && this.exec.prompt && this.ws.ctx.onExecPromptEnd) this.ws.ctx.onExecPromptEnd(null);
+    pl.execView = null;
+    if (pl.camCue) pl.camCue.t = Math.min(pl.camCue.t, 0.35);          // ease the kill-cam back once it is over
     this.exec = null; pl.execLock = false; pl.moveMul = 1; pl.faceOverride = null; pl.iframe = Math.max(pl.iframe, 0.3);
     h.stopLayer(); h.holdLayer(false); h.setThrust(0);
     this.lastEnd = this.clock;

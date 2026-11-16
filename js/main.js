@@ -256,6 +256,7 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   worldHit,
   wallDist,
   applyDamage: (e, dmg, point, dir, head, def, info) => enemies.hit(e, dmg, point, dir, head, def, info),
+  blocked: (x0, z0, x1, z1) => world.blocked(x0, z0, x1, z1),
   // one report per trigger pull: a scatter blast to the face is one headshot, not nine
   onShot: (hit, head) => { if (head) GAME.headshots++; },
   spawnProjectile: (pos, vel, ex, dmg) => {
@@ -272,8 +273,14 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   isExecutable: (e) => enemies.isExecutable(e),
   timeWarp: (s, d) => timeWarp(s, d),
   onFlow: (n) => updateFlow(n),
-  onExecStart: (v, e) => { showCallout(({ overhead: 'EXECUTION', thrust: 'FINISHER', roll: 'AMBUSH', slam: 'SHIELD BREAKER' })[v] || 'FINISHER'); },
-  onExecuted: (e, v) => { adv.addXp(25, 'finisher'); GAME.finishers = (GAME.finishers || 0) + 1; audio.streak(5); },
+  onExecStart: (v, e) => { showCallout(({ overhead: 'EXECUTION', thrust: 'FINISHER', roll: 'AMBUSH', slam: 'SHIELD BREAKER', combo: 'CUT DOWN', bash: 'SHIELD BREAKER' })[v] || 'FINISHER'); },
+  onExecuted: (e, v, r) => {
+    const flawless = r && r.flawless;
+    adv.addXp(25 + (flawless ? 20 : 0), 'finisher'); GAME.finishers = (GAME.finishers || 0) + 1; audio.streak(flawless ? 9 : 5);
+    if (flawless) setTimeout(() => showCallout('FLAWLESS'), 250);
+  },
+  onExecPrompt: (kind, e) => { execPromptShow(kind, e); },
+  onExecPromptEnd: (result) => { execPromptEnd(result); },
   onRiposte: () => { showCallout('RIPOSTE'); audio.streak(3); },
   haptic: (ms) => haptic(ms),
   onCounterRed: () => { showCallout('RED: ROLL AWAY'); audio.click(0, 0.16, 220); },
@@ -338,6 +345,29 @@ function syncAmmoUI() {
   ui.ammoRow.classList.toggle('low', !d.melee && s.mag <= Math.max(1, weapons.magSize() * 0.25));
   ui.ammoRow.classList.toggle('melee', !!d.melee);     // blades have no ammunition to count
   document.querySelectorAll('.wslot').forEach((b, i) => b.classList.toggle('on', i === weapons.index));
+}
+
+/* the finisher prompt over the man: which button, a ring closing on it, then PERFECT / WRONG / LATE */
+let execPromptTarget = null, execPromptHide = 0;
+function execPromptShow(kind, e) {
+  const el = $('execPrompt'); execPromptTarget = e; clearTimeout(execPromptHide);
+  el.className = kind; el.querySelector('b').textContent = kind === 'attack' ? 'ATTACK' : 'GUARD'; el.querySelector('u').textContent = '';
+  void el.offsetWidth; el.classList.add('go');
+  tip('execprompt', 'A FINISHER PROMPT: PRESS THE BUTTON IT SHOWS AS THE RING CLOSES FOR A PERFECT BLOW');
+}
+function execPromptEnd(result) {
+  const el = $('execPrompt'); if (el.classList.contains('hidden')) return;
+  if (!result) { el.className = 'hidden'; execPromptTarget = null; return; }
+  el.classList.remove('go'); el.classList.add(result === 'perfect' ? 'perfect' : 'miss');
+  el.querySelector('u').textContent = result === 'perfect' ? 'PERFECT' : result === 'miss' ? 'WRONG' : 'LATE';
+  execPromptHide = setTimeout(() => { el.className = 'hidden'; execPromptTarget = null; }, 420);
+}
+const _ep = new THREE.Vector3();
+function updateExecPrompt() {
+  const e = execPromptTarget, el = $('execPrompt');
+  if (!e || el.classList.contains('hidden')) return;
+  _ep.set(e.pos.x, e.pos.y + (e.type.height || 1.8) * 0.72, e.pos.z).project(camera);
+  el.style.transform = `translate(${((_ep.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_ep.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px)`;
 }
 
 /* first-fight tips: each shown once (remembered on this device) */
@@ -1624,7 +1654,7 @@ function frame(now) {
   fx.update(dt);
   renderer.render(scene, camera);
 
-  if (GAME.state === 'playing' || GAME.state === 'dying') { updateHud(); updateRadar(); updateTells(); flushMarker(); if (GAME.mode === 'wander') updateWanderHud(); }
+  if (GAME.state === 'playing' || GAME.state === 'dying') { updateHud(); updateRadar(); updateTells(); updateExecPrompt(); flushMarker(); if (GAME.mode === 'wander') updateWanderHud(); }
   else if (ui.radar.childElementCount && radarShown) hideRadar();
 }
 

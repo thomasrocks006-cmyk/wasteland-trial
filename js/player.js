@@ -1161,6 +1161,22 @@ export class Player {
       pz += Math.cos(t * 53.1) * sh * 0.11;
     }
 
+    // a finisher: frame the two of them from the side, a little behind the hero, the camera easing in
+    const xv = this.execView;
+    if (xv && xv.e) {
+      const ex = xv.e.pos.x, ez = xv.e.pos.z, mx = (this.pos.x + ex) / 2, mz = (this.pos.z + ez) / 2;
+      let dx = ex - this.pos.x, dz = ez - this.pos.z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+      const tx = mx - dz * xv.side * xv.dist - dx * 0.9, tz = mz + dx * xv.side * xv.dist - dz * 0.9;
+      const ty = Math.max(terrainHeight(tx, tz) + 0.6, (this.pos.y + xv.e.pos.y) / 2 + 1.45);
+      if (!this._ecam) this._ecam = new THREE.Vector3(px, py, pz);
+      const k = 1 - Math.exp(-7 * dt);
+      this._ecam.x += (tx - this._ecam.x) * k; this._ecam.y += (ty - this._ecam.y) * k; this._ecam.z += (tz - this._ecam.z) * k;
+      this.camPos.copy(this._ecam);
+      if (sh > 0.001) { const t = performance.now() * 0.001; this.camPos.x += Math.sin(t * 47.3) * sh * 0.06; this.camPos.y += Math.sin(t * 61.7) * sh * 0.05; }
+      this.camLook.set(mx, (this.pos.y + xv.e.pos.y) / 2 + 1.05, mz);
+      return;
+    }
+    this._ecam = null;
     this.camPos.set(px, py, pz);
     // look straight down the pivot's forward axis so the hero sits left of centre
     // and the gun has clear screen space

@@ -531,3 +531,15 @@ body:not(.wander) #flow,body:not(.wander) #btnFinish{display:none !important;}
   padding:8px 14px;background:rgba(14,9,5,.82);border:1px solid rgba(255,214,140,.35);color:#fff1da;font-size:11px;font-weight:800;letter-spacing:.08em;text-align:center;pointer-events:none;}
 #tip.show{animation:tipAnim 5s ease-out forwards;}
 @keyframes tipAnim{0%{opacity:0}6%{opacity:1}88%{opacity:1}100%{opacity:0}}
+
+/* finisher prompts (Ryse-style): a ring closing on the button to press, over the man */
+#execPrompt{position:absolute;left:0;top:0;width:86px;height:86px;margin:-43px 0 0 -43px;pointer-events:none;z-index:6;}
+#execPrompt i{position:absolute;inset:0;border-radius:50%;border:3px solid currentColor;transform:scale(1.9);opacity:.9;}
+#execPrompt.go i{animation:epRing .8s linear forwards;}
+@keyframes epRing{from{transform:scale(1.9)}to{transform:scale(.62)}}
+#execPrompt b{position:absolute;inset:17px;border-radius:50%;background:var(--pc);box-shadow:0 0 22px var(--pc);display:flex;align-items:center;justify-content:center;
+  color:#130c05;font-size:9px;font-weight:900;letter-spacing:.06em;}
+#execPrompt.attack{color:#ffcf4a;--pc:#ffcf4a;}#execPrompt.guard{color:#cfd8e2;--pc:#cfd8e2;}
+#execPrompt u{position:absolute;left:50%;top:92px;transform:translateX(-50%);white-space:nowrap;text-decoration:none;font-size:11px;font-weight:900;letter-spacing:.2em;color:#fff3da;text-shadow:0 1px 4px #000;}
+#execPrompt.perfect b{animation:epHit .35s ease-out;}#execPrompt.perfect u{color:#ffe07a;}#execPrompt.miss u{color:#ff8a6a;}
+@keyframes epHit{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}

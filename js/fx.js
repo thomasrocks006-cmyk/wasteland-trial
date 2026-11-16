@@ -256,7 +256,7 @@ export class FX {
     const n = Math.round((this.quality === 'fast' ? 9 : 16) * amount);
     for (let i = 0; i < n; i++) {
       _v1.set(rnd(-1, 1), rnd(-0.2, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(0.6, 2.6));
-      if (dir) _v1.addScaledVector(dir, rnd(1.2, 4.2) * amount);
+      if (dir) _v1.addScaledVector(dir, rnd(1.0, 3.0) * Math.min(amount, 1.3));     // a big blow makes more blood, not faster blood
       this.blood.add({ x: pos.x, y: pos.y, z: pos.z, vx: _v1.x, vy: _v1.y + 0.8, vz: _v1.z, life: 1.4, max: 1.4, size: rnd(0.025, 0.07) * (0.8 + amount * 0.4), color: Math.random() < 0.5 ? 0x5a0505 : 0x7a0b08, stain: Math.random() < 0.35 });
     }
     this.puff(pos, dir, 0x4a0806, 0.22 * amount, 2, 0.45, 0.8);
@@ -492,7 +492,7 @@ export class FX {
     this.blood.flush((p, i, d) => {
       d.position.set(p.x, p.y, p.z);
       d.quaternion.copy(cam.quaternion);
-      const sp = Math.min(2.2, 1 + Math.hypot(p.vx, p.vy, p.vz) * 0.12);     // drops stretch a little as they fly
+      const sp = Math.min(1.8, 1 + Math.hypot(p.vx, p.vy, p.vz) * 0.08);     // drops stretch a little as they fly
       d.scale.set(p.size, p.size * sp, p.size);
     });
     this.stains.items = this.stains.items.filter(st => { st.life -= dt; return st.life > 0; });
