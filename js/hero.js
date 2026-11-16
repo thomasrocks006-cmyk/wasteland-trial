@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp, lerp } from './core.js';
+import { Cloth } from './cloth.js';
 
 /* ================================================================ the Warden
    The hero is a real skinned human (Quaternius' CC0 Universal Animation Library
@@ -365,139 +366,38 @@ export class Hero {
    * runs for well under a millisecond.
    */
   buildCloak() {
-    const C = 9, R = 13, W = 0.5, H = 0.95;                       // columns, rows, width, length
-    const g = new THREE.PlaneGeometry(W, H, C - 1, R - 1); g.translate(0, -H / 2, 0);
-    const p = g.attributes.position;
-    // the rest shape: narrow at the collar, flaring to the hem, curved round the shoulders
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), v = clamp(-y / H, 0, 1), nx = x * (0.84 + 0.5 * v);
-      p.setX(i, nx); p.setZ(i, 0.75 * nx * nx * (1 - v * 0.5));
-    }
-    this.cloak = new THREE.Mesh(g, this.mats.cloak); this.cloak.castShadow = true; this.cloak.frustumCulled = false;
-    this.root.add(this.cloak);
-    // where each point starts, in the hero's own frame: hung behind the upper back
-    const top = this.P(this.spine3), n = p.count;
-    const cl = this.cloth = { C, R, n, pos: new Float32Array(n * 3), prev: new Float32Array(n * 3), rest: new Float32Array(n * 3), pins: [], cons: [], ready: false, wind: 0 };
-    for (let i = 0; i < n; i++) { cl.rest[i * 3] = top.x + p.getX(i); cl.rest[i * 3 + 1] = top.y + 0.15 + p.getY(i); cl.rest[i * 3 + 2] = top.z - 0.2 + p.getZ(i); }
-    // the top row rides the upper back: remember each pin in the spine bone's own frame
-    this.root.updateMatrixWorld(true);
-    for (let c = 0; c < C; c++) cl.pins.push({ i: c, local: this.spine3.worldToLocal(V(cl.rest[c * 3], cl.rest[c * 3 + 1], cl.rest[c * 3 + 2])) });
-    // springs: along the rows and down the columns (structure), across the cells (shear), every other point down (bend)
-    const add = (a, b, k) => { const dx = cl.rest[a * 3] - cl.rest[b * 3], dy = cl.rest[a * 3 + 1] - cl.rest[b * 3 + 1], dz = cl.rest[a * 3 + 2] - cl.rest[b * 3 + 2]; cl.cons.push(a, b, Math.hypot(dx, dy, dz), k); };
-    const id = (r, c) => r * C + c;
-    for (let r = 0; r < R; r++) for (let c = 0; c < C; c++) {
-      if (c < C - 1) add(id(r, c), id(r, c + 1), 1);
-      if (r < R - 1) add(id(r, c), id(r + 1, c), 1);
-      if (r < R - 1 && c < C - 1) { add(id(r, c), id(r + 1, c + 1), 0.45); add(id(r, c + 1), id(r + 1, c), 0.45); }
-      if (r < R - 2) add(id(r, c), id(r + 2, c), 0.5);
-      if (c < C - 2) add(id(r, c), id(r, c + 2), 0.5);
-    }
-    cl.cons = Float32Array.from(cl.cons);
-    // the body the cloth rests against: capsules between bones (radius in metres: the armour's bulk plus the cloth's)
-    const B = this.bones;
-    this.clothBody = [
-      // (the upper back stays inside the collar line, which is pinned 20 cm behind the spine: a pin inside a collider
-      // would have the springs and the push fight every frame and pump energy into the cloth)
-      [this.hips, this.spine2, 0.19], [this.spine2, this.spine3, 0.18], [this.spine3, this.neck, 0.15],
-      [this.hips, null, 0.18],
-      [this.thighL, this.shinL, 0.11], [this.thighR, this.shinR, 0.11], [this.shinL, this.footL, 0.08], [this.shinR, this.footR, 0.08],
-      [this.upperL, this.foreL, 0.08], [this.upperR, this.foreR, 0.08],
-      [this.upperL, null, 0.11], [this.upperR, null, 0.11],                 // the shoulders: the cape lies over them
-    ].filter((k) => k[0]);
-    this.capA = this.clothBody.map(() => V()); this.capB = this.clothBody.map(() => V());
+    const top = this.P(this.spine3);
+    this.cloth = new Cloth({
+      root: this.root, rig: this.rig, pin: this.spine3, C: 9, R: 13, W: 0.5, H: 0.95,
+      origin: V(top.x, top.y + 0.15, top.z - 0.2),                    // hung across the shoulder blades
+      // narrow at the collar, flaring to the hem, curved round the shoulders
+      shape: (x, v) => { const nx = x * (0.84 + 0.5 * v); return [nx, 0.75 * nx * nx * (1 - v * 0.5)]; },
+      material: this.mats.cloak,
+      // capsules between bones (radius = the armour's bulk plus the cloth's). The upper back stays inside the collar
+      // line, which is pinned 20 cm behind the spine: a pin inside a collider pumps energy into the cloth
+      body: [
+        [this.hips, this.spine2, 0.19], [this.spine2, this.spine3, 0.18], [this.spine3, this.neck, 0.15],
+        [this.hips, null, 0.18],
+        [this.thighL, this.shinL, 0.11], [this.thighR, this.shinR, 0.11], [this.shinL, this.footL, 0.08], [this.shinR, this.footR, 0.08],
+        [this.upperL, this.foreL, 0.08], [this.upperR, this.foreR, 0.08],
+        [this.upperL, null, 0.11], [this.upperR, null, 0.11],
+      ],
+      backstop: { hips: this.hips, spine: this.spine3, side: 1, offset: 0.07 },
+      // heavy wool: less drag (it streams rather than flies), and it never rises past the collar line (ceiling, metres at the hem)
+      worldScale: 0.5, air: 0, drag: 0.99, ceiling: 0.35,
+    });
+    this.cloak = this.cloth.mesh;
   }
-
-  /** place the cloth at rest behind him (first frame, after a teleport, or a revive) */
-  clothReset() {
-    const cl = this.cloth; this.root.updateMatrixWorld(true);
-    const m = this.root.matrixWorld;
-    for (let i = 0; i < cl.n; i++) {
-      _v.set(cl.rest[i * 3], cl.rest[i * 3 + 1], cl.rest[i * 3 + 2]).applyMatrix4(m);
-      cl.pos[i * 3] = cl.prev[i * 3] = _v.x; cl.pos[i * 3 + 1] = cl.prev[i * 3 + 1] = _v.y; cl.pos[i * 3 + 2] = cl.prev[i * 3 + 2] = _v.z;
-    }
-    cl.ready = true; cl.last = null;
-  }
-
-  updateCloak(dt, t, speed, turn, vy) {
-    const cl = this.cloth, P = cl.pos, Q = cl.prev;
-    this.rig.updateMatrixWorld(true);
-    if (!cl.ready) this.clothReset();
-    // a jump in position (spawn, respawn, a fade into the vault) would fling it: start it again at rest
-    const p0 = cl.pins[Math.floor(cl.C / 2)], pw = _v2.copy(p0.local).applyMatrix4(this.spine3.matrixWorld);
-    if (pw.distanceToSquared(_v3.set(P[p0.i * 3], P[p0.i * 3 + 1], P[p0.i * 3 + 2])) > 1.5 * 1.5) this.clothReset();
-    // the body this frame
-    for (let k = 0; k < this.clothBody.length; k++) {
-      const [a, b] = this.clothBody[k];
-      a.getWorldPosition(this.capA[k]);
-      if (b) b.getWorldPosition(this.capB[k]); else this.capB[k].copy(this.capA[k]).y -= 0.12;
-    }
-    const rootW = this.root.getWorldPosition(_v), ground = rootW.y + 0.03;
-    // the character's own travel this frame. Only part of it reaches the cloth as inertia (engine cloth calls this the
-    // world velocity scale): the rest carries the whole cape along with him, so running does not fling it about
-    const mvx = cl.last ? rootW.x - cl.last.x : 0, mvy = cl.last ? rootW.y - cl.last.y : 0, mvz = cl.last ? rootW.z - cl.last.z : 0;
-    (cl.last || (cl.last = V())).copy(rootW);
-    const carry = this.clothOff && this.clothOff.carry ? 0 : 1 - (this.clothWorldScale ?? 0.5);
-    if (Math.abs(mvx) + Math.abs(mvz) < 1.5) for (let i = cl.C; i < cl.n; i++) { const o = i * 3; P[o] += mvx * carry; P[o + 1] += mvy * carry; P[o + 2] += mvz * carry; Q[o] += mvx * carry; Q[o + 1] += mvy * carry; Q[o + 2] += mvz * carry; }
-    const fdt = Math.max(1e-4, Math.min(dt, 0.05)), vcx = mvx / fdt, vcz = mvz / fdt;
-    // the backstop (as Unreal's cloth calls it): a plane through his back the cape may not cross forward, so it never
-    // wraps round his waist or flips over a shoulder; it sits a little behind the hips, facing the way he faces
-    // it lies along the spine (hips to shoulders), so it leans when he leans into a run or a cut
-    const rq = this.root.getWorldQuaternion(_q), side = _v3.set(-1, 0, 0).applyQuaternion(rq), hp = this.hips.getWorldPosition(_v2);
-    const ax = this.spine3.getWorldPosition(new THREE.Vector3()).sub(hp).normalize();
-    const bn = new THREE.Vector3().crossVectors(side, ax).normalize();
-    if (bn.dot(new THREE.Vector3(0, 0, 1).applyQuaternion(rq)) < 0) bn.negate();
-    const bsx = bn.x, bsy = bn.y, bsz = bn.z, bsd = hp.x * bsx + hp.y * bsy + hp.z * bsz - 0.07;
-    // the push out of it is straight back, level: along the tilted normal it would also lift the cloth every time
-    const fh = new THREE.Vector3(0, 0, 1).applyQuaternion(rq); fh.y = 0; fh.normalize();
-    const fhx = fh.x, fhz = fh.z, fdn = Math.max(0.3, fhx * bsx + fhz * bsz);
-    const steps = 2, h = Math.min(dt, 0.05) / steps;
-    // air: still air streams back past a running man and lifts the cape a little; plus a slow gust that comes and goes
-    cl.wind = 0.6 + Math.sin(t * 0.7) * 0.4 + Math.sin(t * 2.3) * 0.2;
-    const air = this.clothOff && this.clothOff.air ? 0 : this.clothAir ?? 0, wx = -vcx * air + 0.25 * cl.wind, wz = -vcz * air + 0.15 * cl.wind;
-    for (let s = 0; s < steps; s++) {
-      // integrate: keep the velocity (damped), add gravity and the air
-      // damping is against the still air (world frame): that is what makes a cape stream back from a running man
-      const drag = this.clothDrag || 0.985, gy = -9.8 * h * h, wxh = wx * h * h, wzh = wz * h * h;
-      for (let i = 0; i < cl.n; i++) {
-        const o = i * 3, x = P[o], y = P[o + 1], z = P[o + 2];
-        P[o] += (x - Q[o]) * drag + wxh; P[o + 1] += (y - Q[o + 1]) * drag + gy; P[o + 2] += (z - Q[o + 2]) * drag + wzh;
-        Q[o] = x; Q[o + 1] = y; Q[o + 2] = z;
-      }
-      for (let it = 0; it < 6; it++) {
-        // springs
-        const K = cl.cons;
-        for (let c = 0; c < K.length; c += 4) {
-          const a = K[c] * 3, b = K[c + 1] * 3, rest = K[c + 2], k = K[c + 3];
-          const dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2], d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
-          if (k < 0.5 && d < rest) continue;                      // the shear springs only resist stretching; bend springs resist folding too
-          const f = (d - rest) / d * 0.5 * k;
-          P[a] += dx * f; P[a + 1] += dy * f; P[a + 2] += dz * f; P[b] -= dx * f; P[b + 1] -= dy * f; P[b + 2] -= dz * f;
-        }
-        // the pins hold the collar to the back
-        for (const pin of cl.pins) { _v2.copy(pin.local).applyMatrix4(this.spine3.matrixWorld); const o = pin.i * 3; P[o] = _v2.x; P[o + 1] = _v2.y; P[o + 2] = _v2.z; }
-        // the body: out of every capsule, and above the ground
-        for (let k = 0; k < (this.clothOff && this.clothOff.cap ? 0 : this.clothBody.length); k++) {
-          const A = this.capA[k], Bc = this.capB[k], r = this.clothBody[k][2];
-          const abx = Bc.x - A.x, aby = Bc.y - A.y, abz = Bc.z - A.z, l2 = abx * abx + aby * aby + abz * abz || 1e-6;
-          for (let i = cl.C; i < cl.n; i++) {
-            const o = i * 3, px = P[o] - A.x, py = P[o + 1] - A.y, pz = P[o + 2] - A.z;
-            const u = Math.max(0, Math.min(1, (px * abx + py * aby + pz * abz) / l2));
-            const qx = px - abx * u, qy = py - aby * u, qz = pz - abz * u, d2 = qx * qx + qy * qy + qz * qz;
-            if (d2 < r * r) { const d = Math.sqrt(d2) || 1e-4, push = (r - d) / d; P[o] += qx * push; P[o + 1] += qy * push; P[o + 2] += qz * push; Q[o] += qx * push; Q[o + 1] += qy * push; Q[o + 2] += qz * push; }     // pushed aside, not thrown
-          }
-        }
-        for (let i = cl.C; i < cl.n; i++) {
-          if (P[i * 3 + 1] < ground) { Q[i * 3 + 1] += ground - P[i * 3 + 1]; P[i * 3 + 1] = ground; }
-          const over = P[i * 3] * bsx + P[i * 3 + 1] * bsy + P[i * 3 + 2] * bsz - bsd;
-          if (over > 0 && !(this.clothOff && this.clothOff.back)) { const t = over / fdn; P[i * 3] -= fhx * t; P[i * 3 + 2] -= fhz * t; Q[i * 3] -= fhx * t; Q[i * 3 + 2] -= fhz * t; }
-        }
-      }
-    }
-    // to the mesh, in the hero's own frame
-    const inv = _m.copy(this.root.matrixWorld).invert(), pa = this.cloak.geometry.attributes.position, arr = pa.array;
-    for (let i = 0; i < cl.n; i++) { _v.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(inv); arr[i * 3] = _v.x; arr[i * 3 + 1] = _v.y; arr[i * 3 + 2] = _v.z; }
-    pa.needsUpdate = true; this.cloak.geometry.computeVertexNormals(); this.cloak.geometry.computeBoundingSphere();
-  }
+  // the old handles, kept for the tools and tests that tune the cape
+  get clothBody() { return this.cloth.body; }
+  get capA() { return this.cloth.capA; }
+  get capB() { return this.cloth.capB; }
+  get clothOff() { return this.cloth.off; } set clothOff(v) { this.cloth.off = v; }
+  get clothWorldScale() { return this.cloth.worldScale; } set clothWorldScale(v) { this.cloth.worldScale = v ?? 0.5; }
+  get clothAir() { return this.cloth.air; } set clothAir(v) { this.cloth.air = v ?? 0; }
+  get clothDrag() { return this.cloth.drag; } set clothDrag(v) { this.cloth.drag = v || 0.99; }
+  clothReset() { this.cloth.reset(); }
+  updateCloak(dt, t) { this.cloth.update(dt, t); }
 
   /* ------------------------------------------------ animation */
   buildActions() {

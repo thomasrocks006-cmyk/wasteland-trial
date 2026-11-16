@@ -526,7 +526,7 @@ export class Melee {
     for (const e of (this.ws.ctx.enemies() || [])) if (e.alive && e.ai && Math.hypot(e.pos.x - pl.pos.x, e.pos.z - pl.pos.z) < 3.2 + e.type.radius) n++;
     return n;
   }
-  canSweep() { return !this.exec && (!this.atk || this.atk.inRec) && this.specs.sweep && this.flow >= 3 && this.sweepTargets() >= 1; }
+  canSweep() { return !this.exec && this.openForSpecial && this.specs.sweep && this.flow >= 3 && this.sweepTargets() >= 1; }
   /** what SPECIAL would do now: 'finish', 'sweep' or null */
   specialKind() { return this.canExecute() ? 'finish' : this.canSweep() ? 'sweep' : null; }
   special() {
@@ -569,7 +569,9 @@ export class Melee {
     }
     return best;
   }
-  canExecute() { return !this.exec && (!this.atk || this.atk.inRec) && this.pl.alive ? this.execTarget() : null; }      // the recovery after a cut can be cut short by a finisher
+  /** a finisher can cut in whenever the blade is not mid-strike (the wind-up or the recovery of a cut is fine) */
+  get openForSpecial() { const a = this.atk; if (!a) return true; if (a.inRec || a.rebound) return true; const t = this.hero.layerTime, S = a.spec; return !a.charging && (t < S.s0 - 0.02 || t > S.s1); }
+  canExecute() { return !this.exec && this.openForSpecial && this.pl.alive ? this.execTarget() : null; }
 
   execute() {
     const t = this.canExecute();

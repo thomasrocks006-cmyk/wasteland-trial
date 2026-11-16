@@ -287,7 +287,8 @@ export const ENEMY_TYPES = {
 /* ------------------------------------------------------------------ instancers */
 // generous: an enemy past its type's cap is simulated but never drawn, which reads as being hit by nothing
 const MAX_PER_TYPE = { wolf: 40 };
-const DRAW_SOLDIERS = 12;      // skinned soldiers drawn at once (about 7 draw calls each)
+const DRAW_SOLDIERS = 12;
+const CLOTH_SOLDIERS = 4;        // tabards simulated at once (the nearest); the rest ride the hips rigidly      // skinned soldiers drawn at once (about 7 draw calls each)
 
 class TypeRender {
   constructor(scene, type) {
@@ -1191,7 +1192,9 @@ export class Enemies {
     // at most DRAW_SOLDIERS are drawn and animated (the nearest); the rest still think and fight, unseen at range
     let drawn = [];
     for (const e of this.list) { if (e.view && e.alive) { e.vd = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z); drawn.push(e); } }
-    if (drawn.length > DRAW_SOLDIERS) { drawn.sort((a, b) => a.vd - b.vd); drawn = drawn.slice(0, DRAW_SOLDIERS); }
+    drawn.sort((a, b) => a.vd - b.vd);
+    if (drawn.length > DRAW_SOLDIERS) drawn = drawn.slice(0, DRAW_SOLDIERS);
+    drawn.forEach((e, i) => { e.vRank = i; });
     const drawSet = new Set(drawn);
     for (const e of this.list) {
       if (!e.view || !e.alive) continue;
@@ -1201,7 +1204,7 @@ export class Enemies {
       v.root.position.copy(e.pos); v.root.rotation.y = e.yaw;
       const sp = Math.hypot(e.vel.x, e.vel.z);
       const rel = sp > 0.3 ? angleTo(e.yaw, Math.atan2(e.vel.x, e.vel.z)) : 0;
-      v.update(this.lastDt || 0.016, { speed: sp, drawn: !(e.passive && !e.aggro), guard: !!e.ai.guarding && !!e.type.shield, moveBack: Math.abs(rel) > 2.0, dist, hurt: 1 - e.hp / e.maxHp });
+      v.update(this.lastDt || 0.016, { speed: sp, drawn: !(e.passive && !e.aggro), guard: !!e.ai.guarding && !!e.type.shield, moveBack: Math.abs(rel) > 2.0, dist, hurt: 1 - e.hp / e.maxHp, cloth: e.vRank < (this.clothBudget ?? CLOTH_SOLDIERS) && dist < 20 });
     }
     if (this.factory) { const views = []; for (const e of this.list) if (e.view) views.push(e.view); this.factory.flushWounds(this.scene, views); }
 

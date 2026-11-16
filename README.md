@@ -245,6 +245,38 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b34: captured sword play, Ryse finishers, the Trial's guard, tabards, a heavier cape
+
+**Real sword moves.** Quaternius' Universal Animation Library 2 (CC0) has the sword-and-shield set the first one lacked.
+It uses a different skeleton naming and bone axes, so `tools/retarget.html` (run by a scratch script with the source glb,
+which is not in the repo) bakes each clip onto this rig: every frame, each bone's world rotation relative to the shared
+T-pose is carried across, the hips' travel in world space. The result is packed into `assets/ual2.bin` (290 KB, 127 KB
+gzipped; int16 quaternions) and loaded by `loadClipPack()` in `hero.js` for the hero and the soldiers alike.
+Strike windows were measured from the blade tip's speed (`tools/hero_view.html?profile=`).
+- Hero: a tap gives a real three-cut combo (A, B, then C, which strikes twice), each cut flowing into its own recovery
+  unless the next press comes. A hold of a fifth of a second winds up the heavy overhead from the heavy combo, which
+  stops at the top to charge (damage grows with the charge). On the run: the dash cut. Shield bash, guard stance,
+  knockback and guard-break reactions are captured too. The older single-clip set remains the fallback if the pack fails to load.
+- Soldiers: the slash is the captured cut B (a deep, readable wind-up), the heavy is the captured overhead, the shield
+  bash is the captured one. Shield men stand in the shield guard, a parrying swordsman blocks, a smashed guard staggers,
+  a big hit knocks a man back.
+- Fixed on the way: a clamped one-shot clip ends *paused*, so reaction clips nobody stopped stayed on forever.
+
+**Finishers, Ryse-style.** Five staged finishers (overhead, cut-down, shield breaker, ambush roll, thrust). Between
+stages the action holds and a prompt closes over the man: ATTACK (gold) or GUARD (steel). The right button in time is
+PERFECT (health, flow); every prompt PERFECT is FLAWLESS (more health, stamina refilled, XP). A miss never stops the kill.
+A side-on finisher camera frames the pair from whichever side is open. Finishers can cut into any moment that is not
+mid-strike.
+
+**The Trial** has the guard, and so the counter and shield blocks, with a stamina bar (GUARD sits above the strike button).
+
+**Cloth** is one class now (`js/cloth.js`), shared by the cape and the soldiers' tabards (a front and a back panel from
+the belt; the 4 nearest soldiers simulate, the rest ride the hips rigidly, none beyond 35 m). The cape is heavier: a
+ceiling keeps each row below the collar line, so it no longer flips over his shoulders at a sprint (hem always at least
+35 cm below the collar and behind him; it was rising above the collar at moments).
+
+Tests (scratch): fight 14, combat 10, contact 13, exec 7, trial 3, adv 15, p2 6, vault 10, rt31 5, cloth_test, cloth_lift.
+
 ## b33: a cloth cape
 
 The cloak was a stiff sheet bolted to the upper back and tilted to look like it hung, so it passed through his back, hips

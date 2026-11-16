@@ -169,10 +169,8 @@ canvas#gl{position:absolute;inset:0;width:100%;height:100%;display:block;backgro
 
 .tbtn.small{width:44px;height:44px;font-size:6.5px;}
 .tbtn.eco{font-size:6.5px;letter-spacing:.08em;}
-.tbtn.eco.light{border-color:rgba(110,240,255,.5);color:#bff4ff;
-  background:radial-gradient(circle at 50% 35%,rgba(60,180,220,.35),rgba(8,24,32,.6) 70%);}
-.tbtn.eco.dark{border-color:rgba(192,107,255,.5);color:#e6ccff;
-  background:radial-gradient(circle at 50% 35%,rgba(120,50,200,.35),rgba(20,8,30,.6) 70%);}
+.tbtn.eco.light{border-color:rgba(255,208,112,.55);color:#ffe2a6;background:radial-gradient(circle at 50% 35%,rgba(200,150,60,.35),rgba(24,16,6,.6) 70%);}
+.tbtn.eco.dark{border-color:rgba(255,110,70,.55);color:#ffc2ad;background:radial-gradient(circle at 50% 35%,rgba(170,50,30,.4),rgba(24,8,6,.6) 70%);}
 .tbtn.eco.ready{box-shadow:0 0 14px rgba(255,220,150,.35);}
 .tbtn.eco.spent{opacity:.4;}
 
@@ -389,7 +387,7 @@ h1 span{display:block;color:transparent;-webkit-text-stroke:1.5px rgba(255,170,9
 
 /* ---------------- adventure pass (b28): Wander's HUD ---------------- */
 /* the guns' controls and the arcade score are not part of wandering */
-body:not(.wander) #btnLock,body:not(.wander) #btnGuard,body:not(.wander) #stamWrap,body:not(.wander) #lvlRow,body:not(.wander) #compass,body:not(.wander) #btnUse,body:not(.wander) #lockMark{display:none !important;}
+body:not(.wander) #btnLock,body:not(.wander) #lvlRow,body:not(.wander) #compass,body:not(.wander) #btnUse,body:not(.wander) #lockMark{display:none !important;}
 body.wander #topRight,body.wander #ecoWrap,body.wander #btnLight,body.wander #btnDark,body.wander #btnReload,body.wander #comboTrack{display:none !important;}
 body.wander #btnLock{grid-column:1;grid-row:1;}
 body.wander #btnGuard{grid-column:2;grid-row:1;}
@@ -400,6 +398,8 @@ body.wander #btnGuard{grid-column:2;grid-row:1;}
 .tbtn.lock.on{background:rgba(255,200,90,.3);border-color:#ffd060;}
 #btnLock,#btnGuard{display:none;}
 body.wander #btnLock,body.wander #btnGuard{display:flex;}
+/* the Trial has the guard (and so the counter) too: it sits above the strike button */
+body:not(.wander) #btnGuard{display:flex;grid-column:3;grid-row:1;justify-self:center;}
 
 #stamWrap{position:relative;height:4px;margin-top:5px;background:rgba(0,0,0,.5);border:1px solid rgba(255,190,120,.2);overflow:hidden;}
 #stamFill{position:absolute;inset:0;width:100%;background:linear-gradient(90deg,#d9a840,#f4d070);box-shadow:0 0 8px rgba(240,200,100,.5);transition:width .08s linear;}

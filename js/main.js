@@ -1237,11 +1237,11 @@ function resetRun(mode = GAME.mode || 'wander') {
   weapons.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0, reach: 1, heavy: 1 };
   weapons.shotsFired = 0; weapons.shotsHit = 0;
   player.maxHp = 100; player.formDur = 9; player.dodgeCdBase = 0.8; player.dodgeIframe = 0.42; player.regen = 0;
-  // Wander has a body to tire and a guard to raise; the Trial keeps its arcade rules
+  // both modes: a body to tire, a guard to raise, the counter; the Wander adds the open world (map, levels, places)
   const wander = mode === 'wander';
   document.body.classList.toggle('wander', wander);
   setTod(wander ? adv.adv.tod : START_TOD, true); lastPhase = '';
-  player.staminaOn = wander; player.maxStam = 100; player.stam = 100; player.exhausted = false; player.stamDelay = 0;
+  player.staminaOn = true; player.maxStam = 100;      // both modes have a body to tire and a guard to raise (counter, block) player.stam = 100; player.exhausted = false; player.stamDelay = 0;
   player.speed = 5.5; player.armorMul = 1; player.parryWindow = 0.32; player.guardDmgTaken = 0.2; player.guardCostMul = 1; player.parryRefund = 14; player.sprintCostMul = 1; player.lockTarget = null;
   player.model.cloak.material.color.setHex(0x35503d);
   enemies.windupMul = wander ? 1.8 : 1;
@@ -1839,7 +1839,7 @@ function updateTells() {
     el.style.transform = `translate(${((_tp.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_tp.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px)`;
   }
   for (; n < tellEls.length; n++) tellEls[n].style.display = 'none';
-  if (GAME.mode === 'wander' && GAME.state === 'playing') {
+  if (GAME.state === 'playing') {
     let yel = false, red = false, near = false;
     for (const e of enemies.list) {
       if (!e.alive || !e.ai || e.passive && !e.aggro) continue;

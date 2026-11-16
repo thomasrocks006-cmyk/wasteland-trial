@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { clamp, damp } from './core.js';
+import { Cloth } from './cloth.js';
 
 /* ================================================================ soldiers
    The vale's armed men: footmen with sword and shield, swordsmen, spearmen, crossbowmen,
@@ -190,6 +191,8 @@ export class SoldierFactory {
   shieldGeo(kind, hex) { const k = kind + hex; return this.geo.shields[k] || (this.geo.shields[k] = shieldGeometry(kind, hex)); }
 
   create(style) { return new Soldier(this, style); }
+  /** the tabard cloth, one material per colour */
+  tabardMat(hex) { const m = this.tabardMats || (this.tabardMats = {}); return m[hex] || (m[hex] = new THREE.MeshStandardMaterial({ color: hex, roughness: 0.92, metalness: 0, side: THREE.DoubleSide })); }
 
   /** every wound on every drawn soldier, in one draw call: each follows its bone */
   flushWounds(scene, views) {
@@ -272,7 +275,32 @@ export class Soldier {
     this.hitW = 0; this.dead = false; this.guardW = 0; this.kick = 0; this.thrustBlend = 0; this.bash = 0; this.stunned = false;
     this.far = false; this.acc = 0;
     this.react = null;        // a reaction clip that plays by itself: { name, t, speed }
+    this.buildTabards(factory);
     this.kneel = 0; this.hurt = 0; this.wounds = []; this.phase = Math.random() * 6;
+  }
+
+  /**
+   * A tabard: a front and a back panel of cloth hanging from the belt over the thighs (js/cloth.js, the cape's
+   * simulation at a smaller size). They swing as he walks and part round his legs; the enemy manager lets only the
+   * nearest few simulate, the rest ride the hips rigidly.
+   */
+  buildTabards(factory) {
+    const st = this.st, sc = st.scale, B = this.bones;
+    const hips = B['DEF-hips'], spine = B['DEF-spine003'];
+    if (!hips || !spine || st.tabard === false) { this.tabards = []; return; }
+    this.root.updateMatrixWorld(true);
+    const hp = hips.getWorldPosition(V());
+    const legs = [[B['DEF-thighL'], B['DEF-shinL'], 0.1 * sc], [B['DEF-thighR'], B['DEF-shinR'], 0.1 * sc], [B['DEF-shinL'], B['DEF-footL'], 0.075 * sc], [B['DEF-shinR'], B['DEF-footR'], 0.075 * sc], [hips, null, 0.15 * sc]];
+    const mat = factory.tabardMat(st.tabard || st.tunic);
+    const panel = (side) => new Cloth({
+      root: this.root, rig: this.rig, pin: hips, C: 5, R: 6, W: 0.3 * sc, H: 0.5 * sc,
+      origin: V(hp.x, hp.y + 0.07 * sc, hp.z + side * 0.15 * sc),
+      shape: (x, v) => [x * (1 + 0.15 * v), -side * 0.9 * x * x],          // curved round the hips
+      material: mat, body: legs, backstop: { hips, spine, side: -side, offset: 0.05 * sc },
+      steps: 1, iters: 4, drag: 0.985, worldScale: 0.5, air: 0, wind: 0,
+    });
+    this.tabards = [panel(1), panel(-1)];
+    this.clothClock = Math.random() * 10;
   }
 
   /** a cut that landed at world point p: a dark wet mark on the nearest bone's surface, facing out */
@@ -305,6 +333,7 @@ export class Soldier {
 
   dispose(scene) {
     this.wounds.length = 0;
+    for (const c of this.tabards || []) c.dispose();
     this.root.removeFromParent();
     this.mixer.stopAllAction(); this.mixer.uncacheRoot(this.rig);
     for (const m of this.ownMats) m.dispose();
@@ -357,6 +386,16 @@ export class Soldier {
     const hk = this.dead ? 0 : clamp((this.hurt - 0.35) / 0.5, 0, 1);
     this.body.rotation.x = damp(this.body.rotation.x, hk * 0.14, 6, dt);
     this.body.rotation.z = damp(this.body.rotation.z, sp > 0.25 ? Math.sin(this.phase) * 0.07 * hk : hk * 0.04, 10, dt);
+    // the tabard: simulated when he is near (o.cloth, the manager's budget), carried rigidly otherwise
+    if (this.tabards && this.tabards.length) {
+      this.clothClock += dt; this.clothTick = (this.clothTick || 0) + 1;
+      const show = !(o.dist > 35), sim = !!o.cloth;
+      if (show && (sim || this.clothTick % 4 === 0)) {
+        this.body.updateWorldMatrix(true, false); this.rig.updateMatrixWorld(true);       // once, for both panels
+        for (const c of this.tabards) { if (sim) c.update(dt, this.clothClock, true); else c.kinematic(true); }
+      }
+      for (const c of this.tabards) c.mesh.visible = show;
+    }
     // the blade turns along the arm for a thrust (spears and bolts always are)
     const thrust = this.layer && this.layer.name === 'Punch_Cross' ? 1 : 0;
     this.thrustBlend = damp(this.thrustBlend, thrust, 24, dt);
