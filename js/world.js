@@ -47,7 +47,7 @@ const PAL = {
   pine: 0x2f4f2a,
   pineDark: 0x223b22,
   slate: 0x3d4a5c,
-  rune: 0x7ff3ff,
+  rune: 0xffa860,
 };
 
 export class World {

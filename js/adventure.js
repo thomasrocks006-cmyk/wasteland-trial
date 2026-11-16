@@ -19,55 +19,55 @@ export const xpNeed = (lvl) => 60 + (lvl - 1) * 38;
 
 /* relics: small permanent gifts, found in caches and at the ends of fights */
 export const RELICS = {
-  clasp: { name: "WARDEN'S CLASP", desc: '+15 max health' },
+  clasp: { name: "GAOLER'S CLASP", desc: '+15 max health' },
   boots: { name: "WAYFARER'S BOOTS", desc: '+8% move speed' },
   whet: { name: 'WHETSTONE OF ASH', desc: '+12% blade damage' },
-  sigil: { name: 'PARRY SIGIL', desc: 'Parry window +0.12 s' },
-  ring: { name: 'RING OF SECOND BREATH', desc: '+25 stamina' },
+  sigil: { name: "DUELLIST'S SIGNET", desc: 'Parry window +0.12 s' },
+  ring: { name: "RUNNER'S BELT", desc: '+25 stamina' },
   horn: { name: "HUNTER'S HORN", desc: 'Kills restore 2 health' },
-  cloak: { name: "THE WARDEN'S CLOAK", desc: '10% less damage taken; a crimson cloak' },
+  cloak: { name: "THE GAOLER'S CLOAK", desc: '10% less damage taken; a crimson cloak' },
   fang: { name: 'WOLF-FANG CHARM', desc: 'Sprinting costs 25% less stamina' },
-  talisman: { name: "HERMIT'S TALISMAN", desc: 'Parry window +0.08 s; a parry returns more stamina' },
-  heart: { name: 'THE VAULT HEARTSTONE', desc: '+25 max health; heavy strikes hit 20% harder' },
+  talisman: { name: "HERMIT'S TOKEN", desc: 'Parry window +0.08 s; a parry returns more stamina' },
+  heart: { name: "THE GAOLER'S KEYS", desc: '+25 max health; heavy strikes hit 20% harder' },
 };
 
 export const LORE = {
-  vault: { title: 'THE VAULT INSCRIPTION', text: 'BELOW THE VALE THE WARDENS KEPT THEIR OWN. WHAT SLEEPS AT THE END OF THIS HALL WAS PLACED, NOT BORN. IT HOLDS THE LAST OF THEIR KEYS. THE SEAL ANSWERS ONLY TO THE DEATH OF ITS GUARDS.' },
-  colossi: { title: 'THE COLOSSI', text: 'Two stone wardens stand where the river enters the vale. Cut at their feet: WE HOLD THE WATER. THE WATER HOLDS THE VALLEY. NEITHER MAY BE LEFT UNWATCHED.' },
-  cascade: { title: 'THE CASCADE', text: 'Scratched into a smooth stone beside the falls: FIVE LIGHTS KEEP THE PASS SEALED. ONE AT THE SHRINE. THREE ON THE TOWERS. ONE WHERE THE OLD STONES STAND.' },
-  overlook: { title: 'THE OVERLOOK', text: 'Below the parapet the lowland runs green to the far mountains. A line is cut into the rail: THE WARDEN KEEPS THE WAY UNTIL FIVE LIGHTS ANSWER. THEN IT IS YOURS TO WALK.' },
-  sentinels: { title: "THE WATCHERS' STONE", text: 'The bronze were never built to hunt. Cut into the base: THEY WALK THE VALE TO KEEP IT. STRIKE ONE AND THE REST REMEMBER. WHAT THE STONES GUARD, THE WOLVES GUARD TOO.' },
+  vault: { title: 'THE UNDERCROFT PLAQUE', text: 'WHERE THE OLD ORDER KEPT ITS PRISONERS AND ITS ARMOURY. THE GAOLER HOLDS THE LAST KEYS. THE PORTCULLIS RISES ONLY WHEN HIS GARRISON IS DEAD.' },
+  colossi: { title: 'THE KNIGHTS OF THE VALE', text: 'Two stone knights stand where the river enters the vale. Cut at their feet: WE HOLD THE WATER. THE WATER HOLDS THE VALLEY. NEITHER MAY BE LEFT UNWATCHED.' },
+  cascade: { title: 'THE CASCADE', text: 'Scratched into a smooth stone beside the falls: FIVE FIRES CALL THE RELIEF. ONE AT THE WATCH-FIRE. THREE ON THE TOWERS. ONE AT THE WAR CAMP.' },
+  overlook: { title: 'THE OVERLOOK', text: 'Below the parapet the lowland runs green to the far mountains. A line is cut into the rail: THE WARLORD HOLDS THE GATE UNTIL FIVE FIRES ANSWER. THEN IT IS YOURS TO WALK.' },
+  sentinels: { title: 'A SOLDIER\'S SCRATCHINGS', text: 'The Ashen Company walks in bands and keeps its own watch. Strike one man and the rest march. Cut into the wall: THE SHIELD MEN HOLD THE FRONT. GO ROUND, OR BREAK THEM.' },
 };
 
 /* the hermit's bounties: counted from the day you first speak to him */
 export const QUESTS = [
   { id: 'b1', name: 'WOLFSBANE', desc: 'Slay 8 wolves', key: 'wolf', need: 8, xp: 110, relic: 'fang' },
-  { id: 'b2', name: 'STONE-BREAKER', desc: 'Break 6 stonekin', key: 'stonekin', need: 6, xp: 170, picks: 1 },
+  { id: 'b2', name: 'SHIELD-BREAKER', desc: 'Defeat 6 footmen', key: 'footman', need: 6, xp: 170, picks: 1 },
   { id: 'b3', name: 'STEADY HAND', desc: 'Turn aside 12 blows with a parry', key: 'parry', need: 12, xp: 120, relic: 'talisman' },
 ];
 
 /* groups of guards: what clearing one earns, and what it does */
 export const GROUPS = {
-  altar: { xp: 80, msg: 'THE STONEKIN FALL' },
+  altar: { xp: 80, msg: 'THE CAMP FALLS' },
   lair: { xp: 90, msg: 'THE DEN IS EMPTY' },
-  vaultA: { xp: 60, msg: 'THE ANTECHAMBER IS QUIET' },
-  vaultB: { xp: 110, msg: 'THE SEAL GIVES WAY', onClear: 'seal' },
-  vaultBoss: { xp: 500, msg: 'THE STONE WARDEN CRUMBLES', onClear: 'warden' },
+  vaultA: { xp: 60, msg: 'THE GUARDROOM IS QUIET' },
+  vaultB: { xp: 110, msg: 'THE PORTCULLIS RISES', onClear: 'seal' },
+  vaultBoss: { xp: 500, msg: 'THE GAOLER FALLS', onClear: 'warden' },
 };
 /* who stands in the vault: [kind, x, z] per group */
 export const VAULT_GROUPS = {
-  vaultA: [['stonekin', -4, 31], ['stonekin', 4, 31]],
-  vaultB: [['stonekin', -6, -8], ['stonekin', 7, -10], ['shooter', -13, -18], ['shooter', 13, -20]],
-  vaultBoss: [['colossus', 0, -63]],
+  vaultA: [['footman', -4, 31], ['swordsman', 4, 31]],
+  vaultB: [['spearman', -6, -8], ['footman', 7, -10], ['shooter', -13, -18], ['shooter', 13, -20]],
+  vaultBoss: [['boss', 0, -63]],
 };
 
 /* what walks where: the nearer a place of power, the more its own kind */
 /* after dark the vale hunts: wolves in packs, and the stone walks */
-export const NIGHT_MIX = [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'stonekin'], ['stonekin', 'stonekin']];
+export const NIGHT_MIX = [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf'], ['swordsman', 'swordsman', 'shooter'], ['footman', 'spearman', 'swordsman']];
 export const REGION_MIX = {
-  altar: [['stonekin', 'stonekin'], ['stonekin', 'grunt', 'grunt'], ['stonekin', 'shooter']],
+  altar: [['footman', 'spearman'], ['footman', 'footman', 'swordsman'], ['spearman', 'shooter']],
   lair: [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf']],
-  gate: [['brute', 'wasp', 'wasp'], ['shooter', 'shooter', 'grunt'], ['brute', 'shooter']],
+  gate: [['captain', 'swordsman', 'swordsman'], ['shooter', 'shooter', 'footman'], ['captain', 'shooter']],
 };
 
 const defaults = () => ({
@@ -75,9 +75,9 @@ const defaults = () => ({
   found: {}, done: {}, cleared: {}, read: {},
   relics: [], perks: [], bestiary: {},
   passOpen: false, deaths: 0, playSecs: 0, tod: START_TOD,
-  quests: { started: false, wolf: 0, stonekin: 0, parry: 0, claimed: {} },
+  quests: { started: false, wolf: 0, footman: 0, parry: 0, claimed: {} },
 });
-const KNOWN_KINDS = ['grunt', 'shooter', 'brute', 'wasp', 'wolf', 'stonekin', 'boss', 'colossus'];
+const KNOWN_KINDS = ['footman', 'swordsman', 'spearman', 'shooter', 'captain', 'wolf', 'boss'];
 const clampInt = (v, lo, hi, dflt) => (Number.isFinite(+v) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, Math.floor(+v))) : dflt);
 /** a save is data from outside: a hand-edited, truncated or older file must never reach the game as NaN or markup */
 export function loadAdv(save, knownPlaces = null, knownPerks = null) {
@@ -96,10 +96,10 @@ export function loadAdv(save, knownPlaces = null, knownPerks = null) {
   if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (raw.done[k] && (!knownPlaces || knownPlaces.includes(k))) a.done[k] = true;
   a.relics = (Array.isArray(raw.relics) ? raw.relics : []).filter((id, i, arr) => RELICS[id] && arr.indexOf(id) === i);
   a.perks = (Array.isArray(raw.perks) ? raw.perks : []).filter((id) => typeof id === 'string' && (!knownPerks || knownPerks.includes(id))).slice(0, 99);
-  if (raw.bestiary && typeof raw.bestiary === 'object') for (const k of KNOWN_KINDS.concat(['colossus'])) if (k in raw.bestiary) a.bestiary[k] = clampInt(raw.bestiary[k], 0, 1e7, 0);
+  if (raw.bestiary && typeof raw.bestiary === 'object') for (const k of KNOWN_KINDS) if (k in raw.bestiary) a.bestiary[k] = clampInt(raw.bestiary[k], 0, 1e7, 0);
   if (raw.quests && typeof raw.quests === 'object') {
     a.quests.started = raw.quests.started === true;
-    for (const k of ['wolf', 'stonekin', 'parry']) a.quests[k] = clampInt(raw.quests[k], 0, 99999, 0);
+    for (const k of ['wolf', 'footman', 'parry']) a.quests[k] = clampInt(raw.quests[k], 0, 99999, 0);
     for (const q of QUESTS) if (raw.quests.claimed && raw.quests.claimed[q.id] === true) a.quests.claimed[q.id] = true;
   }
   while (a.level < MAX_LEVEL && a.xp >= xpNeed(a.level)) { a.xp -= xpNeed(a.level); a.level++; a.picks++; }
@@ -149,22 +149,22 @@ function buildPlaces(world) {
   const southCairn = findClear(world, -28, -60, 2, 14, 3), watchStone = findClear(world, -64, -22, 2, 14, 3.5);
 
   return [
-    { id: 'shrine', name: 'THE SHRINE RING', kind: 'rune', at: [0, 0], reach: 13, req: true, discover: 0, relic: 'clasp', color: 0x7ff3ff, ring: 10.4, xp: 70, glyph: 'rune', text: 'The old rune wakes under your hand.' },
-    { id: 'tower1', name: 'THE EASTERN WATCHTOWER', kind: 'beacon', at: inward(...towers[0], 5.8), base: towers[0], reach: 8, req: true, discover: 46, color: 0xffb04a, ring: 2.4, xp: 55, glyph: 'beacon', text: 'The beacon catches. The bronze will have seen it.' },
-    { id: 'tower2', name: 'THE NORTHERN WATCHTOWER', kind: 'beacon', at: inward(...towers[1], 5.8), base: towers[1], reach: 8, req: true, discover: 46, relic: 'horn', color: 0xffb04a, ring: 2.4, xp: 55, glyph: 'beacon', text: 'The beacon catches. The bronze will have seen it.' },
-    { id: 'tower3', name: 'THE SOUTHERN WATCHTOWER', kind: 'beacon', at: inward(...towers[2], 5.8), base: towers[2], reach: 8, req: true, discover: 46, color: 0xffb04a, ring: 2.4, xp: 55, glyph: 'beacon', text: 'The beacon catches. The bronze will have seen it.' },
-    { id: 'altar', name: 'THE STANDING STONES', kind: 'altar', at: [cl.x, cl.z], reach: 5.4, req: true, discover: 40, guard: { kinds: ['stonekin', 'stonekin', 'stonekin'], r: 9.5, homeR: 2.5 }, relic: 'sigil', color: 0x9ff4c0, ring: 2.6, xp: 80, glyph: 'altar', text: 'The altar answers. The stones hum, once.' },
+    { id: 'shrine', name: 'THE OLD WATCH-FIRE', kind: 'rune', at: [0, 0], reach: 13, req: true, discover: 0, relic: 'clasp', color: 0xffa850, ring: 10.4, xp: 70, glyph: 'rune', text: 'The old fire-pit catches. Smoke climbs over the vale.' },
+    { id: 'tower1', name: 'THE EASTERN WATCHTOWER', kind: 'beacon', at: inward(...towers[0], 5.8), base: towers[0], reach: 8, req: true, discover: 46, color: 0xffb04a, ring: 2.4, xp: 55, glyph: 'beacon', text: 'The beacon catches. Every man in the vale will have seen it.' },
+    { id: 'tower2', name: 'THE NORTHERN WATCHTOWER', kind: 'beacon', at: inward(...towers[1], 5.8), base: towers[1], reach: 8, req: true, discover: 46, relic: 'horn', color: 0xffb04a, ring: 2.4, xp: 55, glyph: 'beacon', text: 'The beacon catches. Every man in the vale will have seen it.' },
+    { id: 'tower3', name: 'THE SOUTHERN WATCHTOWER', kind: 'beacon', at: inward(...towers[2], 5.8), base: towers[2], reach: 8, req: true, discover: 46, color: 0xffb04a, ring: 2.4, xp: 55, glyph: 'beacon', text: 'The beacon catches. Every man in the vale will have seen it.' },
+    { id: 'altar', name: 'THE WAR CAMP', kind: 'altar', at: [cl.x, cl.z], reach: 5.4, req: true, discover: 40, guard: { kinds: ['footman', 'spearman', 'footman'], r: 9.5, homeR: 2.5 }, relic: 'sigil', color: 0xffd080, ring: 2.6, xp: 80, glyph: 'altar', text: 'The banner goes up over the camp. The company will not forget it.' },
     { id: 'lair', name: 'THE WOLF DEN', kind: 'cache', at: lair, reach: 4, discover: 34, guard: { kinds: ['wolf', 'wolf', 'wolf', 'wolf'], r: 6, homeR: 3 }, relic: 'whet', color: 0xffd060, ring: 1.6, xp: 90, glyph: 'cache', text: 'Under the roots, an old soldier\'s kit.' },
     { id: 'ford', name: 'THE FORD CACHE', kind: 'cache', at: fordCache, reach: 3.4, discover: 26, relic: 'boots', color: 0xffd060, ring: 1.4, xp: 40, glyph: 'cache', text: 'A pack left dry above the water line.' },
     { id: 'southCairn', name: 'THE SOUTHERN CAIRN', kind: 'cache', at: southCairn, reach: 3.4, discover: 28, relic: 'ring', color: 0xffd060, ring: 1.4, xp: 40, glyph: 'cache', text: 'A traveller\'s cairn, and a pack left under it.' },
-    { id: 'colossi', name: 'THE COLOSSI', kind: 'lore', at: findClear(world, colossus[0], colossus[1], 1.6, 10), reach: 3.6, discover: 30, lore: 'colossi', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
+    { id: 'colossi', name: 'THE STONE KNIGHTS', kind: 'lore', at: findClear(world, colossus[0], colossus[1], 1.6, 10), reach: 3.6, discover: 30, lore: 'colossi', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
     { id: 'cascade', name: 'THE CASCADE STONE', kind: 'lore', at: cascade, reach: 3.6, discover: 30, lore: 'cascade', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
-    { id: 'watch', name: "THE WATCHERS' STONE", kind: 'lore', at: watchStone, reach: 3.6, discover: 30, lore: 'sentinels', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
+    { id: 'watch', name: "THE SOLDIER'S STONE", kind: 'lore', at: watchStone, reach: 3.6, discover: 30, lore: 'sentinels', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
     { id: 'overlook', name: 'THE OVERLOOK', kind: 'lore', at: findClear(world, overlook[0], overlook[1], 1.6, 8), reach: 3.6, discover: 34, lore: 'overlook', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
     { id: 'vaultDoor', name: 'THE SEALED DOOR', kind: 'door', at: vaultDoor, reach: 4.6, req: false, discover: 34, color: 0x9ff4ff, ring: 3.0, xp: 0, glyph: 'door', needs: 'altar', needsWhy: 'THE STONES MUST WAKE FIRST' },
     { id: 'vaultUp', name: 'THE ASCENT', kind: 'door', zone: 'vault', at: [0, 37.4], reach: 3.6, discover: 0, color: 0xffd9a0, ring: 2.2, xp: 0, glyph: 'door', up: true },
-    { id: 'vaultLore', name: 'THE VAULT INSCRIPTION', kind: 'lore', zone: 'vault', at: [0, 28.5], reach: 3.6, discover: 14, lore: 'vault', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
-    { id: 'vaultChest', name: "THE WARDEN'S CACHE", kind: 'cache', zone: 'vault', at: [0, -79], reach: 3.6, discover: 22, needs: 'vaultBoss', needsWhy: 'THE WARDEN STILL STANDS', relic: 'heart', color: 0xffd060, ring: 1.6, xp: 150, glyph: 'cache', text: 'The last of the wardens\' keys, and a stone that beats.' },
+    { id: 'vaultLore', name: 'THE UNDERCROFT PLAQUE', kind: 'lore', zone: 'vault', at: [0, 28.5], reach: 3.6, discover: 14, lore: 'vault', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
+    { id: 'vaultChest', name: "THE GAOLER'S CACHE", kind: 'cache', zone: 'vault', at: [0, -79], reach: 3.6, discover: 22, needs: 'vaultBoss', needsWhy: 'THE GAOLER STILL STANDS', relic: 'heart', color: 0xffd060, ring: 1.6, xp: 150, glyph: 'cache', text: 'The last of the wardens\' keys, and a stone that beats.' },
     { id: 'hermit', name: "THE HERMIT'S FIRE", kind: 'talk', at: hermitAt, reach: 4.4, discover: 30, color: 0xffc070, ring: 2.2, xp: 0, glyph: 'talk' },
     { id: 'gate', name: 'THE PASS GATE', kind: 'gate', at: gate, reach: 9, req: true, discover: 48, relic: 'cloak', color: 0xffe08a, ring: 3.4, xp: 400, glyph: 'gate' },
   ];
@@ -435,10 +435,10 @@ export class Adventure {
       for (const [kind, gx, gz] of VAULT_GROUPS[gid]) {
         const [x, z] = findClear(this.world, gx, gz, 1.6, 5, 0, 0);
         const L = this.adv.level - 1;
-        const e = this.ctx.enemies.spawn(kind, x, z, { hpScale: (kind === 'colossus' ? 0.9 : 1) + L * 0.04, dmgScale: (kind === 'colossus' ? 0.9 : 1) + L * 0.02 });
-        e.passive = true; e.aggro = false; e.home = { x, z }; e.homeR = kind === 'colossus' ? 0.5 : 2.5;
+        const e = this.ctx.enemies.spawn(kind, x, z, { hpScale: (kind === 'boss' ? 0.9 : 1) + L * 0.04, dmgScale: (kind === 'boss' ? 0.9 : 1) + L * 0.02 });
+        e.passive = true; e.aggro = false; e.home = { x, z }; e.homeR = kind === 'boss' ? 0.5 : 2.5;
         e.group = 'g' + this.guardSeq; e.guard = gid;
-        if (kind === 'colossus') e.vaultBoss = true;
+        if (kind === 'boss') e.vaultBoss = true;
       }
     }
     if (this.vault) { if (this.adv.cleared.vaultB) this.vault.openSeal(); else this.vault.closeSeal(); }
@@ -464,7 +464,7 @@ export class Adventure {
 
   guardsAlive(id) { return this.ctx.enemies.list.some((e) => e.alive && e.guard === id); }
 
-  /** a bronze answer to a lit beacon: a pack drawn to the flame, already hunting */
+  /** a garrison's answer to a lit beacon: a pack drawn to the flame, already hunting */
   ambush(p) {
     const kinds = pick(REGION_MIX.gate).slice(0, 2 + (this.adv.level > 6 ? 1 : 0));
     const base = Math.atan2(p.at[1], p.at[0]) + rnd(-0.6, 0.6);
@@ -490,14 +490,14 @@ export class Adventure {
     const a = this.adv;
     a.bestiary[e.key] = (a.bestiary[e.key] || 0) + 1;
     this.addXp(Math.max(4, Math.round(e.type.score / 12)), 'kill');
-    if (a.quests.started && (e.key === 'wolf' || e.key === 'stonekin')) a.quests[e.key]++;
+    if (a.quests.started && (e.key === 'wolf' || e.key === 'footman')) a.quests[e.key]++;
     if (this.has('horn') && !e.type.boss) this.ctx.player.heal(2);
     if (e.guard && !this.guardsAlive(e.guard)) {
       a.cleared[e.guard] = true;
       const g = GROUPS[e.guard] || { xp: 40, msg: '' };
       this.addXp(g.xp, 'clear');
       if (g.msg) this.ctx.callout(g.msg);
-      if (g.onClear === 'seal' && this.vault) { this.vault.openSeal(); setTimeout(() => this.ctx.banner('THE SEAL OPENS', 'THE THRONE LIES BEYOND'), 900); }
+      if (g.onClear === 'seal' && this.vault) { this.vault.openSeal(); setTimeout(() => this.ctx.banner('THE PORTCULLIS RISES', 'THE THRONE LIES BEYOND'), 900); }
       if (g.onClear === 'warden') { a.done.vaultBoss = true; this.syncVisuals(); if (this.ctx.onVaultBoss) this.ctx.onVaultBoss(); }
       this.ctx.persist();
     }
@@ -566,11 +566,11 @@ export class Adventure {
     const a = this.adv, done = !!a.done[p.id];
     const o = { poi: p, label: 'USE', enabled: true, why: '' };
     switch (p.kind) {
-      case 'rune': o.label = done ? 'RUNE LIT' : 'LIGHT THE RUNE'; o.enabled = !done; break;
+      case 'rune': o.label = done ? 'FIRE LIT' : 'LIGHT THE FIRE'; o.enabled = !done; break;
       case 'beacon': o.label = done ? 'BEACON LIT' : 'KINDLE THE BEACON'; o.enabled = !done; break;
       case 'altar':
-        o.label = done ? 'ALTAR AWAKE' : 'WAKE THE ALTAR'; o.enabled = !done;
-        if (!done && !a.cleared.altar) { o.enabled = false; o.why = 'THE STONEKIN GUARD IT'; }
+        o.label = done ? 'BANNER RAISED' : 'RAISE THE BANNER'; o.enabled = !done;
+        if (!done && !a.cleared.altar) { o.enabled = false; o.why = 'SOLDIERS GUARD THE CAMP'; }
         break;
       case 'cache':
         o.label = done ? 'EMPTY' : 'OPEN'; o.enabled = !done;
@@ -582,13 +582,13 @@ export class Adventure {
         o.label = QUESTS.some((q) => this.questReady(q)) ? 'CLAIM BOUNTY' : 'TALK TO THE HERMIT';
         break;
       case 'door':
-        o.label = p.up ? 'ASCEND TO THE VALE' : 'DESCEND INTO THE VAULT';
+        o.label = p.up ? 'ASCEND TO THE VALE' : 'DESCEND INTO THE UNDERCROFT';
         break;
       case 'gate':
-        if (a.passOpen) { o.label = 'THE PASS IS OPEN'; o.enabled = false; }
-        else if (this.warden && this.warden.alive) { o.label = 'THE WARDEN WAKES'; o.enabled = false; }
-        else if (this.runes < RUNES_NEEDED) { o.label = 'SEALED ' + this.runes + '/' + RUNES_NEEDED; o.enabled = false; o.why = 'LIGHT ' + (RUNES_NEEDED - this.runes) + ' MORE'; }
-        else o.label = 'BREAK THE SEAL';
+        if (a.passOpen) { o.label = 'THE GATE STANDS OPEN'; o.enabled = false; }
+        else if (this.warden && this.warden.alive) { o.label = 'THE GAOLER HOLDS THE DOOR'; o.enabled = false; }
+        else if (this.runes < RUNES_NEEDED) { o.label = 'BARRED ' + this.runes + '/' + RUNES_NEEDED; o.enabled = false; o.why = 'LIGHT ' + (RUNES_NEEDED - this.runes) + ' MORE'; }
+        else o.label = 'FORCE THE GATE';
         break;
     }
     if (p.kind === 'door' && p.needs && !a.done[p.needs]) { o.enabled = false; o.label = 'SEALED DOOR'; o.why = p.needsWhy || 'NOT YET'; }
@@ -610,8 +610,8 @@ export class Adventure {
         this.ctx.fx.ecoBurst(new THREE.Vector3(p.at[0], p.y + 1.2, p.at[1]), p.color, 26, 1.6);
         this.giveRelic(p.relic);
         if (p.kind === 'beacon') this.ambush(p);
-        if (p.id === 'altar') setTimeout(() => this.ctx.banner('A DOOR STIRS', 'BENEATH THE COLOSSI'), 1600);
-        this.ctx.callout(this.runes + '/' + RUNES_NEEDED + ' LIGHTS');
+        if (p.id === 'altar') setTimeout(() => this.ctx.banner('A DOOR STIRS', 'BENEATH THE STONE KNIGHTS'), 1600);
+        this.ctx.callout(this.runes + '/' + RUNES_NEEDED + ' FIRES');
         this.ctx.toast(p.text);
         break;
       }
@@ -646,7 +646,7 @@ export class Adventure {
           paid.push(b.name);
         }
         let text;
-        if (first) text = 'Mind the fire. I was a warden once, before the vale forgot its wardens. The bronze walk because they were told to; the wolves come because the stones wake. Do me a service, and I will pay: ' + QUESTS.map((b) => b.desc.toLowerCase()).join('; ') + '. I will count from now.';
+        if (first) text = 'Mind the fire. I was a warden once, before the vale forgot its wardens. The Ashen Company holds it now; the wolves come when the fires burn low. Do me a service, and I will pay: ' + QUESTS.map((b) => b.desc.toLowerCase()).join('; ') + '. I will count from now.';
         else if (paid.length) text = 'Well struck. That is ' + paid.join(' and ') + ' settled, and what I promised is yours. ' + (QUESTS.every((b) => q.claimed[b.id]) ? 'There is nothing more I can give you but my thanks. Keep the fire in mind when the vale gets dark.' : 'The rest still stands: ' + this.questLines().filter((l) => !l.startsWith('✓')).join(', ') + '.');
         else text = QUESTS.every((b) => q.claimed[b.id]) ? 'You have cleared every debt I knew of. Sit if you like. The nights are long and the fire is warm.' : 'Still counting. ' + this.questLines().join(', ') + '.';
         this.ctx.lore("THE HERMIT'S FIRE", text);
@@ -669,7 +669,7 @@ export class Adventure {
     const e = this.ctx.enemies.spawn('boss', x, z, { hpScale: 0.8 + (this.adv.level - 1) * 0.03, dmgScale: 0.9 + (this.adv.level - 1) * 0.02 });
     e.warden = true; e.passive = false; e.aggro = true;
     this.warden = e;
-    this.ctx.callout('THE PASS WARDEN WAKES');
+    this.ctx.callout('THE WARLORD DRAWS HIS BLADE');
     this.ctx.audio.roar(10, true);
   }
 
@@ -683,20 +683,20 @@ export class Adventure {
       return best;
     };
     if (this.inVault) {
-      if (!a.cleared.vaultA) return { text: 'CLEAR THE ANTECHAMBER', poi: this.wp.hall };
-      if (!a.cleared.vaultB) return { text: 'BREAK THE GUARDIANS OF THE HALL', poi: this.wp.hall };
-      if (!a.cleared.vaultBoss) return { text: 'DEFEAT THE STONE WARDEN', poi: this.wp.throne };
-      if (!a.done.vaultChest) return { text: "OPEN THE WARDEN'S CACHE", poi: B.vaultChest };
+      if (!a.cleared.vaultA) return { text: 'CLEAR THE GUARDROOM', poi: this.wp.hall };
+      if (!a.cleared.vaultB) return { text: 'BREAK THE GARRISON OF THE HALL', poi: this.wp.hall };
+      if (!a.cleared.vaultBoss) return { text: 'DEFEAT THE GAOLER', poi: this.wp.throne };
+      if (!a.done.vaultChest) return { text: "OPEN THE GAOLER'S CACHE", poi: B.vaultChest };
       return { text: 'RETURN TO THE VALE', poi: B.vaultUp };
     }
-    if (!a.done.shrine) return { text: 'LIGHT THE SHRINE RUNE', poi: B.shrine };
+    if (!a.done.shrine) return { text: 'LIGHT THE OLD WATCH-FIRE', poi: B.shrine };
     const towers = ['tower1', 'tower2', 'tower3'].filter((id) => !a.done[id]).map((id) => B[id]);
     if (towers.length) return { text: 'KINDLE THE WATCHTOWER BEACONS · ' + (3 - towers.length) + '/3', poi: nearest(towers) };
     if (!a.done.altar) {
-      return a.cleared.altar ? { text: 'WAKE THE ALTAR AT THE STANDING STONES', poi: B.altar } : { text: 'CLEAR THE STANDING STONES', poi: B.altar };
+      return a.cleared.altar ? { text: 'RAISE THE BANNER AT THE WAR CAMP', poi: B.altar } : { text: 'TAKE THE WAR CAMP', poi: B.altar };
     }
-    if (!a.passOpen) return { text: this.warden && this.warden.alive ? 'DEFEAT THE PASS WARDEN' : 'BREAK THE SEAL AT THE PASS GATE', poi: B.gate };
-    if (!a.done.vaultBoss) return { text: 'THE SEALED DOOR BENEATH THE COLOSSI', poi: B.vaultDoor };
+    if (!a.passOpen) return { text: this.warden && this.warden.alive ? 'DEFEAT THE WARLORD' : 'FORCE THE PASS GATE', poi: B.gate };
+    if (!a.done.vaultBoss) return { text: 'THE BARRED DOOR BENEATH THE KNIGHTS', poi: B.vaultDoor };
     return { text: 'THE VALE IS YOURS · WANDER AS YOU LIKE', poi: null };
   }
 

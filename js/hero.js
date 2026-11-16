@@ -388,7 +388,9 @@ export class Hero {
     if (sum < 1) { const base = this.dead ? 'Death01' : s.drawn ? 'Sword_Idle' : 'Idle_Loop'; w[base] += 1 - sum; }
     for (const k in A) A[k].setEffectiveWeight(w[k]);
     this.mixer.update(dt);
-    // ---- over the clips: the shield arm
+    this.thrust = damp(this.thrust || 0, this.thrustTarget || 0, 26, dt);
+    this.hand.rotation.z = THREE.MathUtils.lerp(Math.PI / 2, Math.PI, this.thrust);
+    // ---- over the clips: the shield arm and the parrying blade
     this.updateShield(dt, s);
     this.updateCloak(dt, t, sp, s.turn || 0, s.vy || 0);
   }
@@ -407,7 +409,22 @@ export class Hero {
       const sh = this.P(this.upperL), rgt = V(-1, 0, 0).applyQuaternion(bw);
       const push = 0.34 + ik.bash * 0.5 - ik.kick * 0.14;
       const T = ik.target.copy(sh).addScaledVector(fwd, push).addScaledVector(rgt, -0.04).add(_v3.set(0, -0.1 + ik.bash * 0.04, 0));
-      this.solveArm(this.upperL, this.foreL, this.handL, T, fwd, wBlend);
+      this.solveArm(this.upperL, this.foreL, this.handL, T, fwd, wBlend, -1);
+    }
+    // the sword arm comes across to meet a blow: blade up and angled, in front of the chest
+    this.ik.pw = damp(this.ik.pw || 0, this.ik.parry > 0 ? 1 : 0, this.ik.parry > 0 ? 26 : 10, dt);
+    this.ik.parry = Math.max(0, this.ik.parry - dt);
+    if (this.ik.pw > 0.02) {
+      const shR = this.P(this.upperR), rgtR = V(-1, 0, 0).applyQuaternion(bw);
+      const T2 = V().copy(shR).addScaledVector(fwd, 0.44).addScaledVector(rgtR, -0.2).add(V(0, 0.1, 0));
+      this.solveArm(this.upperR, this.foreR, this.handR, T2, fwd, this.ik.pw * 0.9, 1);
+      // and the wrist: the blade stands up and leans a little toward the blow
+      this.handR.updateWorldMatrix(true, false); this.hand.updateWorldMatrix(true, false);
+      const cur = V(0, -1, 0).applyQuaternion(this.hand.getWorldQuaternion(new THREE.Quaternion()));
+      const want = V(0, 0.9, 0.42).applyQuaternion(bw).addScaledVector(rgtR, -0.18).normalize();
+      const dq = new THREE.Quaternion().setFromUnitVectors(cur, want);
+      const hq = this.handR.getWorldQuaternion(new THREE.Quaternion()), pq = this.handR.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+      this.handR.quaternion.slerp(pq.multiply(dq.multiply(hq)), this.ik.pw);
     }
     this.placeShield(fwd, wBlend);
   }
@@ -428,12 +445,12 @@ export class Hero {
     this.shield.scale.setScalar(0.9 * (1 + this.ik.flare * 0.04));
   }
 
-  solveArm(ub, fb, hb, T, fwd, weight) {
+  solveArm(ub, fb, hb, T, fwd, weight, outSign = 1) {
     const A = this.P(ub), B = this.P(fb), C = this.P(hb);
     const l1 = A.distanceTo(B), l2 = B.distanceTo(C);
     const toT = _v.copy(T).sub(A); let d = clamp(toT.length(), 0.12, (l1 + l2) * 0.995); toT.normalize();
     // the elbow: out to the side and down
-    const pole = _v2.set(0, -0.6, 0).addScaledVector(_v3.set(-1, 0, 0).applyQuaternion(this.root.getWorldQuaternion(_q)), 0.7).addScaledVector(fwd, -0.2).normalize();
+    const pole = _v2.set(0, -0.6, 0).addScaledVector(_v3.set(-1, 0, 0).applyQuaternion(this.root.getWorldQuaternion(_q)), 0.7 * outSign).addScaledVector(fwd, -0.2).normalize();
     const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1), ang = Math.acos(cosA);
     const perp = V().copy(pole).addScaledVector(toT, -pole.dot(toT)).normalize();
     const E = V().copy(A).addScaledVector(toT, Math.cos(ang) * l1).addScaledVector(perp, Math.sin(ang) * l1);
@@ -450,6 +467,11 @@ export class Hero {
     setDir(ub, A, E);
     setDir(fb, this.P(fb), T);
   }
+
+  /** the blade comes up across the body for a moment (a parry, or the first instant of a raised guard) */
+  swordParry(dur = 0.34) { this.ik.parry = dur; }
+  /** turn the weapon along the forearm (a thrust) or back across the palm (a cut); 0..1 */
+  setThrust(k) { this.thrustTarget = k; }
 
   /** the shield takes a blow: it jolts back and flares */
   shieldHit(parry = false) { this.ik.kick = parry ? 0.4 : 1; this.ik.flare = 1; }

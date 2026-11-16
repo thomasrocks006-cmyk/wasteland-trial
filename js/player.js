@@ -554,6 +554,11 @@ export class Player {
     this.riposteT = 0;         // after a parry: the next blow hits much harder
     this.faceOverride = null;  // { yaw, t }: turn the body to a foe for a blow
     this.cancelAttack = null;
+    this.wish = { x: 0, z: 0, mag: 0 };     // where the stick points, in world space (freeflow aims by it)
+    this.camCue = null;        // { dist, shoulder, height, fov, t }: a kill-cam
+    this.execLock = false;     // in a finishing move: no steering, untouchable
+    this.dashT = 0; this.dashV = new THREE.Vector3();   // freeflow: a straight, fast close on a target
+    this.onHitTaken = null;
     this.armorMul = 1;         // relics: a share of every blow absorbed (separate from the forms' own multiplier)
 
     const auraMat = new THREE.MeshBasicMaterial({
@@ -631,22 +636,24 @@ export class Player {
     return true;
   }
 
-  damage(amount, fromX, fromZ) {
+  /** src: who struck (for the clash); kind: slash | thrust | heavy | bash | shoot. Heavy blows, bashes and bolts cannot be parried, only blocked or dodged. */
+  damage(amount, fromX, fromZ, src = null, kind = null) {
     if (!this.alive) return;
     if (this.iframe > 0) return;
     amount *= this.armorMul;
     // the guard turns blows from the front: the first instant turns them completely (a parry)
     if (this.guard && fromX !== undefined && Math.abs(angleTo(this.camYaw, Math.atan2(fromX - this.pos.x, fromZ - this.pos.z))) < 1.9) {
       this.iframe = 0.25;
-      if (this.parryReady && this.guardT <= this.parryWindow) {
+      const unparryable = kind === 'heavy' || kind === 'bash' || kind === 'shoot';
+      if (!unparryable && this.parryReady && this.guardT <= this.parryWindow) {
         this.stam = Math.min(this.maxStam, this.stam + this.parryRefund);
         this.shieldMat.opacity = 1;
         if (this.hero) this.hero.shieldHit(true);
         this.riposteT = 1.1;
-        if (this.onParry) this.onParry(fromX, fromZ);
+        if (this.onParry) this.onParry(fromX, fromZ, src);
         return;
       }
-      const cost = amount * 1.1 * this.guardCostMul;
+      const cost = amount * 1.1 * (kind === 'heavy' ? 1.7 : 1) * this.guardCostMul;
       if (this.stam < cost) {                       // guard broken: it holds, but costs you
         this.stam = 0; this.exhausted = true; this.guard = false; this.stamDelay = 1.2;
         this.hp = Math.max(0, this.hp - amount * 0.6 * this.dmgTakenMul);
@@ -660,13 +667,15 @@ export class Player {
       this.shieldMat.opacity = 0.9;
       this.shake = Math.min(2.0, this.shake + 0.25);
       if (this.hero) this.hero.shieldHit(false);
-      if (this.onBlock) this.onBlock(fromX, fromZ);
+      if (kind === 'bash' || kind === 'heavy') this.guardT = 0;        // a hard blow rattles the guard: no parry for a moment
+      if (this.onBlock) this.onBlock(fromX, fromZ, src, kind);
       if (this.hp <= 0) this.alive = false;
       return;
     }
     this.iframe = 0.40;
     this.hp = Math.max(0, this.hp - amount * this.dmgTakenMul);
     this.hurtFlash = 1;
+    if (this.onHitTaken) this.onHitTaken(amount);
     if (this.hero) { this.hero.hitReact(amount > 20); if (this.cancelAttack) this.cancelAttack(); }
     this.shake = Math.min(2.0, this.shake + 0.45);
     if (fromX !== undefined) {
@@ -700,15 +709,15 @@ export class Player {
       this.dmgMul = 1;
       this.dmgTakenMul = 0.42;
       this.fireRateMul = 1.35;
-      this.aura.material.color.setHex(0x6ef0ff);
-      this.auraLight.color.setHex(0x6ef0ff);
+      this.aura.material.color.setHex(0xffd070);
+      this.auraLight.color.setHex(0xffd070);
       this.heal(22);
     } else {
       this.dmgMul = 1.75;
       this.dmgTakenMul = 0.82;
       this.fireRateMul = 1.0;
-      this.aura.material.color.setHex(0xc06bff);
-      this.auraLight.color.setHex(0xc06bff);
+      this.aura.material.color.setHex(0xff5a30);
+      this.auraLight.color.setHex(0xff5a30);
     }
     this.aura.visible = true;
     this.auraRing.visible = true;
@@ -761,7 +770,7 @@ export class Player {
     if (this.staminaOn) {
       const wasGuard = this.guard;
       this.guard = !!input.guard && !this.exhausted && this.dodging <= 0 && this.grounded;
-      if (this.guard && !wasGuard) this.parryReady = this.guardIdle >= 0.55;     // a raise soon after a drop is a plain block
+      if (this.guard && !wasGuard) { this.parryReady = this.guardIdle >= 0.55; if (this.hero && this.parryReady) this.hero.swordParry(this.parryWindow + 0.04); }     // a raise soon after a drop is a plain block
       this.guardIdle = this.guard ? 0 : this.guardIdle + dt;
       this.guardT = this.guard ? this.guardT + dt : 0;
       this.stamDelay = Math.max(0, this.stamDelay - dt);
@@ -817,9 +826,12 @@ export class Player {
       wishX = wishX / wl * mag; wishZ = wishZ / wl * mag;
     }
 
+    this.wish.x = wishX; this.wish.z = wishZ; this.wish.mag = mag;
+    if (this.execLock) { wishX = 0; wishZ = 0; this.iframe = Math.max(this.iframe, 0.3); }
+
     // ---- dodge roll: a burst of speed with brief invulnerability
     this.dodgeCd = Math.max(0, this.dodgeCd - dt);
-    if (input.dodge && this.grounded && this.dodgeCd <= 0 && this.dodging <= 0 && (!this.staminaOn || (this.stam >= 14 && this.spend(14)))) {
+    if (!this.execLock && input.dodge && this.grounded && this.dodgeCd <= 0 && this.dodging <= 0 && (!this.staminaOn || (this.stam >= 14 && this.spend(14)))) {
       let dx = wishX, dz = wishZ;
       if (Math.hypot(dx, dz) < 0.2) { dx = -Math.sin(this.camYaw); dz = -Math.cos(this.camYaw); }
       const l = Math.hypot(dx, dz) || 1;
@@ -844,6 +856,8 @@ export class Player {
       this.vel.z = damp(this.vel.z, wishZ * spd, accel, dt);
     }
 
+    // freeflow dash: velocity is set outright for a moment
+    if (this.dashT > 0) { this.dashT -= dt; this.vel.x = this.dashV.x; this.vel.z = this.dashV.z; }
     // knockback
     this.vel.x += this.knock.x * dt;
     this.vel.z += this.knock.z * dt;
@@ -1092,10 +1106,11 @@ export class Player {
   }
 
   updateCamera(dt) {
-    const aiming = this.aim;
-    const targetDist = aiming ? 2.35 : 4.35;
-    const targetHeight = (aiming ? 1.66 : 1.78) - (this.landDip || 0);
-    const shoulder = aiming ? 0.60 : 0.86;
+    const aiming = this.aim, cue = this.camCue;
+    if (cue) { cue.t -= dt; if (cue.t <= 0) this.camCue = null; }
+    const targetDist = (aiming ? 2.35 : 4.35) * (cue ? cue.dist : 1);
+    const targetHeight = (aiming ? 1.66 : 1.78) - (this.landDip || 0) + (cue ? cue.height : 0);
+    const shoulder = (aiming ? 0.60 : 0.86) + (cue ? cue.shoulder : 0);
 
     if (this.camDist === undefined) this.camDist = targetDist;
     this.camDist = damp(this.camDist, targetDist, 9, dt);

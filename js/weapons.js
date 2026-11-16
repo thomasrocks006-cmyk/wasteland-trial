@@ -8,7 +8,7 @@ import { clamp, lerp, rnd, TAU, Builder, deg, addRim, angleTo } from './core.js'
    in the swing that it lands (hit), and a style the hero's arm plays out. */
 export const WEAPONS = [
   {
-    id: 'sword', name: 'SWORD', mod: 'SPIRIT BLADE',
+    id: 'sword', name: 'SWORD', mod: 'ARMING SWORD',
     melee: {
       range: 2.7, arc: 2.1,
       combo: [
@@ -44,13 +44,13 @@ export const WEAPONS = [
     color: 0xffd27a, desc: 'Thrown hard and straight; passes through three.'
   },
   {
-    id: 'rune', name: 'FIRE RUNE', mod: 'SPELL',
+    id: 'rune', name: 'FIRE POT', mod: 'LOBBED',
     dmg: 130, pellets: 1, rpm: 52, spread: 0.5, spreadBloom: 0.6, bloomMax: 3,
     recoilPitch: 1.6, recoilYaw: 0.4, shake: 0.3, kickVis: 0.1, push: 1.5,
     mag: 4, reserve: 20, reload: 2.0, range: 90, anim: 'C',
     explosive: { radius: 4.8, falloff: 0.45, speed: 34, gravity: 5, bounce: false },
     tracer: 0xff9a40, flash: 0xffb060, flashSize: 1.4, sound: 'rune',
-    color: 0xff8a3c, desc: 'An arcing flame that bursts on contact.'
+    color: 0xff8a3c, desc: 'A pot of burning pitch, lobbed to burst on contact.'
   },
 ];
 

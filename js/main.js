@@ -11,6 +11,7 @@ import { WeaponSystem, WEAPONS } from './weapons.js';
 import { Enemies, ENEMY_TYPES } from './enemies.js';
 import { Wildlife } from './wildlife.js';
 import { loadHeroAsset } from './hero.js';
+import { SoldierFactory, SOLDIER_MATS } from './soldiers.js';
 import { preloadTextures } from './textures.js';
 import { drawMap } from './map.js';
 import { buildVault } from './vault.js';
@@ -89,6 +90,7 @@ try { heroAsset = await loadHeroAsset(); } catch (err) { console.warn('hero asse
 const player = new Player(scene, world, heroAsset);
 const fx = new FX(scene, camera, QUALITY);
 const enemies = new Enemies(scene, world, fx, audio, player);
+if (heroAsset) enemies.setFactory(new SoldierFactory(heroAsset));
 const wildlife = new Wildlife(scene, world);
 
 /* ---------------- pickups ---------------- */
@@ -253,9 +255,7 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   raycast: (o, d, range, pierce) => enemies.raycast(o, d, range, pierce),
   worldHit,
   wallDist,
-  applyDamage: (e, dmg, point, dir, head, def) => {
-    enemies.hit(e, dmg, point, dir, head, def);
-  },
+  applyDamage: (e, dmg, point, dir, head, def, info) => enemies.hit(e, dmg, point, dir, head, def, info),
   // one report per trigger pull: a scatter blast to the face is one headshot, not nine
   onShot: (hit, head) => { if (head) GAME.headshots++; },
   spawnProjectile: (pos, vel, ex, dmg) => {
@@ -267,6 +267,13 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   // a blade connecting: a short freeze, longer on a finisher
   onMeleeHit: (n, finisher, heavy, stop) => timeWarp(heavy ? 0.04 : 0.07, stop || (finisher ? 0.09 : 0.045)),
   stagger: (e, d) => enemies.stagger(e, d),
+  stun: (e, d) => enemies.stun(e, d),
+  releaseToken: (e) => enemies.releaseToken(e),
+  isExecutable: (e) => enemies.isExecutable(e),
+  timeWarp: (s, d) => timeWarp(s, d),
+  onFlow: (n) => updateFlow(n),
+  onExecStart: (v, e) => { showCallout(({ overhead: 'EXECUTION', thrust: 'FINISHER', roll: 'AMBUSH', slam: 'SHIELD BREAKER' })[v] || 'FINISHER'); },
+  onExecuted: (e, v) => { adv.addXp(25, 'finisher'); GAME.finishers = (GAME.finishers || 0) + 1; audio.streak(5); },
   onRiposte: () => { showCallout('RIPOSTE'); audio.streak(3); },
   onAmmo: () => syncAmmoUI(),
 });
@@ -375,12 +382,12 @@ player.onDamageDir = (a) => damageArc(a);
 player.onMode = (m) => {
   const p = new THREE.Vector3(player.pos.x, player.pos.y + 1.0, player.pos.z);
   if (m === 'light') {
-    fx.ecoBurst(p, 0x6ef0ff, 26, 1.6);
-    fx.ring(player.pos.clone().setY(player.pos.y + 0.15), 0x6ef0ff, 5, 0.6);
+    fx.ecoBurst(p, 0xffd070, 26, 1.6);
+    fx.ring(player.pos.clone().setY(player.pos.y + 0.15), 0xffd070, 5, 0.6);
     audio.pickup('health');
   } else if (m === 'dark') {
-    fx.ecoBurst(p, 0xc06bff, 30, 1.8);
-    fx.ring(player.pos.clone().setY(player.pos.y + 0.15), 0xc06bff, 6, 0.7);
+    fx.ecoBurst(p, 0xff5a30, 30, 1.8);
+    fx.ring(player.pos.clone().setY(player.pos.y + 0.15), 0xff5a30, 6, 0.7);
     audio.explosion(0.2);
   } else {
     fx.ecoBurst(p, 0xffd9a0, 10, 0.8);
@@ -392,10 +399,10 @@ function tryMode(m) {
   if (GAME.state !== 'playing') return;
   if (player.mode === m) { player.endMode(); return; }
   if (player.activateMode(m)) {
-    showCallout(m === 'light' ? 'LIGHT FORM' : 'DARK FORM');
+    showCallout(m === 'light' ? 'SHIELD WALL' : 'BATTLE RAGE');
   } else if (player.eco < 45 && player.modeT <= 0) {
     audio.click(0, 0.16, 300);
-    showCallout('NEED CHARGE');
+    showCallout('NEED FURY');
   }
 }
 
@@ -628,6 +635,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') input.guard = true;
   if (e.code === 'KeyE') useNear();
   if (e.code === 'KeyT') toggleLock();
+  if (e.code === 'KeyG' && GAME.state === 'playing' && weapons.melee) weapons.melee.execute();
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; if (e.code === 'KeyF') input.guard = false; });
 
@@ -654,21 +662,21 @@ document.addEventListener('pointerlockchange', () => {
 
 /* ================================================================ waves */
 function budgetFor(w) { return 110 + w * 52 + Math.pow(w, 1.6) * 8; }
-const COST = { grunt: 26, wasp: 30, shooter: 40, brute: 95 };
+const COST = { footman: 26, swordsman: 30, spearman: 34, shooter: 40, captain: 95 };
 
 function buildWave(w) {
   const q = [];
   if (w % 5 === 0) {
     q.push('boss');
     const adds = 4 + Math.floor(w / 5) * 2;
-    for (let i = 0; i < adds; i++) q.push(i % 3 === 0 ? 'shooter' : 'grunt');
+    for (let i = 0; i < adds; i++) q.push(i % 3 === 0 ? 'shooter' : i % 3 === 1 ? 'footman' : 'swordsman');
     return q;
   }
   let budget = budgetFor(w);
-  const pool = ['grunt'];
+  const pool = ['footman', 'swordsman'];
   if (w >= 2) pool.push('shooter');
-  if (w >= 3) pool.push('wasp');
-  if (w >= 4) pool.push('brute');
+  if (w >= 3) pool.push('spearman');
+  if (w >= 4) pool.push('captain');
   let guard = 0;
   while (budget > 18 && guard++ < 90) {
     const t = pick(pool);
@@ -676,18 +684,18 @@ function buildWave(w) {
     q.push(t);
     budget -= COST[t];
   }
-  if (!q.length) q.push('grunt');
+  if (!q.length) q.push('footman');
   return q;
 }
 
 function objectiveFor(w, queue) {
-  if (w % 5 === 0) return 'KILL THE IRONCOIL';
-  const brutes = queue.filter(x => x === 'brute').length;
-  if (brutes >= 2) return 'BREAK THE BRUTES';
+  if (w % 5 === 0) return 'FELL THE WARLORD';
+  const brutes = queue.filter(x => x === 'captain').length;
+  if (brutes >= 2) return 'BREAK THE CAPTAINS';
   const shooters = queue.filter(x => x === 'shooter').length;
   if (shooters >= 3) return 'SILENCE THE MARKSMEN';
-  const wasps = queue.filter(x => x === 'wasp').length;
-  if (wasps >= 3) return 'SWAT THE STINGERS';
+  const spears = queue.filter(x => x === 'spearman').length;
+  if (spears >= 3) return 'BREAK THE SPEAR LINE';
   return 'ELIMINATE ALL HOSTILES';
 }
 
@@ -763,7 +771,7 @@ function addKillScore(e) {
   ui.combo.textContent = 'x' + GAME.combo.toFixed(1);
   ui.combo.classList.add('pop');
   setTimeout(() => ui.combo.classList.remove('pop'), 110);
-  if (e.type.boss || e.vaultBoss) showCallout(e.warden ? 'THE PASS WARDEN FALLS' : e.vaultBoss ? 'THE STONE WARDEN FALLS' : 'IRONCOIL DOWN');
+  if (e.type.boss || e.vaultBoss) showCallout(e.warden ? 'THE WARLORD FALLS' : e.vaultBoss ? 'THE GAOLER FALLS' : 'IRONCOIL DOWN');
 }
 
 /* time warp: a tiny freeze on every kill (hit-stop), slow motion for the boss */
@@ -777,12 +785,6 @@ let streak = 0, lastKillT = -9;
 enemies.onKill = (e) => {
   addKillScore(e);
   if (GAME.mode === 'wander') adv.onKill(e);
-  if (e.key === 'stonekin' || e.key === 'colossus') {      // stone does not fall, it breaks
-    const big = e.key === 'colossus', at = new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z);
-    fx.debris(at, big ? 40 : 14, big ? 2.2 : 1.2, [0x8a9088, 0x5f6760, 0x727a72, 0x4a524c]);
-    fx.ecoBurst(at, 0x7ff3ff, big ? 40 : 12, big ? 2 : 1);
-    if (big) audio.explosion(0.1);
-  }
   if (e.type.boss || e.vaultBoss) timeWarp(0.22, 1.6);
   else timeWarp(0.06, 0.05);
   streak = GAME.time - lastKillT < 1.4 ? streak + 1 : 1;
@@ -814,15 +816,15 @@ const PERKS = [
   { id: 'hide', name: 'THICK HIDE', desc: '+25 max health, fully healed', apply() { player.maxHp += 25; player.hp = player.maxHp; } },
   { id: 'hot', name: 'KEEN EDGE', desc: '+15% damage with every weapon', apply() { weapons.mods.dmg *= 1.15; } },
   { id: 'reach', name: 'LONG REACH', desc: 'Blades reach 25% further and sweep wider', apply() { weapons.mods.reach *= 1.25; } },
-  { id: 'hands', name: 'QUICK DRAW', desc: 'Spears and runes ready 25% faster', apply() { weapons.mods.reload *= 0.75; } },
-  { id: 'mags', name: 'FULL QUIVER', desc: '+30% spears and runes per load', apply() { weapons.mods.mag *= 1.3; } },
-  { id: 'steady', name: 'TRUE AIM', desc: '30% tighter throws and casts', apply() { weapons.mods.spread *= 0.7; } },
-  { id: 'conduit', name: 'SPIRIT WELL', desc: '+60% charge from kills', apply() { RUN.charge *= 1.6; } },
-  { id: 'burn', name: 'LONG BURN', desc: 'Light and Dark forms last 4 s longer', apply() { player.formDur += 4; } },
+  { id: 'hands', name: 'QUICK DRAW', desc: 'Spears and fire pots ready 25% faster', apply() { weapons.mods.reload *= 0.75; } },
+  { id: 'mags', name: 'FULL QUIVER', desc: '+30% spears and fire pots per load', apply() { weapons.mods.mag *= 1.3; } },
+  { id: 'steady', name: 'TRUE AIM', desc: '30% tighter throws and lobs', apply() { weapons.mods.spread *= 0.7; } },
+  { id: 'conduit', name: 'BATTLE FURY', desc: '+60% rage from kills', apply() { RUN.charge *= 1.6; } },
+  { id: 'burn', name: 'LONG BURN', desc: 'Shield Wall and Battle Rage last 4 s longer', apply() { player.formDur += 4; } },
   { id: 'slip', name: 'SLIPSTREAM', desc: 'Dodge recovers twice as fast, longer immunity', apply() { player.dodgeCdBase *= 0.5; player.dodgeIframe += 0.15; } },
   { id: 'leech', name: 'BLOOD PRICE', desc: 'Every kill heals 3', apply() { RUN.leech += 3; } },
   { id: 'scav', name: 'SCAVENGER', desc: 'Kills drop supplies 70% more often', apply() { RUN.scav *= 1.7; } },
-  { id: 'bang', name: 'WILDFIRE', desc: 'Fire rune blast radius +35%', apply() { weapons.mods.blast *= 1.35; } },
+  { id: 'bang', name: 'WILDFIRE', desc: 'Fire pot blast radius +35%', apply() { weapons.mods.blast *= 1.35; } },
   { id: 'lance', name: 'IMPALER', desc: 'Spears pierce 2 more bodies', apply() { weapons.mods.pierce += 2; } },
   { id: 'wind', name: 'SECOND WIND', desc: 'Regenerate 1.2 health a second', apply() { player.regen += 1.2; } },
   { id: 'lungs', name: 'DEEP LUNGS', desc: '+30 stamina', wander: true, apply() { player.maxStam += 30; player.stam = player.maxStam; } },
@@ -931,10 +933,10 @@ const adv = new Adventure(scene, world, {
   onXp: () => { },
   enterVault: () => enterVault(),
   leaveVault: () => leaveVault(),
-  onVaultBoss: () => { setTimeout(() => showBanner('THE VAULT IS YOURS', "OPEN THE WARDEN'S CACHE"), 1400); },
+  onVaultBoss: () => { setTimeout(() => showBanner('THE UNDERCROFT IS YOURS', "OPEN THE GAOLER'S CACHE"), 1400); },
 });
 
-/* ---- the Under-Vault: a door in the hillside, a fade, and a different floor under everything */
+/* ---- the Undercroft: a door in the hillside, a fade, and a different floor under everything */
 let transitioning = false;
 function fadeThen(fn) {
   if (transitioning) { setTimeout(() => fadeThen(fn), 220); return; }       // a press during the fade-in is honoured, not dropped
@@ -962,7 +964,7 @@ function enterVault() {
     lantern.intensity = 2.4;
     for (const [mat, base] of heroMats) mat.envMapIntensity = base * 0.25;
     calmT = 10; audio.setMood('explore');
-    showBanner('THE UNDER-VAULT', 'BENEATH THE COLOSSI');
+    showBanner('THE UNDERCROFT', 'BENEATH THE KNIGHTS');
   });
 }
 function leaveVault() {
@@ -980,7 +982,7 @@ function leaveVault() {
   });
 }
 
-/* relics you can see on the hero: a bronze pauldron, the Heartstone on the chest, a horn at the hip, a fang at the throat */
+/* relics you can see on the hero: a steel pauldron, the Heartstone on the chest, a horn at the hip, a fang at the throat */
 const gear = {};
 function heroGear() {
   if (player.hero) { player.hero.setGear(GAME.mode === 'wander' ? adv.adv.relics : []); return; }
@@ -1045,18 +1047,33 @@ function toggleLock() {
 }
 
 /* guard feedback */
-player.onParry = (x, z) => {
-  enemies.parried(x, z);
+/* the clash: where the two blades meet, warm sparks, a ring-off, a freeze; the soldier is knocked open */
+const _tipA = new THREE.Vector3(), _tipB = new THREE.Vector3();
+function clashPoint(src) {
+  const wm = weapons.models[weapons.index];
+  if (wm && wm.userData.muzzle) wm.userData.muzzle.getWorldPosition(_tipA); else _tipA.set(player.pos.x, player.pos.y + 1.3, player.pos.z);
+  if (src && src.view) src.view.tip(_tipB); else _tipB.set(player.pos.x + Math.sin(player.camYaw) * 1.2, player.pos.y + 1.3, player.pos.z + Math.cos(player.camYaw) * 1.2);
+  return _tipA.clone().lerp(_tipB, 0.5).setY(Math.max(player.pos.y + 0.9, Math.min(player.pos.y + 1.8, (_tipA.y + _tipB.y) / 2)));
+}
+player.onParry = (x, z, src) => {
+  const hit = enemies.parried(x, z, src);
+  const at = clashPoint(src);
+  fx.spark(at, new THREE.Vector3(0, 1, 0), 0xfff0c0, 22, 7, 0.1, 0.35);
+  fx.spark(at, new THREE.Vector3(Math.sin(player.camYaw), 0.2, Math.cos(player.camYaw)), 0xffd070, 12, 5, 0.08, 0.3);
+  fx.ring(at, 0xfff4d8, 1.3, 0.2);
   audio.clang(2, true); audio.hitmarker(true);
-  fx.ring(new THREE.Vector3(player.pos.x, player.pos.y + 1.1, player.pos.z), 0x9ff4ff, 3.2, 0.45);
-  fx.ecoBurst(new THREE.Vector3(player.pos.x + Math.sin(player.camYaw) * 0.8, player.pos.y + 1.2, player.pos.z + Math.cos(player.camYaw) * 0.8), 0xbff6ff, 16, 1.4);
-  timeWarp(0.12, 0.14);
-  showCallout('PARRY');
+  timeWarp(0.1, 0.16);
+  showCallout('PARRIED');
   GAME.parries = (GAME.parries || 0) + 1;
   adv.addParry();
   if (performance.now() - lastParryXp > 2000) { lastParryXp = performance.now(); adv.addXp(4, 'parry'); }
 };
-player.onBlock = () => { audio.clang(1, false); fx.ring(new THREE.Vector3(player.pos.x, player.pos.y + 1.1, player.pos.z), 0x7fd8ff, 1.8, 0.25); };
+player.onBlock = (x, z, src, kind) => {
+  audio.clang(1, false);
+  const at = new THREE.Vector3(player.pos.x + Math.sin(player.camYaw) * 0.7, player.pos.y + 1.2, player.pos.z + Math.cos(player.camYaw) * 0.7);
+  fx.spark(at, new THREE.Vector3(0, 0.6, 0), 0xffe6a0, 10, 5, 0.09, 0.25);
+  if (kind === 'heavy' || kind === 'bash') { timeWarp(0.15, 0.1); showCallout(kind === 'bash' ? 'SHIELD SHOVE' : 'HEAVY BLOW'); }
+};
 player.onGuardBreak = () => { audio.playerHurt(); showCallout('GUARD BROKEN'); };
 let windedAt = 0, lastParryXp = 0;
 weapons.onWinded = () => { if (performance.now() - windedAt > 900) { windedAt = performance.now(); showToast('WINDED'); } };
@@ -1066,7 +1083,7 @@ weapons.onWinded = () => { if (performance.now() - windedAt > 900) { windedAt = 
    you be until you come close or strike one; new patrols appear out of sight.
    Health returns while nothing hunts you, and an upgrade is offered every six kills. */
 const PATROL_TARGET = 4;
-const PATROLS = [['grunt', 'grunt'], ['shooter'], ['grunt', 'shooter'], ['brute'], ['wasp', 'wasp'], ['grunt', 'grunt', 'shooter']];
+const PATROLS = [['footman', 'swordsman'], ['shooter', 'footman'], ['footman', 'footman', 'shooter'], ['captain'], ['swordsman', 'swordsman'], ['spearman', 'spearman', 'shooter'], ['footman', 'spearman']];
 let patrolTimer = 0, patrolId = 0, calmT = 0;
 function spawnPatrol() {
   for (let k = 0; k < 50; k++) {
@@ -1094,7 +1111,7 @@ function startWander() {
   adv.populate();
   for (let i = 0; i < 3; i++) spawnPatrol();
   patrolTimer = 20; calmT = 10;
-  if (!adv.isDone('shrine')) setTimeout(() => showBanner('THE VALE', 'LIGHT THE SHRINE RUNE'), 900);
+  if (!adv.isDone('shrine')) setTimeout(() => showBanner('THE VALE', 'LIGHT THE OLD WATCH-FIRE'), 900);
 }
 function updateWander(dt) {
   const groups = new Set();
@@ -1116,7 +1133,7 @@ function updateWander(dt) {
   // a skill to choose waits for a calm moment
   if (adv.adv.picks > 0 && !GAME.drafting && calmT > 3 && player.alive && performance.now() > draftLaterUntil) openDraft();
   const o = adv.objective(player);
-  ui.objective.textContent = hunting ? 'SENTINELS HUNT YOU' : o.text;
+  ui.objective.textContent = hunting ? 'SOLDIERS HUNT YOU' : o.text;
   objectivePoi = o.poi;
 }
 let victoryDue = 0, objectivePoi = null, autosaveT = 0, freeCam = null, draftLaterUntil = 0;
@@ -1175,6 +1192,7 @@ function resetRun(mode = GAME.mode || 'wander') {
   player.alive = true;
   player.hp = player.maxHp;
   player.iframe = 0; player.dodging = 0; player.model.body.rotation.set(0, 0, 0); if (player.hero) player.hero.revive();
+  if (weapons.melee) weapons.melee.reset();
   const sp = world.pickSpawn();
   player.pos.set(sp[0], terrainHeight(sp[0], sp[1]), sp[1]);
   // face the monument from the spawn point
@@ -1195,7 +1213,7 @@ function resetRun(mode = GAME.mode || 'wander') {
   weapons.syncModel();
 
   GAME.runStart = performance.now();
-  document.querySelector('.waveRow .lbl').textContent = GAME.mode === 'trial' ? 'WAVE' : 'LIGHTS';
+  document.querySelector('.waveRow .lbl').textContent = GAME.mode === 'trial' ? 'WAVE' : 'FIRES';
   if (GAME.mode === 'trial') startWave(1); else startWander();
   syncAmmoUI();
   ui.score.textContent = '0';
@@ -1294,7 +1312,7 @@ function fillJournal() {
     text: LORE[k].title,
     click: () => { $('loreTitle').textContent = LORE[k].title; $('loreText').textContent = LORE[k].text; $('pause').classList.add('hidden'); GAME.state = 'playing'; openReading('loreCard'); readingFrom = 'paused'; },
   })));
-  const bs = Object.entries(a.bestiary).map(([k, n]) => (k === 'boss' ? 'WARDEN' : k.toUpperCase()) + ' ' + n).join(' · ');
+  const bs = Object.entries(a.bestiary).map(([k, n]) => (k === 'boss' ? 'WARLORD' : k.toUpperCase()) + ' ' + n).join(' · ');
   $('jBest').textContent = bs ? 'SLAIN: ' + bs : '';
 }
 
@@ -1566,7 +1584,7 @@ function frame(now) {
   if (GAME.state === 'playing' || GAME.state === 'dying' || GAME.state === 'dead') {
     player.applyToCamera(camera);
     const sprinting = input.sprint && Math.hypot(player.vel.x, player.vel.z) > 6;
-    camera.fov = damp(camera.fov, player.aim ? 46 : (window.innerHeight > window.innerWidth ? 78 : 62) + (sprinting ? 7 : 0), 9, dt);
+    camera.fov = damp(camera.fov, (player.aim ? 46 : (window.innerHeight > window.innerWidth ? 78 : 62) + (sprinting ? 7 : 0)) * (player.camCue ? player.camCue.fov : 1), 9, dt);
     camera.updateProjectionMatrix();
   }
 
@@ -1578,7 +1596,7 @@ function frame(now) {
   fx.update(dt);
   renderer.render(scene, camera);
 
-  if (GAME.state === 'playing' || GAME.state === 'dying') { updateHud(); updateRadar(); flushMarker(); if (GAME.mode === 'wander') updateWanderHud(); }
+  if (GAME.state === 'playing' || GAME.state === 'dying') { updateHud(); updateRadar(); updateTells(); flushMarker(); if (GAME.mode === 'wander') updateWanderHud(); }
   else if (ui.radar.childElementCount && radarShown) hideRadar();
 }
 
@@ -1678,10 +1696,10 @@ function updateHud() {
 
   // boss health
   let boss = null;
-  for (const e of enemies.list) if (e.alive && (e.type.boss || e.vaultBoss) && (e.type.boss || !e.passive || e.aggro)) { boss = e; break; }
+  for (const e of enemies.list) if (e.alive && e.type.boss && (!e.passive || e.aggro)) { boss = e; break; }
   ui.bossBar.classList.toggle('hidden', !boss);
   if (boss) {
-    ui.bossName.textContent = boss.warden ? 'THE PASS WARDEN' : boss.vaultBoss ? 'THE STONE WARDEN' : 'IRONCOIL';
+    ui.bossName.textContent = boss.warden ? 'THE WARLORD' : boss.vaultBoss ? 'THE GAOLER' : 'IRONCOIL';
     ui.bossFill.style.transform = `scaleX(${clamp(boss.hp / boss.maxHp, 0, 1)})`;
     ui.bossBar.classList.toggle('enraged', !!boss.enraged);
   }
@@ -1723,13 +1741,43 @@ function tickDay(dt) {
   const ph = phaseName(GAME.tod);
   if (ph !== lastPhase) {
     if (lastPhase) {
-      if (ph === 'DUSK') showBanner('DUSK FALLS', 'THE WOLVES RUN');
+      if (ph === 'DUSK') showBanner('DUSK FALLS', 'THE WOLVES AND THE WATCH WALK');
       else if (ph === 'DAWN') showBanner('DAWN', 'THE VALE STIRS');
     }
     lastPhase = ph;
   }
 }
 GAME.tod = START_TOD;
+
+
+/* ================================================================ fighting HUD: flow, the finisher button, the marks over a striking soldier */
+function updateFlow(n) {
+  const el = $('flow'); if (!el) return;
+  el.classList.toggle('hidden', n <= 0);
+  $('flowN').textContent = '×' + n;
+  $('flowFill').style.width = Math.min(100, n / 6 * 100) + '%';
+  el.classList.toggle('ready', n >= 6);
+}
+player.onHitTaken = () => { if (weapons.melee) weapons.melee.breakFlow(); };
+const tellEls = [];
+for (let k = 0; k < 6; k++) { const d = document.createElement('div'); d.className = 'tm'; d.innerHTML = '<i></i><b>!</b>'; ui.hud.appendChild(d); tellEls.push(d); }
+const _tp = new THREE.Vector3();
+function updateTells() {
+  let n = 0;
+  for (const e of enemies.list) {
+    if (n >= tellEls.length) break;
+    if (!e.alive || !e.ai || e.ai.mode !== 'tell' || !e.ai.tell) continue;
+    _tp.set(e.pos.x, e.pos.y + e.type.height + 0.45, e.pos.z).project(camera);
+    if (_tp.z > 1 || Math.abs(_tp.x) > 1.15 || Math.abs(_tp.y) > 1.15) continue;
+    const el = tellEls[n++], k = clamp(e.ai.t / Math.max(0.01, e.ai.tellDur), 0, 1), red = e.ai.tell.red;
+    el.style.display = 'block'; el.classList.toggle('red', !!red);
+    el.firstChild.style.transform = 'scale(' + (1 + (1 - k) * 1.15).toFixed(2) + ')';       // the ring closes on the mark as the blow nears
+    el.lastChild.textContent = red ? '!!' : '!';
+    el.style.transform = `translate(${((_tp.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_tp.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px)`;
+  }
+  for (; n < tellEls.length; n++) tellEls[n].style.display = 'none';
+}
+onPress($('btnFinish'), () => { if (GAME.state === 'playing' && weapons.melee) weapons.melee.execute(); });
 
 /* ================================================================ wander HUD */
 const compassEl = $('compassMarks'), cmk = new Map(), cmTicks = [];
@@ -1794,6 +1842,8 @@ function updateWanderHud() {
     if (vis) mark.style.transform = `translate(${((_lk.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_lk.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px) rotate(45deg)`;
   } else wClass(mark, 'hidden', true);
 
+  // a finishing move is on offer
+  { const fb2 = wEl('btnFinish'), tg = weapons.melee ? weapons.melee.canExecute() : null; wClass(fb2, 'hidden', !tg); if (tg) wSet(wEl('finishWhy'), 'text', weapons.melee.flowReady && !enemies.isExecutable(tg) ? 'FLOW' : 'OPEN'); }
   // the strike button shows the heavy charge
   const hc = weapons.heavyCharge, fb = wEl('btnFire');
   wClass(fb, 'charging', hc > 0); wClass(fb, 'charged', hc >= 1); wClass(fb, 'winded', player.exhausted);
@@ -1814,7 +1864,7 @@ for (let i = 0; i < RADAR_N; i++) {
 }
 let radarShown = false;
 const _rv = new THREE.Vector3(), _rv2 = new THREE.Vector3();
-const RADAR_CLASS = { grunt: 'g', shooter: 's', brute: 'b', wasp: 'w', boss: 'x', wolf: 'f', stonekin: 'k', colossus: 'x' };
+const RADAR_CLASS = { footman: 'g', swordsman: 'w', spearman: 'k', shooter: 's', captain: 'b', boss: 'x', wolf: 'f' };
 function hideRadar() { radarEls.forEach((el) => { el.style.opacity = '0'; }); radarShown = false; }
 function updateRadar() {
   const W = window.innerWidth, H = window.innerHeight;
@@ -1891,7 +1941,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
-window.__dbg = { gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
+window.__dbg = { startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {

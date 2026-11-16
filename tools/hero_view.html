@@ -26,12 +26,14 @@ const view = q.get('view') || 'front';
 r.clear();
 for (let i = 0; i < n; i++) {
   const c = cases[i];
-  hero.revive(); hero.stopLayer();
+  hero.revive(); hero.stopLayer(); hero.ik.parry = 0; hero.ik.pw = 0; hero.setThrust(0); hero.thrust = 0;
   const s = Object.assign({ speed: 0, sprint: false, grounded: true, vy: 0, drawn: true, guard: false }, c.s || {});
   let t = 0;
   if (c.layer) { const a = hero.playOnce(c.layer, { from: c.from || 0, speed: c.speed || 1 }); if (c.hold) hero.holdLayer(true); }
   if (c.die) { hero.die(); }
   if (c.bash) hero.shieldBash(1);
+  if (c.parry) hero.swordParry(9);
+  if (c.thrust) hero.setThrust(1);
   const steps = c.steps || 40; for (let k = 0; k < steps; k++) { t += 0.03; hero.update(0.03, t, s); }
   if (c.layer && !c.hold) { /* let it run to the requested time */ }
   hero.root.rotation.y = c.yaw || 0;

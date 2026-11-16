@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { TAU, clamp, rnd, Builder, radialSprite, stoneTexture } from './core.js';
 
-/* ================================================================ the Under-Vault
+/* ================================================================ the Undercroft
    A crypt the old wardens cut beneath the colossi: an antechamber, a pillared hall that
    a seal closes off, and the throne of the Stone Warden. It lies far below the valley
    (FLOOR_Y), reached by a door in the hillside. While you are in it the game answers every
@@ -126,13 +126,13 @@ export function buildVault(scene) {
   const pathA = new Builder(), pathC = new Builder(), bands = new Builder();
   for (const [key, h] of [['A', 8], ['B', 11], ['C', 13]]) {
     const [x0, x1, z0, z1] = RECTS[key];
-    bands.add(new THREE.BoxGeometry(0.1, 0.16, z1 - z0 - 3), 0x7ff3ff, { pos: [x0 + 0.06, fy + 2.7, (z0 + z1) / 2] });
-    bands.add(new THREE.BoxGeometry(0.1, 0.16, z1 - z0 - 3), 0x7ff3ff, { pos: [x1 - 0.06, fy + 2.7, (z0 + z1) / 2] });
+    bands.add(new THREE.BoxGeometry(0.1, 0.16, z1 - z0 - 3), 0xffb060, { pos: [x0 + 0.06, fy + 2.7, (z0 + z1) / 2] });
+    bands.add(new THREE.BoxGeometry(0.1, 0.16, z1 - z0 - 3), 0xffb060, { pos: [x1 - 0.06, fy + 2.7, (z0 + z1) / 2] });
     for (let z = z0 + 3; z < z1 - 2; z += 4.2) for (const sx of [x0 + 0.06, x1 - 0.06]) {
-      bands.add(new THREE.BoxGeometry(0.08, 0.7, 0.32), 0x7ff3ff, { pos: [sx, fy + 2.7, z], rot: [0, 0, 0] });
+      bands.add(new THREE.BoxGeometry(0.08, 0.7, 0.32), 0xffb060, { pos: [sx, fy + 2.7, z], rot: [0, 0, 0] });
     }
   }
-  for (let z = 36; z > -28; z -= 3.4) pathA.add(new THREE.BoxGeometry(0.55, 0.03, 1.9), 0x7ff3ff, { pos: [0, fy + 0.04, z] });
+  for (let z = 36; z > -28; z -= 3.4) pathA.add(new THREE.BoxGeometry(0.55, 0.03, 1.9), 0xffb060, { pos: [0, fy + 0.04, z] });
   for (let z = -33; z > -78; z -= 3.4) pathC.add(new THREE.BoxGeometry(0.55, 0.03, 1.9), 0xffe08a, { pos: [0, fy + 0.04, z] });
   const glowMat = (op) => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: true });
   V.bandMesh = new THREE.Mesh(bands.build(), glowMat(0.75));
@@ -168,14 +168,14 @@ export function buildVault(scene) {
   }
 
   // the rune ring on the throne dais, and the seal across the corridor
-  const glow = new THREE.MeshBasicMaterial({ color: 0x7ff3ff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+  const glow = new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
   const ring = new THREE.Mesh(new THREE.RingGeometry(5.0, 5.35, 48), glow);
   ring.rotation.x = -Math.PI / 2; ring.position.set(0, fy + 0.3, -66);
   V.group.add(ring); V.ring = ring;
   const film = new THREE.CanvasTexture((() => {
     const cv = document.createElement('canvas'); cv.width = cv.height = 128; const c = cv.getContext('2d');
-    const gr = c.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, 'rgba(150,235,255,0.15)'); gr.addColorStop(1, 'rgba(150,235,255,0.55)');
-    c.fillStyle = gr; c.fillRect(0, 0, 128, 128); c.strokeStyle = 'rgba(220,250,255,0.75)'; c.lineWidth = 2;
+    const gr = c.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, 'rgba(255,190,110,0.15)'); gr.addColorStop(1, 'rgba(255,190,110,0.55)');
+    c.fillStyle = gr; c.fillRect(0, 0, 128, 128); c.strokeStyle = 'rgba(255,235,200,0.75)'; c.lineWidth = 2;
     for (let i = 1; i < 8; i++) { c.beginPath(); c.moveTo(0, i * 16); c.lineTo(128, i * 16 + (i % 2 ? 6 : -6)); c.stroke(); }
     return cv;
   })());

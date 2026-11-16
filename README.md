@@ -245,6 +245,38 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b31: soldiers, readable fights, finishing moves
+
+The monsters are gone. The vale is held by the Ashen Company: footmen and spearmen behind shields, swordsmen who parry,
+crossbowmen who keep their range, captains and a warlord. They are skinned men built from the same rig as the hero
+(`js/soldiers.js`: cached per-style armour, one rig clone each, far ones animate at a coarse step; at most 12 are drawn).
+No flyers, no stone creatures. Wolves stay as the one animal.
+
+**How a fight works** (`js/soldier_ai.js`). Only two soldiers attack at once (attack tokens); the rest circle behind their
+shields. An attacker closes, *winds up* (raised blade, a marker over the head), strikes, then recovers, open. Every attack
+has an answer:
+
+| Marker | Attack | Answer |
+|---|---|---|
+| yellow `!` | slash, thrust | parry (a fresh guard raise just before it lands) or dodge |
+| red `!!` | heavy, shield bash | cannot be parried: dodge it, or take it on the shield |
+| bolt | crossbow | dodge or shield |
+
+A parry shows the clash (sparks where the blades meet) and leaves the soldier **stunned and open**. Shield soldiers turn
+light blows from the front: break them with a held heavy blow, a shield bash, or go round behind. Swordsmen sometimes
+parry a quick tap of yours.
+
+**Flow and finishers** (`js/melee.js`). Steer toward a man and attack: you face him, dash onto him and strike (freeflow).
+Six unblocked hits fill the flow meter; a stunned man, or anyone once flow is full, can be finished with G or the finish
+button: four kill moves (overhead, thrust, roll-behind, shield slam) with a short kill-cam, input locked and untouchable
+until it ends, then a little health back. Being hit breaks the flow.
+
+**Medieval pass.** Rune, altar, vault and warden language became watch-fires, a war camp, the Undercroft, a gaoler and a
+warlord; light/dark forms became Shield Wall / Battle Rage; the rune weapon is a fire pot; glows are firelight, not cyan.
+
+Tests (scratch, not in the repo): fight_test (13), combat_test, adv_func, p2_test, vault_test, rt1, rt31 (Trial waves,
+restart mid-finisher, leak check). Combat sim cost about 1.3 ms a frame with 12 soldiers on this box.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

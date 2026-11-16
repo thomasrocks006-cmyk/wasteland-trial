@@ -55,13 +55,15 @@
   <div id="banner"><i></i><b></b></div>
   <div id="lockMark" class="hidden"></div>
   <button id="btnUse" aria-label="Use the place in front of you" class="hidden"><i>USE</i><span id="useWhy"></span></button>
+  <button id="btnFinish" class="hidden" aria-label="Finishing move"><i>FINISH</i><span id="finishWhy"></span></button>
+  <div id="flow" class="hidden"><b id="flowN">0</b><span>FLOW</span><div id="flowBar"><div id="flowFill"></div></div><em id="flowHint">FINISHER READY</em></div>
 
   <!-- health -->
   <div id="healthWrap">
     <div id="healthBar"><div id="healthFill"></div></div>
     <div id="healthNum">100</div>
     <div id="shieldFill"></div>
-    <div id="ecoWrap"><div id="ecoFill"></div><span id="ecoLabel">CHARGE</span></div>
+    <div id="ecoWrap"><div id="ecoFill"></div><span id="ecoLabel">FURY</span></div>
     <div id="stamWrap"><div id="stamFill"></div></div>
     <div id="lvlRow"><span id="lvlNum">LV 1</span><div id="xpTrack"><div id="xpFill"></div></div></div>
   </div>
@@ -85,7 +87,7 @@
     <button class="wslot" data-w="0"><i>1</i><b>SWORD</b></button>
     <button class="wslot" data-w="1"><i>2</i><b>AXE</b></button>
     <button class="wslot" data-w="2"><i>3</i><b>SPEAR</b></button>
-    <button class="wslot" data-w="3"><i>4</i><b>RUNE</b></button>
+    <button class="wslot" data-w="3"><i>4</i><b>FIRE POT</b></button>
   </div>
 
   <!-- touch controls -->
@@ -93,8 +95,8 @@
   <div id="lookZone"></div>
 
   <div id="buttons">
-    <button id="btnLight" class="tbtn small eco light">LIGHT</button>
-    <button id="btnDark" class="tbtn small eco dark">DARK</button>
+    <button id="btnLight" class="tbtn small eco light">WALL</button>
+    <button id="btnDark" class="tbtn small eco dark">RAGE</button>
     <button id="btnAim" class="tbtn small">AIM</button>
     <button id="btnJump" class="tbtn small">JUMP</button>
     <button id="btnReload" class="tbtn small">RELOAD</button>
@@ -132,7 +134,7 @@
 <div id="mapCard" class="hidden">
   <div class="mapInner">
     <canvas id="mapCanvas" width="720" height="720"></canvas>
-    <div class="mapKey">◆ RUNE &nbsp; ▲ BEACON &nbsp; ◈ ALTAR &nbsp; ■ CACHE &nbsp; ✦ INSCRIPTION &nbsp; ▣ GATE &nbsp; <span style="color:#7ff3ff">▲ YOU</span></div>
+    <div class="mapKey">◆ WATCH-FIRE &nbsp; ▲ BEACON &nbsp; ◈ WAR CAMP &nbsp; ■ CACHE &nbsp; ✦ CARVING &nbsp; ▣ GATE &nbsp; <span style="color:#7ff3ff">▲ YOU</span></div>
     <button id="mapClose" class="ghostWide">CLOSE MAP</button>
   </div>
 </div>
@@ -149,7 +151,7 @@
 <div id="victory" class="screen hidden">
   <div class="deathInner">
     <div class="kicker">THE PASS</div>
-    <h2>THE WARDEN FALLS</h2>
+    <h2>THE WARLORD FALLS</h2>
     <p class="blurb" style="margin:0 auto 22px">The seal gives. Below the parapet the lowland lies open, green to the far mountains. The way down is yours when the next road is cut.</p>
     <button id="victoryClose" class="cta">WANDER ON</button>
   </div>
@@ -161,7 +163,7 @@
   <div class="titleInner">
     <div class="kicker">THIRD-PERSON MYTHIC ACTION</div>
     <h1>WASTELAND<span>TRIAL</span></h1>
-    <p class="blurb">Walk the vale. Light the old runes, answer the beacons, wake the stones, and open the pass. Sword, axe, spear and fire rune; guard, parry and the heavy strike. Or hold the line in the Trial.</p>
+    <p class="blurb">Walk the vale. Light the watch-fires, take the war camp and force the pass. Sword and shield: parry the blade, break the shield wall, finish the wounded. Or hold the line in the Trial.</p>
     <button id="btnStart" class="cta">WANDER THE VALE</button>
     <button id="btnTrial" class="ghostWide">THE TRIAL · ENDLESS WAVES</button>
     <div class="titleMeta">
@@ -169,7 +171,7 @@
       <div><span class="k">BEST SCORE</span><b id="tBestScore">—</b></div>
       <div><span class="k">TOTAL KILLS</span><b id="tKills">—</b></div>
       <div><span class="k">VALE LEVEL</span><b id="tLevel">1</b></div>
-      <div><span class="k">LIGHTS</span><b id="tLights">0/5</b></div>
+      <div><span class="k">FIRES</span><b id="tLights">0/5</b></div>
     </div>
     <div class="hintRow">
       <span>LEFT STICK MOVE</span><span>DRAG RIGHT TO AIM</span><span>STRIKE BUTTON TO ATTACK</span>
@@ -195,7 +197,7 @@
     <button id="btnQuit" class="ghostWide">ABANDON RUN</button>
     <div id="journal" class="hidden">
       <div class="jHead"><b id="jLevel">LEVEL 1</b><span id="jXp">0 / 60 XP</span></div>
-      <div class="jRow"><span>LIGHTS</span><b id="jRunes">0 / 5</b></div>
+      <div class="jRow"><span>FIRES</span><b id="jRunes">0 / 5</b></div>
       <div class="jRow"><span>PLACES FOUND</span><b id="jPlaces">0 / 13</b></div>
       <div class="jRow"><span>THE PASS</span><b id="jPass">SEALED</b></div>
       <div class="jRow"><span>SLAIN · PARRIES</span><b id="jKills">0 · 0</b></div>
@@ -238,7 +240,7 @@
       <div><span>UPGRADES</span><b id="dUpg">0</b></div>
     </div>
     <div id="dPerks" class="dPerks"></div>
-    <div id="keptNote" class="dPerks hidden">YOUR LIGHTS, LEVELS AND FINDS ARE KEPT</div>
+    <div id="keptNote" class="dPerks hidden">YOUR FIRES, LEVELS AND FINDS ARE KEPT</div>
     <div id="newBest" class="newBest hidden">NEW RECORD</div>
     <button id="btnRetry" class="cta">RUN IT AGAIN</button>
     <button id="btnMenu" class="ghostWide">BACK TO TITLE</button>

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Tokens, newAI, think, stun, endAttack } from './soldier_ai.js';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, rnd, rng, pick,
   terrainHeight, Builder, raySphere, angleTo, ARENA_R, addRim
@@ -250,30 +251,30 @@ const segScale = (i) => 1 - (i + 1) * 0.085;
 
 /* ------------------------------------------------------------------ types */
 export const ENEMY_TYPES = {
-  grunt: {
-    key: 'grunt', hp: 70, speed: 3.9, radius: 0.52, height: 1.75, headY: 1.26, headR: 0.30, eye: [0.065, 1.27, 0.33],
-    dmg: 9, attackRange: 1.75, attackCd: 1.35, score: 100, hudName: 'GRUNT',
-    parts: gruntParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
-    legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
-    armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
+  /* the vale's armed men. They are skinned soldiers (soldiers.js) fought by soldier_ai.js. */
+  footman: {
+    key: 'footman', soldier: true, style: 'footman', hp: 85, speed: 3.1, radius: 0.5, height: 1.78, headY: 1.62, headR: 0.15,
+    dmg: 12, reach: 2.1, score: 110, hudName: 'FOOTMAN', shield: true, attacks: ['slash', 'slash', 'bash'], parries: 0,
+  },
+  swordsman: {
+    key: 'swordsman', soldier: true, style: 'swordsman', hp: 65, speed: 3.9, radius: 0.48, height: 1.78, headY: 1.62, headR: 0.15,
+    dmg: 11, reach: 2.1, score: 100, hudName: 'SWORDSMAN', attacks: ['slash', 'slash'], parries: 0.3,
+  },
+  spearman: {
+    key: 'spearman', soldier: true, style: 'spearman', hp: 75, speed: 3.0, radius: 0.5, height: 1.82, headY: 1.66, headR: 0.15,
+    dmg: 13, reach: 3.1, score: 130, hudName: 'SPEARMAN', shield: true, attacks: ['thrust', 'thrust', 'slash'], parries: 0,
   },
   shooter: {
-    key: 'shooter', hp: 95, speed: 2.9, radius: 0.50, height: 2.05, headY: 1.84, headR: 0.26, eye: [0.045, 1.85, 0.16],
-    dmg: 9, attackRange: 30, preferred: 15, attackCd: 2.1, score: 150, hudName: 'SHARPSHOOTER',
-    parts: shooterParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
-    legPivots: { legL: [-0.15, 1.02, 0], legR: [0.15, 1.02, 0] },
-    armPivots: { armL: [-0.30, 1.56, 0], armR: [0.34, 1.34, 0.16] },
+    key: 'shooter', soldier: true, style: 'crossbow', hp: 55, speed: 2.9, radius: 0.46, height: 1.75, headY: 1.6, headR: 0.15,
+    dmg: 14, reach: 22, score: 140, hudName: 'CROSSBOWMAN', ranged: true, attacks: ['shoot'],
   },
-  brute: {
-    key: 'brute', hp: 330, speed: 2.5, radius: 1.05, height: 2.0, headY: 1.24, headR: 0.44, eye: [0.15, 1.31, 1.28],
-    dmg: 20, attackRange: 3.3, attackCd: 1.7, score: 400, hudName: 'BRUTE', heavy: true,
-    parts: bruteParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
-    legPivots: { legL: [-0.55, 1.02, 0.62], legR: [0.55, 1.02, 0.62], legL2: [-0.55, 1.02, -0.62], legR2: [0.55, 1.02, -0.62] },
+  captain: {
+    key: 'captain', soldier: true, style: 'captain', hp: 210, speed: 2.9, radius: 0.55, height: 1.98, headY: 1.82, headR: 0.17, armor: 0.7,
+    dmg: 24, reach: 2.4, score: 420, hudName: 'CAPTAIN', heavy: true, attacks: ['heavy', 'slash', 'slash'], parries: 0.2,
   },
-  wasp: {
-    key: 'wasp', hp: 48, speed: 6.4, radius: 0.46, height: 0.9, headY: 0.5, headR: 0.26, eye: [0.05, 0.07, 0.38],
-    dmg: 7, attackRange: 2.2, attackCd: 1.2, score: 120, hudName: 'STINGER', flying: true, flyH: 3.1,
-    parts: waspParts, partList: ['body', 'wingL', 'wingR'],
+  boss: {
+    key: 'boss', soldier: true, style: 'warlord', hp: 780, speed: 3.0, radius: 0.62, height: 2.2, headY: 2.0, headR: 0.18, armor: 0.6,
+    dmg: 28, reach: 2.7, score: 2500, hudName: 'WARLORD', boss: true, heavy: true, shield: true, attacks: ['heavy', 'slash', 'bash', 'slash'], parries: 0.15,
   },
   wolf: {
     key: 'wolf', hp: 58, speed: 6.6, radius: 0.5, height: 1.0, headY: 1.0, headR: 0.2, eye: [0.05, 1.06, 0.94],
@@ -281,33 +282,12 @@ export const ENEMY_TYPES = {
     parts: wolfParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
     legPivots: { legL: [-0.15, 0.66, 0.42], legR: [0.15, 0.66, 0.42], legL2: [-0.15, 0.66, -0.4], legR2: [0.15, 0.66, -0.4] },
   },
-  stonekin: {
-    key: 'stonekin', hp: 230, speed: 2.8, radius: 0.78, height: 2.55, headY: 1.83, headR: 0.44, eye: [0.094, 1.84, 0.48],
-    dmg: 19, attackRange: 2.5, attackCd: 2.1, score: 260, hudName: 'STONEKIN', heavy: true, windup: 0.5,
-    size: 1.45, matte: true,
-    parts: stonekinParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
-    legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
-    armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
-  },
-  colossus: {
-    key: 'colossus', hp: 1500, speed: 2.35, radius: 1.45, height: 4.75, headY: 3.4, headR: 0.85, eye: [0.175, 3.43, 0.89],
-    dmg: 30, attackRange: 4.4, attackCd: 2.6, score: 2600, hudName: 'STONE WARDEN', heavy: true, windup: 0.9,
-    size: 2.7, matte: true, bar: true,
-    parts: stonekinParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
-    legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
-    armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
-  },
-  boss: {
-    key: 'boss', hp: 1500, speed: 2.2, radius: 1.9, height: 2.4, headY: 1.7, headR: 0.75, eye: [0.24, 1.72, 1.52],
-    dmg: 26, attackRange: 4.2, attackCd: 1.9, score: 2500, hudName: 'IRONCOIL', boss: true, heavy: true,
-    parts: bossParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
-    legPivots: { legL: [-0.9, 1.2, 0.9], legR: [0.9, 1.2, 0.9], legL2: [-0.9, 1.2, -1.5], legR2: [0.9, 1.2, -1.5] },
-  },
 };
 
 /* ------------------------------------------------------------------ instancers */
 // generous: an enemy past its type's cap is simulated but never drawn, which reads as being hit by nothing
-const MAX_PER_TYPE = { grunt: 40, shooter: 24, brute: 16, wasp: 24, boss: 2, wolf: 40, stonekin: 24, colossus: 2 };
+const MAX_PER_TYPE = { wolf: 40 };
+const DRAW_SOLDIERS = 12;      // skinned soldiers drawn at once (about 7 draw calls each)
 
 class TypeRender {
   constructor(scene, type) {
@@ -345,7 +325,9 @@ export class Enemies {
     this.player = player;
     this.list = [];
     this.renders = {};
-    for (const k of Object.keys(ENEMY_TYPES)) this.renders[k] = new TypeRender(scene, ENEMY_TYPES[k]);
+    for (const k of Object.keys(ENEMY_TYPES)) if (!ENEMY_TYPES[k].soldier) this.renders[k] = new TypeRender(scene, ENEMY_TYPES[k]);
+    this.tokens = new Tokens();      // who may attack right now
+    this.factory = null;             // set once the soldier asset is loaded
 
     // enemy projectiles
     const geo = new THREE.SphereGeometry(0.14, 6, 5);
@@ -386,6 +368,7 @@ export class Enemies {
     this.onEnrage = null;
   }
 
+  setFactory(f) { this.factory = f; }
   get alive() { return this.list.filter(e => e.alive); }
   get count() { return this.list.reduce((n, e) => n + (e.alive ? 1 : 0), 0); }
 
@@ -410,7 +393,12 @@ export class Enemies {
       targetHeight: t.flying ? t.flyH : 0,
       chargeCd: rnd(2.5, 5), pendingHit: 0,
     };
-    if (t.boss) {
+    if (t.soldier && this.factory) {
+      e.view = this.factory.create(t.style); this.scene.add(e.view.root);
+      e.ai = newAI(e); e.state = 'chase'; e.spawnT = 1; e.scale = 1;
+      e.yaw = this.player ? Math.atan2(this.player.pos.x - x, this.player.pos.z - z) : e.yaw;
+    }
+    if (t.boss && !t.soldier) {
       e.speed = t.speed;
       // face the hero from the start, body laid out straight behind
       if (this.player) e.yaw = Math.atan2(this.player.pos.x - x, this.player.pos.z - z);
@@ -421,17 +409,40 @@ export class Enemies {
       }
     }
     this.list.push(e);
-    if (this.fx) {
+    if (this.fx && !e.view) {
       // summoned in a ring of rune light
-      this.fx.ring(new THREE.Vector3(x, terrainHeight(x, z) + 0.1, z), 0x7ff3ff, 2.4, 0.7);
-      this.fx.ecoBurst(new THREE.Vector3(x, terrainHeight(x, z) + 0.8, z), 0x9ff4ff, 12, 0.8);
+      this.fx.ring(new THREE.Vector3(x, terrainHeight(x, z) + 0.1, z), 0xd8c8a8, 2.4, 0.7);
+      this.fx.ecoBurst(new THREE.Vector3(x, terrainHeight(x, z) + 0.8, z), 0xb8a888, 12, 0.8);
     }
     return e;
   }
 
   /* ---------------- damage ---------------- */
-  hit(e, amount, point, dir, head, weapon) {
-    if (!e.alive) return;
+  /**
+   * A blow lands on e. info: { heavy, breaks, riposte, exec }. Returns 'blocked' when a raised shield or a quick blade turned it,
+   * otherwise 'hit'. A shield soldier's front is closed to light blows: break it with a heavy blow, a shield bash, or by
+   * going round behind.
+   */
+  hit(e, amount, point, dir, head, weapon, info = null) {
+    if (!e.alive) return null;
+    const ai = e.ai;
+    if (ai && !(info && info.exec)) {
+      const frontal = dir && Math.abs(angleTo(e.yaw, Math.atan2(-dir.x, -dir.z))) < 1.15;
+      const guarded = ai.guarding && e.type.shield && ai.mode !== 'stun';
+      const quick = !guarded && e.type.parries && (ai.mode === 'circle' || ai.mode === 'close') && Math.random() < e.type.parries * (info && info.riposte ? 0.0 : 1);
+      const breaks = info && (info.heavy || info.breaks);
+      if (frontal && (guarded || quick) && !breaks) {
+        // the blow rings off a shield or a parrying blade
+        if (this.fx && point) { this.fx.spark(point, dir ? dir.clone().negate() : new THREE.Vector3(0, 1, 0), 0xffe6a0, 9, 6, 0.1, 0.3); this.fx.ring(point, 0xffd9a0, 0.9, 0.18); }
+        if (this.audio && this.audio.clang) this.audio.clang(2, false);
+        if (e.view) e.view.kick = 1;
+        if (quick && ai.mode !== 'stun') { ai.cd = Math.min(ai.cd, 0.25); }
+        if (this.onBlocked) this.onBlocked(e, point);
+        return 'blocked';
+      }
+      if (guarded && breaks) { stun(this, e, 1.5); if (this.fx && point) this.fx.ring(point, 0xffb040, 2.2, 0.3); if (this.audio && this.audio.roar) this.audio.roar(6); }
+      if (e.type.armor && !(info && (info.heavy || info.riposte || info.exec))) amount *= e.type.armor;
+    }
     e.hp -= amount;
     e.flash = 1;
     e.hurtT = 0.12;
@@ -446,8 +457,11 @@ export class Enemies {
     if (this.onHit) this.onHit(e, head, e.hp <= 0);
     // a big hit breaks a brute's charge; it waits before trying again
     if ((e.state === 'windup' || e.state === 'charge') && amount > 60) e.chargeCd = rnd(3, 5);
-    if (e.type.heavy) {
-      // heavy enemies only stagger on big hits
+    if (e.ai) {
+      // a soldier flinches from a real blow and loses the attack he was winding up
+      const need = e.type.heavy ? 45 : 22;
+      if (amount >= need && e.ai.mode !== 'stun') this.stagger(e, e.type.heavy ? 0.35 : 0.5);
+    } else if (e.type.heavy) {
       if (amount > 60) { e.state = 'stagger'; e.stateT = 0.25; }
     } else if (amount > 24) {
       e.state = 'stagger'; e.stateT = 0.18;
@@ -457,29 +471,39 @@ export class Enemies {
       const kb = e.type.heavy ? 0.35 : 1.0;
       e.vel.addScaledVector(new THREE.Vector3(dir.x, 0, dir.z).normalize(), amount * 0.05 * kb);
     }
+    if (e.view && e.hp > 0) e.view.hitReact(!!head);
     if (e.hp <= 0) this.kill(e);
+    return 'hit';
   }
 
   /** knocked off balance for a moment: it cannot act, and a blow it was winding up is lost */
   stagger(e, dur) {
     if (!e.alive || e.state === 'spawn') return;
     if (e.type.boss) dur *= 0.35;
+    if (e.ai && e.ai.mode !== 'stun') { endAttack(this, e, 0.7); e.ai.mode = 'circle'; }
     e.pendingHit = 0; e.state = 'stagger'; e.stateT = 0; e.staggerDur = Math.max(e.staggerDur || 0, dur); e.flash = 1;
   }
 
+  stun(e, dur) { if (e.alive && e.ai) stun(this, e, dur); }
+  releaseToken(e) { this.tokens.release(e); }
+
+  /** open to a finishing move: stunned, or beaten down and staggered */
+  isExecutable(e) { return !!(e.alive && e.ai && (e.ai.mode === 'stun' || (e.state === 'stagger' && e.hp < e.maxHp * 0.35))); }
+
   /** a parry: whoever struck from (x, z) is thrown off balance and left open */
-  parried(x, z) {
-    let best = null, bd = 7;
-    for (const e of this.list) {
+  parried(x, z, src = null) {
+    let best = src && src.alive ? src : null, bd = 7;
+    if (!best) for (const e of this.list) {
       if (!e.alive) continue;
       const d = Math.hypot(e.pos.x - x, e.pos.z - z);
       if (d < bd) { bd = d; best = e; }
     }
     if (!best) return null;
+    if (best.ai) { stun(this, best, best.type.boss ? 1.1 : 1.9); best.state = 'chase'; if (best.view) best.view.hitReact(true); return best; }
     best.pendingHit = 0;
     best.state = 'stagger'; best.stateT = 0; best.staggerDur = best.type.boss ? 0.7 : 1.3;
     best.flash = 1; best.attackCd = Math.max(best.attackCd, 1.0);
-    if (this.fx) this.fx.ring(new THREE.Vector3(best.pos.x, best.pos.y + 1.1, best.pos.z), 0x9ff4ff, 2.2, 0.4);
+    if (this.fx) this.fx.ring(new THREE.Vector3(best.pos.x, best.pos.y + 1.1, best.pos.z), 0xffd8a0, 2.2, 0.4);
     return best;
   }
 
@@ -501,8 +525,9 @@ export class Enemies {
     e.alive = false;
     e.dying = 0;
     e.state = 'dead';
+    if (e.view) { e.view.die(); this.tokens.release(e); e.ai.mode = 'dead'; e.ai.tell = null; e.view.setLayer(null); }
     // the killing blow throws the body: away from the shot, up, and tumbling over
-    if (!e.type.boss) {
+    if (!e.type.boss && !e.view) {
       const d = e.lastDir || new THREE.Vector3(-Math.sin(e.yaw), 0, -Math.cos(e.yaw));
       const hx = d.x, hz = d.z, hl = Math.hypot(hx, hz) || 1;
       const heavy = e.type.heavy ? 0.35 : 1;
@@ -512,7 +537,8 @@ export class Enemies {
       e.tumbleW = (e.type.heavy ? 3 : 7) * (0.8 + rng() * 0.4);
       e.tumble = 0;
     }
-    if (this.fx) {
+    if (this.fx && e.view) { this.fx.puff(new THREE.Vector3(e.pos.x, e.pos.y + 0.8, e.pos.z), null, 0x6a5a48, 0.6, 3, 0.9, 1.4); }
+    else if (this.fx) {
       const p = new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z);
       this.fx.ecoBurst(p, e.type.boss ? 0xff8040 : (e.key === 'wasp' ? 0xffd060 : 0x37e0c8), e.type.boss ? 40 : 16, e.type.boss ? 2 : 1);
       this.fx.puff(p, null, 0x6a5a48, e.type.boss ? 2.2 : 0.7, e.type.boss ? 8 : 2, 1.1, 1.6);
@@ -595,6 +621,7 @@ export class Enemies {
 
   /* ---------------- main update ---------------- */
   update(dt, time) {
+    this.lastDt = dt;
     const p = this.player;
     const pp = p.pos;
 
@@ -603,7 +630,15 @@ export class Enemies {
       const e = this.list[i];
       if (!e.alive) {
         e.dying += dt;
-        if (e.dying > DEATH_T) { this.list.splice(i, 1); continue; }
+        if (e.dying > (e.view ? 4.2 : DEATH_T)) { if (e.view) e.view.dispose(); this.list.splice(i, 1); continue; }
+        if (e.view) {
+          // a soldier falls by the captured death clip, lies a while, then sinks
+          if (e.dying > 3.0) e.pos.y -= dt * 0.7;
+          e.scale = 1;
+          e.view.root.position.copy(e.pos); e.view.root.rotation.y = e.yaw;
+          e.view.update(dt, { speed: 0, drawn: true, guard: false, dist: e.pos.distanceTo(pp) });
+          i++; continue;
+        }
         if (e.dv) this.updateCorpse(e, dt);
         else {
           // the boss sinks in place
@@ -654,8 +689,8 @@ export class Enemies {
     // always face the player unless staggered; a charging brute is committed
     if (e.passive && !e.aggro) { /* a patrol faces where it walks (below) */ }
     else if (e.state === 'charge') e.yaw = Math.atan2(e.chargeX, e.chargeZ);
-    else if (e.state !== 'stagger') {
-      e.yaw = dampAngle(e.yaw, Math.atan2(dx, dz), e.type.boss ? 3.2 : 7, dt);
+    else if (e.state !== 'stagger' && !(e.ai && e.ai.noFace)) {
+      e.yaw = dampAngle(e.yaw, Math.atan2(dx, dz), e.type.boss ? 3.2 : e.ai ? 9 : 7, dt);
     }
 
     let moveX = 0, moveZ = 0;
@@ -672,6 +707,10 @@ export class Enemies {
       if (dist < (t.key === 'shooter' ? 24 : 16)) this.alert(e);
     } else if (e.state === 'stagger') {
       if (e.stateT > (e.staggerDur || 0.22)) { e.state = 'chase'; e.stateT = 0; e.staggerDur = 0; }
+    } else if (e.ai) {
+      // a soldier: the AI decides where to go and what to do; the integration below moves him
+      const o = think(this, e, dt, dist, dirX, dirZ, pp);
+      moveX = o.mx; moveZ = o.mz; speed = o.speed; e.ai.noFace = !o.face;
     } else if (t.key === 'colossus') {
       // the Stone Warden: it raises both fists (a long, readable tell), then brings them down. The shock
       // runs out along the ground: jump it, or be somewhere else. Below half health it also rings the room with bolts.
@@ -1052,7 +1091,7 @@ export class Enemies {
     // eye glows
     let ei = 0;
     for (const e of this.list) {
-      if (!e.alive || ei + 2 > 160) continue;
+      if (!e.alive || e.view || ei + 2 > 160) continue;
       const t = e.type;
       const cosY = Math.cos(e.yaw), sinY = Math.sin(e.yaw);
       const col = t.boss ? 0xff5a18 : (e.key === 'wasp' ? 0xffb030 : (e.key === 'shooter' ? 0xffc860 : 0xff7a20));
@@ -1119,6 +1158,23 @@ export class Enemies {
         part.mesh.instanceMatrix.needsUpdate = true;
         if (part.mesh.instanceColor) part.mesh.instanceColor.needsUpdate = true;
       }
+    }
+
+    // soldiers: place and animate each skinned view
+    // at most DRAW_SOLDIERS are drawn and animated (the nearest); the rest still think and fight, unseen at range
+    let drawn = [];
+    for (const e of this.list) { if (e.view && e.alive) { e.vd = Math.hypot(e.pos.x - this.player.pos.x, e.pos.z - this.player.pos.z); drawn.push(e); } }
+    if (drawn.length > DRAW_SOLDIERS) { drawn.sort((a, b) => a.vd - b.vd); drawn = drawn.slice(0, DRAW_SOLDIERS); }
+    const drawSet = new Set(drawn);
+    for (const e of this.list) {
+      if (!e.view || !e.alive) continue;
+      const v = e.view, dist = e.vd;
+      v.root.visible = dist < 120 && drawSet.has(e);
+      if (!v.root.visible) continue;
+      v.root.position.copy(e.pos); v.root.rotation.y = e.yaw;
+      const sp = Math.hypot(e.vel.x, e.vel.z);
+      const rel = sp > 0.3 ? angleTo(e.yaw, Math.atan2(e.vel.x, e.vel.z)) : 0;
+      v.update(this.lastDt || 0.016, { speed: sp, drawn: !(e.passive && !e.aggro), guard: !!e.ai.guarding && !!e.type.shield, moveBack: Math.abs(rel) > 2.0, dist });
     }
 
     // boss segments
@@ -1201,6 +1257,8 @@ export class Enemies {
   }
 
   clear() {
+    for (const x of this.list) if (x.view) x.view.dispose();
+    this.tokens.clear();
     this.list.length = 0;
     this.projectiles.length = 0;
     for (const key of Object.keys(this.renders)) {

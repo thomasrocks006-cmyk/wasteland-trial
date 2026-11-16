@@ -1,0 +1,35 @@
+<!doctype html><meta charset="utf-8"><title>soldiers</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
+<body style="margin:0;background:#222"><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { loadHeroAsset } from '../js/hero.js';
+import { SoldierFactory } from '../js/soldiers.js';
+const q = new URLSearchParams(location.search); const W = 2100, H = 520;
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const r = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H, false); r.autoClear = false;
+r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.1; r.shadowMap.enabled = true;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x4a5560);
+{ const c = document.createElement('canvas'); c.width = 256; c.height = 128; const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, '#5f86bf'); g.addColorStop(0.45, '#c8d4dc'); g.addColorStop(0.5, '#ece0c8'); g.addColorStop(0.55, '#6f7e4c'); g.addColorStop(1, '#3a4630'); x.fillStyle = g; x.fillRect(0, 0, 256, 128);
+  const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; scene.environment = new THREE.PMREMGenerator(r).fromEquirectangular(t).texture; }
+scene.add(new THREE.HemisphereLight(0xdde8ff, 0x556040, 0.8)); const dl = new THREE.DirectionalLight(0xfff0d8, 2.6); dl.position.set(3, 5, 4); scene.add(dl);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshStandardMaterial({ color: 0x4a5a3c, roughness: 1 })); floor.rotation.x = -Math.PI / 2; scene.add(floor);
+const asset = await loadHeroAsset('../assets/hero.glb'); const F = new SoldierFactory(asset);
+const styles = ['footman', 'swordsman', 'spearman', 'crossbow', 'captain', 'warlord'];
+const mode = q.get('mode') || 'idle';
+const cam = new THREE.PerspectiveCamera(30, (W / 6) / H, 0.1, 50); r.clear();
+styles.forEach((s, i) => {
+  const so = F.create(s); scene.add(so.root);
+  const o = { speed: 0, drawn: true, guard: mode === 'guard', dist: 5 };
+  if (mode === 'tell') so.setLayer(s === 'spearman' ? 'Punch_Cross' : s === 'crossbow' ? 'Spell_Simple_Shoot' : 'Sword_Attack', s === 'spearman' ? 0.4 : s === 'crossbow' ? 0.2 : 0.21);
+  if (mode === 'strike') so.setLayer(s === 'spearman' ? 'Punch_Cross' : s === 'crossbow' ? 'Spell_Simple_Shoot' : 'Sword_Attack', s === 'spearman' ? 0.4 : 0.45);
+  if (mode === 'run') o.speed = 4;
+  for (let k = 0; k < 40; k++) so.update(0.03, o);
+  so.root.rotation.y = 0.5;
+  cam.position.set(Math.sin(0.1) * 4.8, 1.2, Math.cos(0.1) * 4.8); cam.lookAt(0, 0.95, 0);
+  r.setViewport(i * W / 6, 0, W / 6, H); r.setScissor(i * W / 6, 0, W / 6, H); r.setScissorTest(true); r.render(scene, cam);
+  scene.remove(so.root);
+});
+window.__out = true;
+</script>
