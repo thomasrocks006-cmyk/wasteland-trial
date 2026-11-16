@@ -26,16 +26,18 @@ const view = q.get('view') || 'front';
 r.clear();
 for (let i = 0; i < n; i++) {
   const c = cases[i];
-  hero.revive(); hero.stopLayer(); hero.ik.parry = 0; hero.ik.pw = 0; hero.setThrust(0); hero.thrust = 0;
+  hero.revive(); hero.stopLayer(); hero.setSwing(null); hero.sw.w = 0; hero.sw.last = null; hero.ik.parry = 0; hero.ik.pw = 0; hero.setThrust(0); hero.thrust = 0;
   const s = Object.assign({ speed: 0, sprint: false, grounded: true, vy: 0, drawn: true, guard: false }, c.s || {});
   let t = 0;
   if (c.layer) { const a = hero.playOnce(c.layer, { from: c.from || 0, speed: c.speed || 1 }); if (c.hold) hero.holdLayer(true); }
+  if (c.swing) { hero.playOnce('Sword_Attack', { from: c.st, bodyW: c.bw ?? 0.3 }); hero.holdLayer(true); }
   if (c.die) { hero.die(); }
   if (c.bash) hero.shieldBash(1);
   if (c.parry) hero.swordParry(9);
   if (c.thrust) hero.setThrust(1);
-  const steps = c.steps || 40; for (let k = 0; k < steps; k++) { t += 0.03; hero.update(0.03, t, s); }
+  const steps = c.steps || 40; for (let k = 0; k < steps; k++) { t += 0.03; if (c.swing) hero.setSwing(c.swing, c.st); hero.update(0.03, t, s); }
   if (c.layer && !c.hold) { /* let it run to the requested time */ }
+  { hero.root.updateMatrixWorld(true); const bw = hero.root.getWorldQuaternion(new THREE.Quaternion()).invert(); const d = new THREE.Vector3(0, -1, 0).applyQuaternion(hero.hand.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(bw); const hp = hero.hand.getWorldPosition(new THREE.Vector3()).sub(hero.upperR.getWorldPosition(new THREE.Vector3())).applyQuaternion(bw); (window.__dbg = window.__dbg || []).push({ c: c.swing + '@' + c.st, bladeRUF: [-d.x, d.y, d.z].map(v => +v.toFixed(2)), handRUF: [-hp.x, hp.y, hp.z].map(v => +v.toFixed(2)), w: +hero.sw.w.toFixed(2) }); }
   hero.root.rotation.y = c.yaw || 0;
   const ang = c.cam === 'side' ? Math.PI / 2 : c.cam === 'back' ? Math.PI : c.cam === '3q' ? 0.6 : 0; const D = 4.6;
   cam.position.set(Math.sin(ang) * D, 1.15, Math.cos(ang) * D); cam.lookAt(0, 0.95, 0);

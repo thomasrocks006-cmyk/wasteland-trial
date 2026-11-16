@@ -642,7 +642,9 @@ export class Player {
     if (this.iframe > 0) return;
     amount *= this.armorMul;
     // the guard turns blows from the front: the first instant turns them completely (a parry)
-    if (this.guard && fromX !== undefined && Math.abs(angleTo(this.camYaw, Math.atan2(fromX - this.pos.x, fromZ - this.pos.z))) < 1.9) {
+    const fromD = fromX !== undefined ? Math.hypot(fromX - this.pos.x, fromZ - this.pos.z) : 0;
+    // a blow from right in your face is a frontal blow (at a hand's breadth the bearing means nothing)
+    if (this.guard && fromX !== undefined && (fromD < 0.6 || Math.abs(angleTo(this.camYaw, Math.atan2(fromX - this.pos.x, fromZ - this.pos.z))) < 1.9)) {
       this.iframe = 0.25;
       const unparryable = kind === 'heavy' || kind === 'bash' || kind === 'shoot';
       if (!unparryable && this.parryReady && this.guardT <= this.parryWindow) {
@@ -650,6 +652,7 @@ export class Player {
         this.shieldMat.opacity = 1;
         if (this.hero) this.hero.shieldHit(true);
         this.riposteT = 1.1;
+        this.lastDefence = 'parry';
         if (this.onParry) this.onParry(fromX, fromZ, src);
         return;
       }
@@ -658,6 +661,7 @@ export class Player {
         this.stam = 0; this.exhausted = true; this.guard = false; this.stamDelay = 1.2;
         this.hp = Math.max(0, this.hp - amount * 0.6 * this.dmgTakenMul);
         this.hurtFlash = 1; this.shake = Math.min(2.0, this.shake + 0.6);
+        this.lastDefence = 'broken';
         if (this.onGuardBreak) this.onGuardBreak();
         if (this.hp <= 0) this.alive = false;
         return;
@@ -668,6 +672,7 @@ export class Player {
       this.shake = Math.min(2.0, this.shake + 0.25);
       if (this.hero) this.hero.shieldHit(false);
       if (kind === 'bash' || kind === 'heavy') this.guardT = 0;        // a hard blow rattles the guard: no parry for a moment
+      this.lastDefence = 'block';
       if (this.onBlock) this.onBlock(fromX, fromZ, src, kind);
       if (this.hp <= 0) this.alive = false;
       return;
@@ -770,6 +775,7 @@ export class Player {
     if (this.staminaOn) {
       const wasGuard = this.guard;
       this.guard = !!input.guard && !this.exhausted && this.dodging <= 0 && this.grounded;
+      if (this.guard && !wasGuard && this.onGuardRaise) this.onGuardRaise();       // a COUNTER, if a yellow blow is coming
       if (this.guard && !wasGuard) { this.parryReady = this.guardIdle >= 0.55; if (this.hero && this.parryReady) this.hero.swordParry(this.parryWindow + 0.04); }     // a raise soon after a drop is a plain block
       this.guardIdle = this.guard ? 0 : this.guardIdle + dt;
       this.guardT = this.guard ? this.guardT + dt : 0;

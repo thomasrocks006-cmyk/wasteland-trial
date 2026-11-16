@@ -78,6 +78,22 @@ export class FX {
       blending: THREE.NormalBlending, vertexColors: false, fog: true, opacity: 0.55
     }), 46);
 
+    // ---- blood: droplets that fall and land as stains, and stains that stay a while
+    {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 64; const c = cv.getContext('2d');
+      const g = c.createRadialGradient(32, 32, 4, 32, 32, 30); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.6, 'rgba(255,255,255,0.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = g; c.fillRect(0, 0, 64, 64);
+      const drop = new THREE.CanvasTexture(cv);
+      this.blood = new Pool(scene, quad, new THREE.MeshBasicMaterial({ map: drop, transparent: true, depthWrite: false, fog: true }), quality === 'fast' ? 140 : 300);
+      // a stain: an irregular splash, drawn once
+      const cv2 = document.createElement('canvas'); cv2.width = cv2.height = 128; const c2 = cv2.getContext('2d');
+      const r = rng;
+      c2.fillStyle = 'rgba(255,255,255,0.95)';
+      for (let i = 0; i < 26; i++) { const a = r() * TAU, d = i < 6 ? r() * 14 : 18 + r() * 40, rad = i < 6 ? 16 + r() * 10 : 2 + r() * 7; c2.beginPath(); c2.arc(64 + Math.cos(a) * d, 64 + Math.sin(a) * d, rad, 0, TAU); c2.fill(); }
+      const stain = new THREE.CanvasTexture(cv2);
+      this.stains = new Pool(scene, new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: stain, transparent: true, depthWrite: false, opacity: 0.82, fog: true, polygonOffset: true, polygonOffsetFactor: -2 }), 90);
+    }
+
     // ---- shockwave rings
     const ringGeo = new THREE.RingGeometry(0.72, 1.0, 20);
     this.rings = new Pool(scene, ringGeo, new THREE.MeshBasicMaterial({
@@ -233,6 +249,22 @@ export class FX {
       x: pos.x + normal.x * 0.03, y: pos.y + normal.y * 0.03, z: pos.z + normal.z * 0.03,
       n: normal.clone(), size, life, max: life, color
     });
+  }
+
+  /** blood from a cut: a spray along the blade's travel, a fine mist, and drops that stain the ground where they land */
+  bleed(pos, dir, amount = 1) {
+    const n = Math.round((this.quality === 'fast' ? 9 : 16) * amount);
+    for (let i = 0; i < n; i++) {
+      _v1.set(rnd(-1, 1), rnd(-0.2, 1), rnd(-1, 1)).normalize().multiplyScalar(rnd(0.6, 2.6));
+      if (dir) _v1.addScaledVector(dir, rnd(1.2, 4.2) * amount);
+      this.blood.add({ x: pos.x, y: pos.y, z: pos.z, vx: _v1.x, vy: _v1.y + 0.8, vz: _v1.z, life: 1.4, max: 1.4, size: rnd(0.025, 0.07) * (0.8 + amount * 0.4), color: Math.random() < 0.5 ? 0x5a0505 : 0x7a0b08, stain: Math.random() < 0.35 });
+    }
+    this.puff(pos, dir, 0x4a0806, 0.22 * amount, 2, 0.45, 0.8);
+    if (amount > 1.2) this.stain(pos.x, pos.z, 0.5 + amount * 0.25);
+  }
+  stain(x, z, size = 0.5) {
+    const y = terrainHeight(x, z) + 0.025;
+    this.stains.add({ x, y, z, size: size * rnd(0.7, 1.3), rot: rnd(0, TAU), life: 40, max: 40, color: Math.random() < 0.5 ? 0x3a0303 : 0x4c0606 });
   }
 
   ring(pos, color = 0xffa040, radius = 3, life = 0.4, thickness = 1) {
@@ -443,6 +475,32 @@ export class FX {
       const s = lerp(p.size, p.sizeEnd, t) * (1 - t * 0.15);
       d.position.set(p.x, p.y, p.z);
       d.quaternion.copy(cam.quaternion);
+      d.scale.set(s, s, s);
+    });
+
+    // blood
+    this.blood.items = this.blood.items.filter(p => {
+      p.life -= dt;
+      if (p.life <= 0) return false;
+      p.vy -= 9.8 * dt;
+      const damp = Math.exp(-0.9 * dt);
+      p.vx *= damp; p.vz *= damp;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      if (p.vy < 0 && p.y < terrainHeight(p.x, p.z) + 0.02) { if (p.stain) this.stain(p.x, p.z, rnd(0.08, 0.22)); return false; }
+      return true;
+    });
+    this.blood.flush((p, i, d) => {
+      d.position.set(p.x, p.y, p.z);
+      d.quaternion.copy(cam.quaternion);
+      const sp = Math.min(2.2, 1 + Math.hypot(p.vx, p.vy, p.vz) * 0.12);     // drops stretch a little as they fly
+      d.scale.set(p.size, p.size * sp, p.size);
+    });
+    this.stains.items = this.stains.items.filter(st => { st.life -= dt; return st.life > 0; });
+    this.stains.flush((st, i, d) => {
+      d.position.set(st.x, st.y, st.z);
+      d.rotation.set(-Math.PI / 2, 0, st.rot);
+      const k = Math.min(1, (st.max - st.life) * 6);                     // spreads as it lands
+      const s = st.size * (0.4 + 0.6 * k);
       d.scale.set(s, s, s);
     });
 

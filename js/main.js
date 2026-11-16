@@ -275,6 +275,11 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   onExecStart: (v, e) => { showCallout(({ overhead: 'EXECUTION', thrust: 'FINISHER', roll: 'AMBUSH', slam: 'SHIELD BREAKER' })[v] || 'FINISHER'); },
   onExecuted: (e, v) => { adv.addXp(25, 'finisher'); GAME.finishers = (GAME.finishers || 0) + 1; audio.streak(5); },
   onRiposte: () => { showCallout('RIPOSTE'); audio.streak(3); },
+  haptic: (ms) => haptic(ms),
+  onCounterRed: () => { showCallout('RED: ROLL AWAY'); audio.click(0, 0.16, 220); },
+  onCounterStart: (e, n) => { audio.impact('whoosh', 0.8); if (n > 1) showCallout('COUNTER x' + n); },
+  onSpecial: (k) => { showCallout(k === 'sweep' ? 'SWEEPING CUT' : 'SPECIAL'); timeWarp(0.3, 0.12); },
+  onBlockedByFoe: (e, kind) => { showCallout(kind === 'blade' ? 'CLASH' : 'BLOCKED'); if (kind === 'shield') tip('shield', 'HIS SHIELD STOPS LIGHT CUTS: HOLD ⚔ FOR A HEAVY BLOW, BASH WITH GUARD + ⚔, OR GO ROUND HIM'); },
   onAmmo: () => syncAmmoUI(),
 });
 
@@ -335,6 +340,15 @@ function syncAmmoUI() {
   document.querySelectorAll('.wslot').forEach((b, i) => b.classList.toggle('on', i === weapons.index));
 }
 
+/* first-fight tips: each shown once (remembered on this device) */
+const TIPS_SEEN = (() => { try { return new Set(JSON.parse(localStorage.getItem('wt-tips') || '[]')); } catch { return new Set(); } })();
+let tipBusyUntil = 0;
+function tip(id, text) {
+  if (TIPS_SEEN.has(id) || performance.now() < tipBusyUntil) return;
+  TIPS_SEEN.add(id); try { localStorage.setItem('wt-tips', JSON.stringify([...TIPS_SEEN])); } catch {}
+  const el = $('tip'); el.textContent = text; el.classList.remove('hidden', 'show'); void el.offsetWidth; el.classList.add('show');
+  tipBusyUntil = performance.now() + 5200;
+}
 function showCallout(text) {
   const el = ui.callout;
   el.textContent = text;
@@ -1061,7 +1075,7 @@ player.onParry = (x, z, src) => {
   fx.spark(at, new THREE.Vector3(0, 1, 0), 0xfff0c0, 22, 7, 0.1, 0.35);
   fx.spark(at, new THREE.Vector3(Math.sin(player.camYaw), 0.2, Math.cos(player.camYaw)), 0xffd070, 12, 5, 0.08, 0.3);
   fx.ring(at, 0xfff4d8, 1.3, 0.2);
-  audio.clang(2, true); audio.hitmarker(true);
+  audio.impact('parry', 1.2); haptic(40);
   timeWarp(0.1, 0.16);
   showCallout('PARRIED');
   GAME.parries = (GAME.parries || 0) + 1;
@@ -1069,12 +1083,26 @@ player.onParry = (x, z, src) => {
   if (performance.now() - lastParryXp > 2000) { lastParryXp = performance.now(); adv.addXp(4, 'parry'); }
 };
 player.onBlock = (x, z, src, kind) => {
-  audio.clang(1, false);
-  const at = new THREE.Vector3(player.pos.x + Math.sin(player.camYaw) * 0.7, player.pos.y + 1.2, player.pos.z + Math.cos(player.camYaw) * 0.7);
+  audio.impact('shield', kind === 'heavy' || kind === 'bash' ? 1.5 : 1.0); haptic(kind === 'heavy' ? 60 : 30);
+  const at = player.hero && player.hero.shield ? player.hero.shield.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(player.pos.x + Math.sin(player.camYaw) * 0.7, player.pos.y + 1.2, player.pos.z + Math.cos(player.camYaw) * 0.7);
   fx.spark(at, new THREE.Vector3(0, 0.6, 0), 0xffe6a0, 10, 5, 0.09, 0.25);
   if (kind === 'heavy' || kind === 'bash') { timeWarp(0.15, 0.1); showCallout(kind === 'bash' ? 'SHIELD SHOVE' : 'HEAVY BLOW'); }
 };
-player.onGuardBreak = () => { audio.playerHurt(); showCallout('GUARD BROKEN'); };
+player.onGuardBreak = () => { audio.playerHurt(); audio.impact('shield', 1.6); haptic(90); showCallout('GUARD BROKEN'); };
+// GUARD as COUNTER: a fresh raise while a yellow blow is coming turns you to meet it
+player.onGuardRaise = () => { if (GAME.state === 'playing' && weapons.melee) weapons.melee.tryCounter(); };
+enemies.onCountered = (e) => {
+  player.riposteT = 1.1;
+  player.onParry(e.pos.x, e.pos.z, e);
+  if (weapons.melee) weapons.melee.countered(e);
+  showCallout('COUNTER');
+};
+enemies.onBeaten = (e) => { showCallout('BEATEN · FINISH HIM'); audio.impact('armour', 0.8); };
+/** the phone buzzes on contact (Android; iPhones do not expose vibration to web pages); a pad rumbles */
+function haptic(ms) {
+  try { if (navigator.vibrate) navigator.vibrate(ms); } catch {}
+  try { for (const gp of (navigator.getGamepads ? navigator.getGamepads() : [])) if (gp && gp.vibrationActuator) gp.vibrationActuator.playEffect('dual-rumble', { duration: ms * 2, strongMagnitude: Math.min(1, ms / 70), weakMagnitude: 0.5 }); } catch {}
+}
 let windedAt = 0, lastParryXp = 0;
 weapons.onWinded = () => { if (performance.now() - windedAt > 900) { windedAt = performance.now(); showToast('WINDED'); } };
 
@@ -1758,7 +1786,12 @@ function updateFlow(n) {
   $('flowFill').style.width = Math.min(100, n / 6 * 100) + '%';
   el.classList.toggle('ready', n >= 6);
 }
-player.onHitTaken = () => { if (weapons.melee) weapons.melee.breakFlow(); };
+player.onHitTaken = (amount) => {
+  if (weapons.melee) weapons.melee.breakFlow();
+  // you bleed too: a spray from the chest away from the blow, and the thud of it
+  const a = player.camYaw + Math.PI, at = new THREE.Vector3(player.pos.x, player.pos.y + 1.25, player.pos.z);
+  if (amount > 4) { fx.bleed(at, new THREE.Vector3(Math.sin(a), 0.3, Math.cos(a)), Math.min(1.6, 0.6 + amount / 30)); audio.impact('flesh', Math.min(1.4, 0.6 + amount / 40)); haptic(Math.min(80, 20 + amount)); }
+};
 const tellEls = [];
 for (let k = 0; k < 6; k++) { const d = document.createElement('div'); d.className = 'tm'; d.innerHTML = '<i></i><b>!</b>'; ui.hud.appendChild(d); tellEls.push(d); }
 const _tp = new THREE.Vector3();
@@ -1776,8 +1809,21 @@ function updateTells() {
     el.style.transform = `translate(${((_tp.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_tp.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px)`;
   }
   for (; n < tellEls.length; n++) tellEls[n].style.display = 'none';
+  if (GAME.mode === 'wander' && GAME.state === 'playing') {
+    let yel = false, red = false, near = false;
+    for (const e of enemies.list) {
+      if (!e.alive || !e.ai || e.passive && !e.aggro) continue;
+      if (Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 9) near = true;
+      if (e.ai.mode === 'tell' && e.ai.tell) { if (e.ai.tell.red) red = true; else yel = true; }
+    }
+    if (near) tip('cut', 'TAP ⚔ TO CUT: THREE CUTS CHAIN · HOLD ⚔ TO CHARGE A HEAVY BLOW');
+    if (yel) tip('counter', 'YELLOW ! = PRESS COUNTER (THE GUARD BUTTON) TO TAKE HIS BLOW AND CUT BACK');
+    if (red) tip('red', 'RED !! CANNOT BE COUNTERED: DODGE, OR TAKE IT ON THE SHIELD');
+    const m = weapons.melee;
+    if (m && m.specialKind()) tip('special', 'SPECIAL IS READY: FINISH A BEATEN MAN, OR SWEEP WHEN THEY CROWD YOU');
+  }
 }
-onPress($('btnFinish'), () => { if (GAME.state === 'playing' && weapons.melee) weapons.melee.execute(); });
+onPress($('btnFinish'), () => { if (GAME.state === 'playing' && weapons.melee) weapons.melee.special(); });
 
 /* ================================================================ wander HUD */
 const compassEl = $('compassMarks'), cmk = new Map(), cmTicks = [];
@@ -1825,11 +1871,14 @@ function updateWanderHud() {
   for (const [id, el] of cmk) if (!seen.has(id)) wSet(el, 'display', 'none');
 
   // the context button
-  const n = adv.near, btn = wEl('btnUse');
-  wClass(btn, 'hidden', !n);
+  const n = adv.near, ap = adv.approach, btn = wEl('btnUse');
+  wClass(btn, 'hidden', !n && !ap);
   if (n) {
     const key = n.label + '|' + n.why + '|' + n.enabled;
     if (key !== lastUse) { lastUse = key; btn.querySelector('i').textContent = n.label; wEl('useWhy').textContent = n.why; btn.classList.toggle('off', !n.enabled); }
+  } else if (ap) {
+    const key = 'ap|' + ap.label + '|' + Math.ceil(ap.d);
+    if (key !== lastUse) { lastUse = key; btn.querySelector('i').textContent = ap.label; wEl('useWhy').textContent = 'WALK CLOSER · ' + Math.max(1, Math.ceil(ap.d)) + 'M'; btn.classList.add('off'); }
   } else lastUse = '';
 
   // the lock-on mark follows the target on screen
@@ -1843,7 +1892,11 @@ function updateWanderHud() {
   } else wClass(mark, 'hidden', true);
 
   // a finishing move is on offer
-  { const fb2 = wEl('btnFinish'), tg = weapons.melee ? weapons.melee.canExecute() : null; wClass(fb2, 'hidden', !tg); if (tg) wSet(wEl('finishWhy'), 'text', weapons.melee.flowReady && !enemies.isExecutable(tg) ? 'FLOW' : 'OPEN'); }
+  { const fb2 = wEl('btnFinish'), m = weapons.melee, k = m ? m.specialKind() : null; wClass(fb2, 'hidden', !k);
+    if (k) { const tg = k === 'finish' ? m.canExecute() : null; wSet(fb2.firstChild, 'text', k === 'finish' ? 'FINISH' : 'SWEEP'); wSet(wEl('finishWhy'), 'text', k === 'sweep' ? '3 FLOW' : m.flowReady && tg && !enemies.isExecutable(tg) ? 'FLOW' : 'OPEN'); }
+    // GUARD becomes COUNTER while a yellow blow is coming at you
+    const cnt = m && GAME.state === 'playing' ? m.counterable().list.length > 0 : false, gb = wEl('btnGuard');
+    wClass(gb, 'counter', cnt); wSet(gb, 'text', cnt ? 'COUNTER' : 'GUARD'); }
   // the strike button shows the heavy charge
   const hc = weapons.heavyCharge, fb = wEl('btnFire');
   wClass(fb, 'charging', hc > 0); wClass(fb, 'charged', hc >= 1); wClass(fb, 'winded', player.exhausted);

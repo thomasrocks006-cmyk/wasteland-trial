@@ -17,6 +17,12 @@ import { clamp, damp } from './core.js';
 const S0 = 0.96;
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const _q = new THREE.Quaternion(), _m = new THREE.Matrix4(), _v = V(), _v2 = V();
+/* wounds: one wet dark mark per cut, stuck to the bone it landed on (shared geometry and material) */
+const WOUND_GEO = new THREE.SphereGeometry(1, 9, 6);
+const WOUND_MAT = new THREE.MeshStandardMaterial({ color: 0x4e0505, roughness: 0.28, metalness: 0.05 });
+// where a cut can land: bone, its child (the far end), how far out from the bone the surface is
+const WOUND_BONES = [['DEF-spine001', 'DEF-spine002', 0.15], ['DEF-spine002', 'DEF-spine003', 0.16], ['DEF-spine003', 'DEF-neck', 0.16], ['DEF-head', null, 0.12],
+  ['DEF-upper_armL', 'DEF-forearmL', 0.07], ['DEF-upper_armR', 'DEF-forearmR', 0.07], ['DEF-forearmR', 'DEF-handR', 0.055], ['DEF-thighL', 'DEF-shinL', 0.09], ['DEF-thighR', 'DEF-shinR', 0.09]];
 
 export const SOLDIER_STYLES = {
   footman: { scale: 1.0, tunic: 0x5a2b2b, helm: 'kettle', chest: 'brigandine', arms: true, shield: 'round', weapon: 'sword', shieldColor: 0x6a3030 },
@@ -184,6 +190,22 @@ export class SoldierFactory {
   shieldGeo(kind, hex) { const k = kind + hex; return this.geo.shields[k] || (this.geo.shields[k] = shieldGeometry(kind, hex)); }
 
   create(style) { return new Soldier(this, style); }
+
+  /** every wound on every drawn soldier, in one draw call: each follows its bone */
+  flushWounds(scene, views) {
+    if (!this.woundMesh) {
+      this.woundMesh = new THREE.InstancedMesh(WOUND_GEO, WOUND_MAT, 120);
+      this.woundMesh.frustumCulled = false; this.woundMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      scene.add(this.woundMesh);
+    }
+    if (this.woundMesh.parent !== scene) scene.add(this.woundMesh);
+    let n = 0;
+    for (const v of views) {
+      if (!v.wounds.length || !v.root.visible) continue;
+      for (const w of v.wounds) { if (n >= 120) break; _m.multiplyMatrices(w.bone.matrixWorld, w.local); this.woundMesh.setMatrixAt(n++, _m); }
+    }
+    this.woundMesh.count = n; this.woundMesh.instanceMatrix.needsUpdate = true;
+  }
 }
 
 /* the clips carry the mannequin's own travel; the game owns where a soldier stands */
@@ -239,14 +261,45 @@ export class Soldier {
     mk('Idle_Loop'); mk('Sword_Idle'); mk('Walk_Loop'); mk('Jog_Fwd_Loop');
     mk('Sword_Attack', 'Sword_Attack', THREE.LoopOnce); mk('Punch_Cross', 'Punch_Cross', THREE.LoopOnce); mk('Spell_Simple_Shoot', 'Spell_Simple_Shoot', THREE.LoopOnce);
     mk('Hit_Chest', 'Hit_Chest', THREE.LoopOnce); mk('Hit_Head', 'Hit_Head', THREE.LoopOnce); mk('Death01', 'Death01', THREE.LoopOnce); mk('Roll', 'Roll', THREE.LoopOnce);
+    if (factory.clips.Crouch_Idle_Loop) mk('Crouch_Idle_Loop');
     for (const k of ['Sword_Attack', 'Punch_Cross', 'Spell_Simple_Shoot', 'Hit_Chest', 'Hit_Head', 'Death01', 'Roll']) this.A[k].paused = true;
     this.w = {}; for (const k in this.A) this.w[k] = 0; this.w.Idle_Loop = 1;
     this.layer = null;        // { name, t } : a clip whose time the AI sets directly
     this.hitW = 0; this.dead = false; this.guardW = 0; this.kick = 0; this.thrustBlend = 0; this.bash = 0; this.stunned = false;
     this.far = false; this.acc = 0;
+    this.kneel = 0; this.hurt = 0; this.wounds = []; this.phase = Math.random() * 6;
+  }
+
+  /** a cut that landed at world point p: a dark wet mark on the nearest bone's surface, facing out */
+  addWound(p, amt = 1) {
+    if (this.far) return;
+    this.rig.updateMatrixWorld(true);
+    let best = null, bd = 1e9, bp = V(), cp = V();
+    for (const [bn, cn, r] of WOUND_BONES) {
+      const b = this.bones[bn]; if (!b) continue;
+      const a = b.getWorldPosition(V()), c = cn && this.bones[cn] ? this.bones[cn].getWorldPosition(V()) : a.clone().add(V(0, 0.18 * this.st.scale, 0));
+      const ab = c.clone().sub(a), t = clamp(p.clone().sub(a).dot(ab) / Math.max(1e-6, ab.lengthSq()), 0, 1);
+      const q = a.addScaledVector(ab, t), d = q.distanceTo(p);
+      if (d < bd) { bd = d; best = { b, r }; bp.copy(q); }
+    }
+    if (!best) return;
+    const n = p.clone().sub(bp); if (n.lengthSq() < 1e-6) n.set(0, 0, 1).applyQuaternion(this.root.quaternion); n.normalize();
+    cp.copy(bp).addScaledVector(n, best.r * this.st.scale);
+    // flat against the body, a little longer than wide, sized in world metres whatever the bone's own scale
+    const o = new THREE.Object3D();
+    o.position.copy(best.b.worldToLocal(cp.clone()));
+    const ws = best.b.getWorldScale(V()), size = (0.045 + Math.random() * 0.03) * Math.min(1.8, amt);
+    const wq = best.b.getWorldQuaternion(new THREE.Quaternion()).invert();
+    o.quaternion.setFromUnitVectors(V(0, 0, 1), n.clone().applyQuaternion(wq));
+    o.rotateZ(Math.random() * Math.PI);
+    o.scale.set(size / ws.x, size * 1.7 / ws.y, 0.012 / ws.z);
+    o.updateMatrix();
+    this.wounds.push({ bone: best.b, local: o.matrix.clone() });
+    if (this.wounds.length > 7) this.wounds.shift();
   }
 
   dispose(scene) {
+    this.wounds.length = 0;
     this.root.removeFromParent();
     this.mixer.stopAllAction(); this.mixer.uncacheRoot(this.rig);
     for (const m of this.ownMats) m.dispose();
@@ -267,7 +320,8 @@ export class Soldier {
     // distant soldiers: a coarse step (no IK), a third of the cost
     if (o.dist > 38 && !this.dead) { this.acc += dt; this.far = true; if (this.acc < 0.09) return; dt = this.acc; this.acc = 0; } else { this.far = false; this.acc = 0; }
     const A = this.A, w = this.w, ease = (k, tg, r) => { w[k] = damp(w[k], tg, r, dt); };
-    const sp = o.speed, busy = !!this.layer || this.dead;
+    const sp = o.speed, busy = !!this.layer || this.dead || this.kneel > 0;
+    this.kneel = Math.max(0, this.kneel - dt); this.hurt = o.hurt || 0;
     const run = sp > 0.25;
     ease('Idle_Loop', !busy && !run && !o.drawn ? 1 : 0, 10); ease('Sword_Idle', !busy && !run && o.drawn ? 1 : 0, 10);
     ease('Walk_Loop', !busy && run && sp < 3.6 ? 1 : 0, 10); ease('Jog_Fwd_Loop', !busy && run && sp >= 3.6 ? 1 : 0, 10);
@@ -278,7 +332,8 @@ export class Soldier {
       ease(n, on ? 1 : 0, on ? 26 : 14);
       if (on) { A[n].paused = true; A[n].time = this.layer.t; }
     }
-    if (this.stunned && !this.dead) { this.hitHead = true; this.hitW = 1; A.Hit_Head.paused = true; A.Hit_Head.time = 0.22; }     // reeling, head down
+    if (A.Crouch_Idle_Loop) ease('Crouch_Idle_Loop', this.kneel > 0 && !this.dead ? 1 : 0, this.kneel > 0 ? 9 : 5);
+    if (this.stunned && !this.dead && this.kneel <= 0) { this.hitHead = true; this.hitW = 1; A.Hit_Head.paused = true; A.Hit_Head.time = 0.22; }     // reeling, head down
     else this.hitW = Math.max(0, this.hitW - dt * 3);
     ease('Hit_Chest', !this.hitHead ? this.hitW * 0.9 : 0, 40); ease('Hit_Head', this.hitHead ? this.hitW * 0.9 : 0, 40);
     ease('Death01', this.dead ? 1 : 0, this.dead ? 18 : 30);
@@ -287,6 +342,11 @@ export class Soldier {
     if (sum < 1) { const base = this.dead ? 'Death01' : o.drawn ? 'Sword_Idle' : 'Idle_Loop'; w[base] += 1 - sum; }
     for (const k in A) A[k].setEffectiveWeight(w[k]);
     this.mixer.update(dt);
+    // hurt: a hunch, and a hitch in the step on the wounded side
+    this.phase += dt * Math.max(1, sp * 2.2);
+    const hk = this.dead ? 0 : clamp((this.hurt - 0.35) / 0.5, 0, 1);
+    this.body.rotation.x = damp(this.body.rotation.x, hk * 0.14, 6, dt);
+    this.body.rotation.z = damp(this.body.rotation.z, sp > 0.25 ? Math.sin(this.phase) * 0.07 * hk : hk * 0.04, 10, dt);
     // the blade turns along the arm for a thrust (spears and bolts always are)
     const thrust = this.layer && this.layer.name === 'Punch_Cross' ? 1 : 0;
     this.thrustBlend = damp(this.thrustBlend, thrust, 24, dt);

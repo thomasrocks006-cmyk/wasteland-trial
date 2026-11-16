@@ -393,7 +393,9 @@ body:not(.wander) #btnLock,body:not(.wander) #btnGuard,body:not(.wander) #stamWr
 body.wander #topRight,body.wander #ecoWrap,body.wander #btnLight,body.wander #btnDark,body.wander #btnReload,body.wander #comboTrack{display:none !important;}
 body.wander #btnLock{grid-column:1;grid-row:1;}
 body.wander #btnGuard{grid-column:2;grid-row:1;}
-.tbtn.guard{border-color:rgba(130,230,255,.5);color:#c6f3ff;background:radial-gradient(circle at 50% 35%,rgba(60,170,220,.32),rgba(8,24,32,.6) 70%);}
+.tbtn.guard{border-color:rgba(214,221,228,.45);color:#eef0f2;background:radial-gradient(circle at 50% 35%,rgba(150,160,170,.3),rgba(14,16,18,.62) 70%);}
+.tbtn.guard.counter{border-color:#ffd34a;color:#1a1204;background:radial-gradient(circle at 50% 35%,rgba(255,214,90,.98),rgba(220,150,30,.9) 75%);box-shadow:0 0 18px rgba(255,200,60,.75);animation:cntPulse .35s ease-in-out infinite alternate;font-size:7.5px;letter-spacing:0;}
+@keyframes cntPulse{from{transform:scale(1)}to{transform:scale(1.1)}}
 .tbtn.lock{border-color:rgba(255,215,120,.45);color:#ffe9b0;}
 .tbtn.lock.on{background:rgba(255,200,90,.3);border-color:#ffd060;}
 #btnLock,#btnGuard{display:none;}
@@ -513,3 +515,19 @@ body.wander .draftHead{margin-bottom:6px;}
 .tm.red i{border-color:#ff3b22;box-shadow:0 0 10px rgba(255,60,30,.9);}
 .tm.red b{color:#ff5a3a;}
 body:not(.wander) #flow,body:not(.wander) #btnFinish{display:none !important;}
+
+/* combat: the charge ring on the strike button, the moves card, first-fight tips */
+#btnFire{position:relative;}
+.tbtn.fire.charging::after{content:'';position:absolute;inset:-7px;border-radius:50%;pointer-events:none;
+  background:conic-gradient(#ffd060 calc(var(--c,0) * 360deg),rgba(255,255,255,.08) 0);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));}
+.tbtn.fire.charged::before{content:'HEAVY';position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:10px;font-weight:900;letter-spacing:.18em;color:#ffd060;text-shadow:0 1px 3px #000;}
+#moves{margin:10px auto 6px;max-width:440px;text-align:left;font-size:10.5px;line-height:1.35;color:rgba(244,231,210,.9);}
+#moves .mvH{font-weight:900;letter-spacing:.2em;font-size:10px;color:#ffd9a0;margin-bottom:4px;}
+#moves div{display:flex;gap:10px;padding:3px 0;border-bottom:1px solid rgba(255,230,190,.08);}
+#moves b{flex:0 0 92px;font-weight:900;letter-spacing:.08em;color:#fff2dc;}
+#moves i{font-style:normal;font-weight:900;}#moves i.y{color:#ffd34a;}#moves i.r{color:#ff5a3c;}
+#tip{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 74px);transform:translateX(-50%);max-width:min(86vw,520px);
+  padding:8px 14px;background:rgba(14,9,5,.82);border:1px solid rgba(255,214,140,.35);color:#fff1da;font-size:11px;font-weight:800;letter-spacing:.08em;text-align:center;pointer-events:none;}
+#tip.show{animation:tipAnim 5s ease-out forwards;}
+@keyframes tipAnim{0%{opacity:0}6%{opacity:1}88%{opacity:1}100%{opacity:0}}

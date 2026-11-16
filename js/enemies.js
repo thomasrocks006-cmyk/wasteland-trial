@@ -427,6 +427,23 @@ export class Enemies {
     if (!e.alive) return null;
     const ai = e.ai;
     if (ai && !(info && info.exec)) {
+      const contact = info && info.contact, breaks0 = info && (info.heavy || info.breaks);
+      // the blade met his shield (it is solid, raised or not): it stops there, unless a heavy blow smashes it aside
+      if (contact === 'shield') {
+        if (!breaks0 || ai.mode === 'stun') { if (e.view) e.view.kick = 1; if (this.onBlocked) this.onBlocked(e, point); return 'blocked'; }
+        stun(this, e, 1.4); if (e.view) e.view.kick = 1.6;
+        e.hp -= amount * 0.3; e.flash = 1; if (e.passive && !e.aggro) this.alert(e);
+        if (e.hp <= 0) this.kill(e);
+        return 'broke';
+      }
+      // the blade met his, mid-swing: a clash. Both are thrown back; his attack is broken
+      if (contact === 'blade') {
+        endAttack(this, e, rnd(0.9, 1.5));
+        if (e.view) { e.view.kick = 1; e.view.hitReact(false); }
+        e.vel.addScaledVector(new THREE.Vector3(dir ? dir.x : 0, 0, dir ? dir.z : 0), 2.4);
+        if (e.passive && !e.aggro) this.alert(e);
+        return 'clash';
+      }
       const frontal = dir && Math.abs(angleTo(e.yaw, Math.atan2(-dir.x, -dir.z))) < 1.15;
       const guarded = ai.guarding && e.type.shield && ai.mode !== 'stun';
       const quick = !guarded && e.type.parries && (ai.mode === 'circle' || ai.mode === 'close') && Math.random() < e.type.parries * (info && info.riposte ? 0.0 : 1);
@@ -473,6 +490,11 @@ export class Enemies {
     }
     if (e.view && e.hp > 0) e.view.hitReact(!!head);
     if (e.hp <= 0) this.kill(e);
+    else if (e.ai && !e.type.boss && !e.kneeled && e.hp < e.maxHp * 0.28) {
+      // beaten: he goes down on one knee, open to a finishing move, then gets up hurt
+      e.kneeled = true; stun(this, e, 2.2); if (e.view) e.view.kneel = 2.2;
+      if (this.onBeaten) this.onBeaten(e);
+    }
     return 'hit';
   }
 
@@ -882,6 +904,11 @@ export class Enemies {
       if (this.fx) this.fx.puff(new THREE.Vector3(nx, e.pos.y + 1, nz), null, 0xa5835c, 1.2, 4, 0.8, 2);
       if (this.player) this.player.shake = Math.min(2, this.player.shake + 0.4 / (1 + dist * 0.1));
     }
+    // bodies do not pass through each other: a man stops at the hero's shoulder, he does not stand inside him
+    if (e.ai && this.player && this.player.alive && !this.player.execLock) {
+      const pdx = nx - pp.x, pdz = nz - pp.z, pd = Math.hypot(pdx, pdz), minD = t.radius + 0.42;
+      if (pd < minD) { const k = pd > 1e-3 ? pd : 1, ux = pd > 1e-3 ? pdx / k : Math.sin(e.yaw + Math.PI), uz = pd > 1e-3 ? pdz / k : Math.cos(e.yaw + Math.PI); nx = pp.x + ux * minD; nz = pp.z + uz * minD; }
+    }
     e.pos.x = nx; e.pos.z = nz;
     if (e.segs) this.updateSegments(e, dt);
 
@@ -1174,8 +1201,9 @@ export class Enemies {
       v.root.position.copy(e.pos); v.root.rotation.y = e.yaw;
       const sp = Math.hypot(e.vel.x, e.vel.z);
       const rel = sp > 0.3 ? angleTo(e.yaw, Math.atan2(e.vel.x, e.vel.z)) : 0;
-      v.update(this.lastDt || 0.016, { speed: sp, drawn: !(e.passive && !e.aggro), guard: !!e.ai.guarding && !!e.type.shield, moveBack: Math.abs(rel) > 2.0, dist });
+      v.update(this.lastDt || 0.016, { speed: sp, drawn: !(e.passive && !e.aggro), guard: !!e.ai.guarding && !!e.type.shield, moveBack: Math.abs(rel) > 2.0, dist, hurt: 1 - e.hp / e.maxHp });
     }
+    if (this.factory) { const views = []; for (const e of this.list) if (e.view) views.push(e.view); this.factory.flushWounds(this.scene, views); }
 
     // boss segments
     let si = 0;

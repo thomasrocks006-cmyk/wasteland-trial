@@ -42,7 +42,7 @@ export function newAI(e) {
 
 /** an attack is over (or was broken): give back the token and cool down */
 export function endAttack(mgr, e, cool = rnd(1.1, 2.4)) {
-  const ai = e.ai; ai.mode = 'circle'; ai.t = 0; ai.cd = cool; ai.tell = null; ai.kind = null; ai.resolved = false; ai.token = false;
+  const ai = e.ai; ai.mode = 'circle'; ai.t = 0; ai.cd = cool; ai.tell = null; ai.kind = null; ai.resolved = false; ai.token = false; ai.countered = false; ai.rebound = false;
   mgr.tokens.release(e);
   if (e.view) { e.view.setLayer(null); e.view.bash = 0; }
 }
@@ -62,7 +62,9 @@ export function stun(mgr, e, dur) {
  */
 export function think(mgr, e, dt, dist, dirX, dirZ, pp) {
   const t = e.type, ai = e.ai, pl = mgr.player;
-  const out = { mx: 0, mz: 0, speed: e.speed, face: true };
+  // a wounded man is slower on his feet (a beaten one more so)
+  const hurt = e.hp < e.maxHp * 0.3 ? 0.68 : e.hp < e.maxHp * 0.55 ? 0.82 : 1;
+  const out = { mx: 0, mz: 0, speed: e.speed * hurt, face: true };
   e.attackCd = 99;                                           // the old cooldown is not used by soldiers
   ai.cd -= dt;
 
@@ -80,7 +82,7 @@ export function think(mgr, e, dt, dist, dirX, dirZ, pp) {
     const v = e.view;
     if (ai.mode === 'tell') {
       out.speed = ai.kind === 'heavy' ? e.speed * 0.25 : 0;           // a heavy swing walks in as it winds up
-      if (ai.kind === 'heavy' || ai.kind === 'thrust') { out.mx = dirX; out.mz = dirZ; }
+      if ((ai.kind === 'heavy' || ai.kind === 'thrust') && dist > A.reach * 0.7) { out.mx = dirX; out.mz = dirZ; }     // walks in, but stops at striking distance
       const k = clamp(ai.t / ai.tellDur, 0, 1);
       if (v && A.clip) v.setLayer(A.clip, A.c0 + (A.c1 - A.c0) * k);
       if (v && ai.kind === 'bash') v.bash = k * 0.6;
@@ -94,9 +96,10 @@ export function think(mgr, e, dt, dist, dirX, dirZ, pp) {
       if (ai.t >= A.strike) { ai.mode = 'recover'; ai.t = 0; ai.tell = null; }
     } else {
       out.speed = 0; out.face = ai.t < 0.25;
-      const recDur = A.rec * (ai.missed ? 1.35 : 1);
+      const recDur = A.rec * (ai.missed ? 1.35 : ai.rebound ? 1.3 : 1);
       const k = clamp(ai.t / recDur, 0, 1);
-      if (v && A.clip) v.setLayer(A.clip, A.c2 + (A.c3 - A.c2) * k);
+      // a blow that met your shield springs back up the way it came; otherwise it follows through
+      if (v && A.clip) v.setLayer(A.clip, ai.rebound ? A.c1 + (ai.rebT0 - A.c1) * (1 - clamp(ai.t / 0.22, 0, 1)) : A.c2 + (A.c3 - A.c2) * k);
       if (v && ai.kind === 'bash') v.bash = 1.1 * (1 - k);
       if (ai.t >= recDur) endAttack(mgr, e);
     }
@@ -146,7 +149,7 @@ function beginAttack(mgr, e, kind, dirX, dirZ) {
   if (!ATTACKS[kind]) kind = 'slash';
   const ai = e.ai, A = ATTACKS[kind];
   ai.kind = kind; ai.mode = 'tell'; ai.t = 0; ai.resolved = false; ai.missed = false;
-  ai.tellDur = A.tell * (e.type.boss ? 0.85 : 1) * (e.tellScale || 1);
+  ai.tellDur = A.tell * (e.type.boss ? 0.85 : 1) * (e.tellScale || 1) * (e.hp < e.maxHp * 0.5 ? 1.12 : 1);
   ai.tell = { kind, red: !!A.red, parry: A.parry };
   ai.guarding = kind === 'bash';
   if (mgr.audio && mgr.audio.click) mgr.audio.click(0, 0.12, A.red ? 190 : 640);      // the cue: a short metallic draw
@@ -157,10 +160,18 @@ function resolve(mgr, e, dist, pp) {
   const ai = e.ai, A = ATTACKS[ai.kind], pl = mgr.player, t = e.type;
   if (A.ranged) { e.attackCd = 0; mgr.fireProjectile(e, pp, 1); e.attackCd = 99; return; }
   const dx = pp.x - e.pos.x, dz = pp.z - e.pos.z, d = Math.hypot(dx, dz);
+  // a countered blow: the hero turned to meet it and takes it on the blade (no facing or reach check: he came to it)
+  if (ai.countered && pl.alive && d < A.reach + 1.6) {
+    ai.countered = false; ai.rebound = true; ai.rebT0 = A.c1 + ((A.c2 || 0) - A.c1) * 0.35;
+    if (mgr.onCountered) mgr.onCountered(e);
+    return;
+  }
   const facing = Math.abs(angleTo(e.yaw, Math.atan2(dx, dz))) < 1.0;
   if (!pl.alive || !facing || d > A.reach + 0.4) { ai.missed = true; mgr.whiff && mgr.whiff(e); return; }
   const before = pl.hp;
+  pl.lastDefence = null;
   pl.damage(e.dmg * A.dmg, e.pos.x, e.pos.z, e, ai.kind);
+  if (pl.lastDefence === 'block' || pl.lastDefence === 'parry') { ai.rebound = true; ai.rebT0 = A.c1 + ((A.c2 || 0) - A.c1) * 0.35; }
   if (pl.hp < before && pl.onHurt) pl.onHurt();
   if (ai.kind === 'bash' || ai.kind === 'heavy') pl.knock.add(_a.set(dx / (d || 1), 0, dz / (d || 1)).multiplyScalar(ai.kind === 'heavy' ? 11 : 7));
   else pl.knock.add(_a.set(dx / (d || 1), 0, dz / (d || 1)).multiplyScalar(3.2));

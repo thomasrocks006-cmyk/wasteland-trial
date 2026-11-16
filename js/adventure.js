@@ -528,7 +528,7 @@ export class Adventure {
   update(dt, time, player) {
     this.time = time;
     const px = player.pos.x, pz = player.pos.z;
-    let best = null, bd = Infinity;
+    let best = null, bd = Infinity, ap = null;
     for (const p of this.zonePlaces) {
       const d = Math.hypot(px - p.at[0], pz - p.at[1]);
       if (!this.adv.found[p.id] && !this.adv.done[p.id] && p.discover > 0 && d < p.discover) {
@@ -539,8 +539,11 @@ export class Adventure {
         this.ctx.persist();
       }
       if (d < p.reach && d < bd) { bd = d; best = p; }
+      if (!best && !this.adv.done[p.id] && d < 30 && (!ap || d < ap.d)) ap = { p, d };
     }
     this.near = best ? this.describe(best) : null;
+    // something to do a little way off: the USE button shows it greyed, so you know where it will be and what it will do
+    this.approach = !best && ap ? { label: this.describe(ap.p).label, d: ap.d - ap.p.reach } : null;
 
     // rings breathe; lit beams shimmer
     for (const p of this.places) {

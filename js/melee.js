@@ -2,33 +2,32 @@ import * as THREE from 'three';
 import { clamp, angleTo, terrainHeight } from './core.js';
 
 /* ================================================================ sword and shield
-   Melee for the hero rig (hero.js). The motion is a real captured strike; the rules around
-   it are what make it feel like fighting:
+   Melee for the hero rig (hero.js). The motion is a real captured strike plus authored cuts; the rules around it are
+   what make it feel like fighting:
 
-   - A press starts the attack at once (no wait to see if it is a tap). The blade goes up into
-     its wind-up; if you are still holding when it reaches the top it stops there and CHARGES.
-     Let go early and it is a quick light cut; let go after charging and it is a heavy overhead.
-   - The blow lands where the blade actually is: each frame of the strike the blade (and the path
-     its tip travelled) is swept against what is in front of you. Close targets are never missed.
-   - Contact has weight: a freeze, a shove, a stagger, a shake, a bright clang.
-   - Attacks are commitments: you slow down while swinging, the next link comes on the
-     next press once the blow has landed, and a dodge cuts the recovery short.
-   - Freeflow: steer toward someone and attack, and you close the gap and strike them; the next press
-     can be a different man. Hits build FLOW; a full flow, or a stunned or beaten soldier, offers a
-     finishing move: four executions, each with a kill-cam, that heal you.
-   - A shield soldier's front is closed to light blows (they ring off): break it with a heavy blow,
-     a shield bash, or by going round behind him.
-   - The shield is a weapon too: guard and press attack to bash (a stagger and a shove). A parry
-     opens a riposte: the next blow within a second hits much harder. */
+   - Three different cuts in a row: a forehand (the captured clip), a rising backhand and an overhead (authored paths in
+     hero.js, on the same timing). Hold attack and the blade stops at the top of the wind-up and CHARGES into a heavy blow.
+     Strike while running and it is a lunging thrust.
+   - The blade is a solid thing. Each frame of the strike it is swept against what is in front of you, and what it meets
+     first decides the blow: a SHIELD stops it (it bounces back, you are checked and open a moment), a BLADE raised in an
+     attack meets yours (a clash: both of you are thrown back, his attack is broken), a BODY takes the cut (it drags a
+     moment in the flesh, blood, a wound that stays on him). A held heavy blow smashes a shield aside instead.
+   - COUNTER (Arkham / Mordor): a yellow marker over a man means his blow can be countered. Press GUARD while it shows and
+     you turn to him, take the blow on the blade, and cut back. Red markers cannot be countered: roll.
+   - FLOW: unbroken hits build it; being hit, or bouncing off steel, costs it. The SPECIAL button spends it: a finishing
+     move on a stunned or beaten man (or anyone, at full flow), or a wide sweeping cut when you are surrounded.
+   - The shield is a weapon too: guard and attack to bash (a stun and a shove). */
 
 const SPECS = {
   sword: {
     light: [
       { from: 0.10, speed: 1.55, s0: 0.28, s1: 0.60, end: 0.96, dmg: 34, stam: 7, lunge: 3.4, stop: 0.06, shake: 0.22, stag: 0.2, kb: 4.2 },
-      { from: 0.10, speed: 1.75, s0: 0.28, s1: 0.60, end: 0.92, dmg: 37, stam: 7, lunge: 3.4, stop: 0.06, shake: 0.22, stag: 0.2, kb: 4.2, twist: -0.55 },
-      { from: 0.0, speed: 1.12, s0: 0.28, s1: 0.64, end: 1.22, dmg: 76, stam: 13, lunge: 5.2, stop: 0.12, shake: 0.55, stag: 0.55, kb: 8, finisher: true, slam: true, pitch: 0.2 },
+      { path: 'backhand', from: 0.12, speed: 1.65, s0: 0.30, s1: 0.60, end: 0.96, dmg: 37, stam: 7, lunge: 3.4, stop: 0.06, shake: 0.22, stag: 0.2, kb: 4.2 },
+      { path: 'overhead', from: 0.0, speed: 1.12, s0: 0.30, s1: 0.64, end: 1.22, dmg: 76, stam: 13, lunge: 5.2, stop: 0.12, shake: 0.55, stag: 0.55, kb: 8, finisher: true, slam: true, pitch: 0.2 },
     ],
     heavy: { chargeAt: 0.21, from: 0.21, speed: 1.2, s0: 0.28, s1: 0.64, end: 1.26, dmg: 118, stam: 26, lunge: 5.6, stop: 0.17, shake: 0.9, stag: 0.9, kb: 11, finisher: true, slam: true, heavy: true, pitch: 0.25 },
+    thrust: { clip: 'Punch_Cross', thrust: true, from: 0.0, speed: 1.3, s0: 0.1, s1: 0.36, end: 0.8, dmg: 52, stam: 10, lunge: 7, stop: 0.08, shake: 0.35, stag: 0.4, kb: 5.5 },
+    sweep: { path: 'sweep', from: 0.12, speed: 1.05, s0: 0.28, s1: 0.64, end: 1.2, dmg: 46, stam: 0, lunge: 1.5, stop: 0.1, shake: 0.7, stag: 0.8, kb: 7, aoe: true, special: true },
   },
   axe: {
     light: [{ from: 0.0, speed: 0.95, s0: 0.28, s1: 0.64, end: 1.28, dmg: 95, stam: 15, lunge: 4.2, stop: 0.12, shake: 0.6, stag: 0.6, kb: 8, finisher: true, slam: true, pitch: 0.15 }],
@@ -37,6 +36,31 @@ const SPECS = {
 };
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _tip = new THREE.Vector3(), _base = new THREE.Vector3();
+const _sc = new THREE.Vector3(), _sn = new THREE.Vector3(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _g0 = new THREE.Vector3(), _g1 = new THREE.Vector3(), _sq = new THREE.Quaternion(), _ws = new THREE.Vector3();
+const _r1 = new THREE.Vector3(), _r2 = new THREE.Vector3(), _r3 = new THREE.Vector3();
+const FRACS = [0.3, 0.45, 0.6, 0.75, 0.9, 1.0];          // where along the blade the contact tests sample (hilt to tip)
+
+/** closest distance between segments p1-q1 and p2-q2; the meeting point is written to out */
+function segSeg(p1, q1, p2, q2, out) {
+  const d1 = _r1.copy(q1).sub(p1), d2 = _r2.copy(q2).sub(p2), r = _r3.copy(p1).sub(p2);
+  const a = d1.dot(d1), e = d2.dot(d2), f = d2.dot(r);
+  let s = 0, t = 0;
+  if (a <= 1e-9 && e <= 1e-9) { out.copy(p1); return p1.distanceTo(p2); }
+  if (a <= 1e-9) { t = clamp(f / e, 0, 1); }
+  else {
+    const c = d1.dot(r);
+    if (e <= 1e-9) s = clamp(-c / a, 0, 1);
+    else {
+      const b = d1.dot(d2), den = a * e - b * b;
+      s = den > 1e-9 ? clamp((b * f - c * e) / den, 0, 1) : 0;
+      t = (b * s + f) / e;
+      if (t < 0) { t = 0; s = clamp(-c / a, 0, 1); } else if (t > 1) { t = 1; s = clamp((b - c) / a, 0, 1); }
+    }
+  }
+  const c1 = _a.copy(p1).addScaledVector(d1, s), c2 = _b.copy(p2).addScaledVector(d2, t);
+  out.copy(c1).add(c2).multiplyScalar(0.5);
+  return c1.distanceTo(c2);
+}
 
 /** closest point on segment p0-p1 to c, written to out */
 function closestOnSeg(p0, p1, c, out) {
@@ -53,7 +77,12 @@ export class Melee {
     this.lastEnd = -9; this.clock = 0;       // game-time, so a combo window is the same on a slow phone
     this.holdT = 0;
     this.bashCd = 0; this.bashT = 0;
-    this.prevTip = new THREE.Vector3(); this.havePrev = false;
+    this.prevTip = new THREE.Vector3(); this.prevBase = new THREE.Vector3(); this.havePrev = false;
+    this.recoverT = 0;         // thrown back off steel: a moment before the next swing
+    this.counter = null;       // a counter in progress: { t, list, first }
+    this.riposteQ = null;      // the cut that answers a counter
+    this.blood = 0;            // blood on the blade, 0..1
+    this.counterLock = 0;      // a counter pressed at nothing: a short beat before the next one
     this.exec = null;          // a finishing move in progress
     this.flow = 0; this.flowT = 0;
   }
@@ -71,9 +100,13 @@ export class Melee {
     ws.idleT = 0;
     if (this.exec) return;
     if (pl.guard) return this.shieldBash();
-    if (!ws.drawn || ws.drawT > 0) { ws.draw(); return; }
-    if (this.atk) { this.atk.buffered = true; return; }          // chains once the blow has landed
+    // sheathed: draw and cut in one move, so the first press is always a blow
+    if (!ws.drawn || ws.drawT > 0) { ws.ready(); ws.drawT = 0; if (ws.audio.shot) ws.audio.shot('draw', 0); }
+    if (this.atk) { if (!this.atk.rebound) this.atk.buffered = true; return; }          // chains once the blow has landed
+    if (this.recoverT > 0) return;                                 // still checked from bouncing off steel
     this.holdT = 0;
+    // on the run: a lunging thrust
+    if (this.specs.thrust && (pl.sprinting || Math.hypot(pl.vel.x, pl.vel.z) > 5.2) && this.clock - this.lastEnd > 0.4) { this.combo = 0; this.begin(this.specs.thrust, false); return; }
     this.begin(this.nextLight(), true);
   }
   hold(dt) {
@@ -81,7 +114,9 @@ export class Melee {
     const a = this.atk;
     if (a && a.holdable && !a.released && !a.pausedOnce && this.hero.layerTime >= this.specs.heavy.chargeAt) {
       a.charging = true; a.pausedOnce = true; this.hero.holdLayer(true);        // the blade stays up: a visible charge
+      if (this.ws.audio.impact) this.ws.audio.impact('whoosh', 0.3);
     }
+    if (a && a.charging && !a.cued && this.holdT >= 0.6) { a.cued = true; if (this.ws.audio.impact) this.ws.audio.impact('steel', 0.35); if (this.ws.ctx.haptic) this.ws.ctx.haptic(15); }   // full: a ring of steel
   }
   release() {
     const a = this.atk;
@@ -101,15 +136,16 @@ export class Melee {
   }
 
   /* ---------------- an attack */
-  begin(spec, holdable = false) {
+  begin(spec, holdable = false, forced = null) {
     const pl = this.pl, ws = this.ws;
     if (!pl.spend(spec.stam)) { if (ws.onWinded) ws.onWinded(); return false; }
-    this.atk = { spec, holdable: holdable && spec === this.specs.light[0], hit: new Set(), buffered: false, charging: false, released: !holdable, pausedOnce: false, started: false, assist: false };
+    this.atk = { spec, holdable: holdable && spec === this.specs.light[0], hit: new Set(), buffered: false, charging: false, released: !holdable, pausedOnce: false, started: false, assist: false, rebound: 0, drag: 0 };
     this.havePrev = false;
-    this.hero.playOnce('Sword_Attack', { from: spec.from, speed: spec.speed });
+    this.hero.playOnce(spec.clip || 'Sword_Attack', { from: spec.from, speed: spec.speed, bodyW: spec.path ? 0.3 : 1 });
+    this.hero.setSwing(spec.path || null, spec.from); this.hero.setThrust(spec.thrust ? 1 : 0);
     pl.moveMul = 0.35; pl.faceLock = Math.max(pl.faceLock, 0.9);
     // turn the body toward the nearest threat in front before the blow, so a nudge of the stick or camera is enough
-    const t = this.target(7, 2.6);
+    const t = forced && forced.alive ? forced : this.target(7, 2.6);
     if (t) {
       const dx = t.pos.x - pl.pos.x, dz = t.pos.z - pl.pos.z, dd = Math.hypot(dx, dz) || 1, gap = dd - t.type.radius - 1.15;
       pl.faceOverride = { yaw: Math.atan2(dx, dz), t: 0.8 };
@@ -123,7 +159,7 @@ export class Melee {
   cancel() {
     if (this.exec) return;
     if (!this.atk) return;
-    this.atk = null; this.hero.holdLayer(false); this.hero.stopLayer(); this.pl.moveMul = 1; this.ws.swingT = 0;
+    this.atk = null; this.hero.holdLayer(false); this.hero.stopLayer(); this.hero.setSwing(null); this.hero.setThrust(0); this.pl.moveMul = 1; this.ws.swingT = 0;
   }
 
   /**
@@ -148,15 +184,30 @@ export class Melee {
 
   update(dt) {
     this.clock += dt;
+    this.recoverT = Math.max(0, this.recoverT - dt); this.counterLock = Math.max(0, this.counterLock - dt);
+    this.blood = Math.max(0, this.blood - dt * 0.012);            // it dries and flakes off over a minute or so
+    const bm = this.ws.models[this.ws.index] && this.ws.models[this.ws.index].userData.blood;
+    if (bm) bm.material.opacity = Math.min(0.85, this.blood * 0.9);
     if (this.exec) { this.runExec(dt); return; }
     if (this.flow > 0) { this.flowT -= dt; if (this.flowT <= 0) this.breakFlow(); }
     this.bashCd = Math.max(0, this.bashCd - dt);
     if (this.bashT > 0) { this.bashT -= dt; if (this.bashT <= 0) this.bashHit(); }
+    if (this.counter) this.counterUpdate(dt);
+    if (this.riposteQ) { this.riposteQ.t -= dt; if (this.riposteQ.t <= 0) { const q = this.riposteQ; this.riposteQ = null; if (!this.atk && q.e.alive) { this.combo = 1; this.pl.riposteT = Math.max(this.pl.riposteT, 0.6); this.begin(this.specs.light[1], false, q.e); } } }
     const a = this.atk, pl = this.pl, ws = this.ws;
     if (!a) { pl.moveMul = damp1(pl.moveMul, 1, dt); return; }
     const hero = this.hero, S = a.spec;
     hero.root.updateMatrixWorld(true);
     const t = hero.layerTime;
+    if (S.path) hero.setSwing(S.path, t);
+    // thrown back off a shield or a blade: the cut runs backward a moment, then you are open
+    if (a.rebound > 0) {
+      a.rebound -= dt; pl.moveMul = 0.2;
+      if (a.rebound <= 0 || !hero.layer) { this.finish(); this.recoverT = a.reboundKind === 'blade' ? 0.22 : 0.3; }
+      return;
+    }
+    // a cut into a body drags a moment
+    if (a.drag > 0) { a.drag -= dt; const A = hero.A[hero.layer ? hero.layer.name : 'Sword_Attack']; A.timeScale = a.drag > 0 ? a.speed0 * 0.38 : a.speed0; }
     ws.swingT = 0.2; ws.idleT = 0;
     // the movement penalty eases off through the recovery
     pl.moveMul = t < S.s1 ? 0.3 : clamp(0.3 + (t - S.s1) / (S.end - S.s1) * 0.7, 0.3, 1);
@@ -171,7 +222,7 @@ export class Melee {
   }
   finish() {
     this.atk = null; this.lastEnd = this.clock; this.pl.moveMul = 1; this.ws.swingT = 0;
-    this.hero.stopLayer();
+    this.hero.stopLayer(); this.hero.setSwing(null); this.hero.setThrust(0);
   }
 
   strikeStart(a) {
@@ -203,6 +254,9 @@ export class Melee {
     let hits = 0;
     for (const e of (ws.ctx.enemies() || [])) {
       if (!e.alive || a.hit.has(e) || e.state === 'spawn') continue;
+      // steel first: a shield or a raised blade in the way stops the cut before it reaches him
+      const c = this.havePrev ? this.contact(e, base, tip) : null;
+      if (c) { this.land(a, e, c.at, false, c.kind); if (a.rebound > 0) break; continue; }
       const spheres = this.spheres(e);
       let hit = null;
       for (const sp of spheres) {
@@ -212,9 +266,41 @@ export class Melee {
         if (d > pad && this.havePrev) { closestOnSeg(this.prevTip, tip, sp.c, _b); const d2 = _b.distanceTo(sp.c); if (d2 < d) { d = d2; _a.copy(_b); } }
         if (d <= pad) { hit = { sp, at: _a.clone() }; break; }
       }
-      if (hit) { this.land(a, e, hit.at, hit.sp.head); hits++; }
+      if (hit) { this.land(a, e, hit.at, hit.sp.head); hits++; if (a.rebound > 0) break; }
     }
-    this.prevTip.copy(tip); this.havePrev = true;
+    this.prevTip.copy(tip); this.prevBase.copy(base); this.havePrev = true;
+  }
+
+  /**
+   * Does the blade (this frame, and the band it swept since the last) meet his shield or his blade?
+   * The shield is a disc on its face; the blade a thin rod from grip to point, live only when he is swinging it.
+   */
+  contact(e, base, tip) {
+    const v = e.view;
+    if (!v || v.far || v.dead) return null;
+    if (v.shield) {
+      v.shield.getWorldPosition(_sc); _sn.set(0, 0, 1).applyQuaternion(v.shield.getWorldQuaternion(_sq));
+      if (!v.shieldR) { const g = v.shield.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); v.shieldR = g.boundingSphere.radius * 0.82; }
+      const R = v.shieldR * v.shield.getWorldScale(_ws).x;
+      for (const f of FRACS) {
+        _p1.copy(base).lerp(tip, f); _p0.copy(this.prevBase).lerp(this.prevTip, f);
+        const d1 = _c.copy(_p1).sub(_sc).dot(_sn), d0 = _c.copy(_p0).sub(_sc).dot(_sn);
+        let X = null;
+        if (d0 * d1 <= 0 && Math.abs(d0 - d1) > 1e-5) X = _p0.lerp(_p1, d0 / (d0 - d1));
+        else if (Math.abs(d1) < 0.05) X = _p1;
+        if (!X) continue;
+        _c.copy(X).sub(_sc); _c.addScaledVector(_sn, -_c.dot(_sn));
+        if (_c.length() < R) return { kind: 'shield', at: X.clone() };
+      }
+    }
+    const ai = e.ai;
+    if (ai && (ai.mode === 'tell' || ai.mode === 'strike') && v.grip && e.type.weapon !== 'crossbow') {
+      v.grip(_g0); v.tip(_g1);
+      let d = segSeg(base, tip, _g0, _g1, _d);
+      if (d > 0.09) { const d2 = segSeg(this.prevTip, tip, _g0, _g1, _p0); if (d2 < d) { d = d2; _d.copy(_p0); } }
+      if (d <= 0.09) return { kind: 'blade', at: _d.clone() };
+    }
+    return null;
   }
   /** the body parts a blade can strike: legs, torso, head (and every segment of the long boss) */
   spheres(e) {
@@ -234,25 +320,32 @@ export class Melee {
       let ex = e.pos.x, ez = e.pos.z;
       const dx = ex - pl.pos.x, dz = ez - pl.pos.z, dist = Math.hypot(dx, dz) || 0.01;
       if (dist > reach + e.type.radius || Math.abs(e.pos.y - pl.pos.y) > 3) continue;
-      if (Math.abs(angleTo(yaw, Math.atan2(dx, dz))) > 1.05 && dist > e.type.radius + 0.9) continue;
+      if (!S.aoe && Math.abs(angleTo(yaw, Math.atan2(dx, dz))) > 1.05 && dist > e.type.radius + 0.9) continue;
+      if (S.aoe && dist > 3.0 + e.type.radius) continue;
       this.land(a, e, _a.set(ex - dx / dist * e.type.radius * 0.6, e.pos.y + e.type.height * 0.55, ez - dz / dist * e.type.radius * 0.6), false);
     }
   }
 
-  land(a, e, point, head) {
+  land(a, e, point, head, contact = null) {
     const S = a.spec, pl = this.pl, ws = this.ws;
     a.hit.add(e);
     const dx = e.pos.x - pl.pos.x, dz = e.pos.z - pl.pos.z, dl = Math.hypot(dx, dz) || 1;
     const dir = new THREE.Vector3(dx / dl, 0, dz / dl);
     const rip = pl.riposteT > 0 ? 1.8 : 1;
     const dmg = S.dmg * ws.mods.dmg * (S.heavy ? ws.mods.heavy : 1) * (pl.dmgMul || 1) * rip * (head ? 1.25 : 1);
-    const res = ws.ctx.applyDamage(e, dmg, point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy, breaks: !!S.heavy, riposte: rip > 1 });
-    if (res === 'blocked') {
-      // the blow rings off a shield or a blade: the swing is checked and you are thrown back a step
-      pl.knock.addScaledVector(dir, -4.2); pl.shake = Math.min(2, pl.shake + 0.25);
-      a.truncate = true; this.flow = Math.max(0, this.flow - 1);
-      if (ws.ctx.onMeleeHit) ws.ctx.onMeleeHit(1, false, false, 0.07);
-      if (ws.ctx.onBlockedByFoe) ws.ctx.onBlockedByFoe(e);
+    const res = ws.ctx.applyDamage(e, dmg, point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy, breaks: !!S.heavy, riposte: rip > 1, contact, aoe: !!S.aoe });
+    if (res === 'blocked' || res === 'clash') {
+      if (res === 'blocked' && contact !== 'shield' && e.view && e.view.shield) e.view.shield.getWorldPosition(point);
+      return this.rebound(a, e, point, dir, res === 'clash' ? 'blade' : (e.view && e.view.shield ? 'shield' : 'blade'));
+    }
+    if (res === 'broke') {            // a heavy blow smashes the shield aside: the blade goes on, he reels
+      if (ws.audio.impact) ws.audio.impact('shield', 1.6);
+      if (ws.fx.spark) ws.fx.spark(point, dir.clone().negate(), 0xffd890, 14, 6, 0.09, 0.3);
+      if (ws.fx.puff) ws.fx.puff(point, dir, 0x6a4a30, 0.3, 3, 0.5, 1.5);
+      pl.shake = Math.min(2.2, pl.shake + 0.8);
+      if (ws.ctx.onMeleeHit) ws.ctx.onMeleeHit(1, true, true, 0.12);
+      if (ws.ctx.haptic) ws.ctx.haptic(45);
+      this.addFlow(1);
       return;
     }
     if (rip > 1) { pl.riposteT = 0; if (ws.ctx.onRiposte) ws.ctx.onRiposte(); }
@@ -261,13 +354,115 @@ export class Melee {
       e.vel.addScaledVector(dir, S.kb * heavyFoe);
       if (ws.ctx.stagger) ws.ctx.stagger(e, S.stag * (e.type.heavy ? 0.5 : 1));
     } else if (e.ai && e.alive) e.vel.addScaledVector(dir, S.kb * (e.type.heavy ? 0.3 : 0.8));
+    // the cut: the edge drags in the body a moment, blood follows the blade, the wound stays
+    const swing = _c.copy(this.prevTip).sub(this.blade()[1]).negate(); if (swing.lengthSq() < 1e-4) swing.copy(dir); swing.normalize();
+    const amt = S.heavy ? 1.9 : S.finisher ? 1.5 : 1.0;
+    if (ws.fx.bleed && e.type.blood !== false) ws.fx.bleed(point, swing.clone().multiplyScalar(0.8).addScaledVector(dir, 0.4), amt);
+    if (e.view && e.view.addWound) e.view.addWound(point, amt);
+    this.blood = Math.min(1, this.blood + 0.18 * amt);
+    const A = this.hero.layer ? this.hero.A[this.hero.layer.name] : null;
+    if (A && !a.drag) { a.speed0 = A.timeScale; a.drag = S.heavy ? 0.09 : 0.06; }
     pl.shake = Math.min(2.2, pl.shake + S.shake);
     ws.shotsHit++;
-    if (ws.audio.clang) ws.audio.clang(1, !!S.finisher);
+    if (ws.audio.impact) { ws.audio.impact('flesh', S.heavy ? 1.5 : S.finisher ? 1.2 : 0.9); if (head || e.type.armor) ws.audio.impact('armour', 0.6); }
+    else if (ws.audio.clang) ws.audio.clang(1, !!S.finisher);
     if (ws.ctx.onMeleeHit) ws.ctx.onMeleeHit(1, !!S.finisher, !!S.heavy, S.stop);
-    if (S.slam && ws.fx.ring) ws.fx.ring(new THREE.Vector3(point.x, point.y - 0.6, point.z), ws.def.color, 2.4 + (S.heavy ? 1.2 : 0), 0.35);
+    if (ws.ctx.haptic) ws.ctx.haptic(S.heavy ? 40 : 18);
     if (ws.ctx.onShot) ws.ctx.onShot(true, false);
+    if (S.aoe && e.alive && ws.ctx.stun) ws.ctx.stun(e, e.type.boss ? 0.5 : 1.0);
     this.addFlow(1);
+  }
+
+  /** the blade met steel: it springs back along its path, you are pushed off and open for a moment */
+  rebound(a, e, point, dir, kind) {
+    const pl = this.pl, ws = this.ws, h = this.hero;
+    a.rebound = kind === 'blade' ? 0.15 : 0.18; a.reboundKind = kind; a.drag = 0;
+    const A = h.layer ? h.A[h.layer.name] : null;
+    if (A) { A.paused = false; A.timeScale = -1.5; }
+    pl.knock.addScaledVector(dir, kind === 'blade' ? -3.6 : -3.0); pl.shake = Math.min(2, pl.shake + 0.35);
+    if (h.hitReact) h.overlay.hit = Math.max(h.overlay.hit, 0.35);
+    this.flow = Math.max(0, this.flow - 1); if (ws.ctx.onFlow) ws.ctx.onFlow(this.flow);
+    if (ws.audio.impact) ws.audio.impact(kind === 'blade' ? 'steel' : 'shield', 1.1); else if (ws.audio.clang) ws.audio.clang(2, false);
+    if (ws.fx.spark) {
+      if (kind === 'blade') { ws.fx.spark(point, dir.clone().negate().setY(0.4), 0xfff2c8, 20, 7.5, 0.08, 0.35); ws.fx.ring(point, 0xfff4d8, 0.8, 0.14); }
+      else { ws.fx.spark(point, dir.clone().negate().setY(0.3), 0xffd690, 8, 5, 0.07, 0.25); if (ws.fx.puff) ws.fx.puff(point, dir.clone().negate(), 0x5a4532, 0.18, 3, 0.4, 1.2); }
+    }
+    if (e.view) e.view.kick = 1;
+    if (e.alive) e.vel.addScaledVector(dir, 1.6);
+    if (ws.ctx.onMeleeHit) ws.ctx.onMeleeHit(1, false, false, kind === 'blade' ? 0.09 : 0.07);
+    if (ws.ctx.onBlockedByFoe) ws.ctx.onBlockedByFoe(e, kind);
+    if (ws.ctx.haptic) ws.ctx.haptic(kind === 'blade' ? 32 : 26);
+  }
+
+  /* ---------------- counter: a yellow marker is a man you can answer */
+  counterable(range = 4.2) {
+    const pl = this.pl, out = [];
+    let red = false;
+    for (const e of (this.ws.ctx.enemies() || [])) {
+      const ai = e.ai;
+      if (!e.alive || !ai || !ai.tell) continue;
+      if (!(ai.mode === 'tell' || (ai.mode === 'strike' && !ai.resolved))) continue;
+      const d = Math.hypot(e.pos.x - pl.pos.x, e.pos.z - pl.pos.z);
+      const reach = (e.type.ranged ? 0 : (ai.kind === 'thrust' ? 3.3 : 2.4)) + 1.6;
+      if (d > Math.min(range, reach) + e.type.radius) continue;
+      if (ai.tell.red || !ai.tell.parry) { red = true; continue; }
+      out.push({ e, d });
+    }
+    out.sort((x, y) => x.d - y.d);
+    return { list: out.map((o) => o.e), red };
+  }
+  /** GUARD pressed: if a yellow blow is coming, commit to answering it */
+  tryCounter() {
+    if (this.exec || !this.pl.alive || this.counter) return false;
+    const { list, red } = this.counterable();
+    if (!list.length) {
+      if (red && this.ws.ctx.onCounterRed) this.ws.ctx.onCounterRed();
+      return false;
+    }
+    if (this.atk) this.cancel();
+    for (const e of list) e.ai.countered = true;
+    const first = list[0], pl = this.pl;
+    this.counter = { t: 0, list, first };
+    pl.faceOverride = { yaw: Math.atan2(first.pos.x - pl.pos.x, first.pos.z - pl.pos.z), t: 0.9 };
+    pl.counterT = 1.1;
+    this.hero.swordParry(1.0);
+    if (this.ws.ctx.onCounterStart) this.ws.ctx.onCounterStart(first, list.length);
+    return true;
+  }
+  counterUpdate(dt) {
+    const c = this.counter; c.t += dt;
+    const pl = this.pl;
+    if (c.first.alive) pl.faceOverride = { yaw: Math.atan2(c.first.pos.x - pl.pos.x, c.first.pos.z - pl.pos.z), t: 0.2 };
+    const waiting = c.list.some((e) => e.alive && e.ai && e.ai.countered);
+    if (!waiting || c.t > 1.4) { for (const e of c.list) if (e.ai) e.ai.countered = false; this.counter = null; pl.counterT = 0; }
+  }
+  /** a countered blow has landed on the blade (soldier_ai calls this through the player): sparks, he reels, we cut back */
+  countered(e) {
+    if (!this.riposteQ && e.alive) this.riposteQ = { e, t: 0.12 };
+    this.hero.swordParry(0.35);
+    this.addFlow(1);
+  }
+
+  /* ---------------- the SPECIAL button */
+  sweepTargets() {
+    const pl = this.pl; let n = 0;
+    for (const e of (this.ws.ctx.enemies() || [])) if (e.alive && e.ai && Math.hypot(e.pos.x - pl.pos.x, e.pos.z - pl.pos.z) < 3.2 + e.type.radius) n++;
+    return n;
+  }
+  canSweep() { return !this.exec && !this.atk && this.specs.sweep && this.flow >= 3 && this.sweepTargets() >= 1; }
+  /** what SPECIAL would do now: 'finish', 'sweep' or null */
+  specialKind() { return this.canExecute() ? 'finish' : this.canSweep() ? 'sweep' : null; }
+  special() {
+    const k = this.specialKind();
+    if (k === 'finish') return this.execute();
+    if (k === 'sweep') {
+      this.flow -= 3; if (this.ws.ctx.onFlow) this.ws.ctx.onFlow(this.flow);
+      this.begin(this.specs.sweep, false);
+      if (this.ws.audio.roar) this.ws.audio.roar(6);
+      if (this.ws.ctx.onSpecial) this.ws.ctx.onSpecial('sweep');
+      return true;
+    }
+    return false;
   }
 
   /* ---------------- flow: unbroken hitting builds toward a finishing move */

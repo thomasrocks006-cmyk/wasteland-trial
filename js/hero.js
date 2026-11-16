@@ -25,6 +25,52 @@ export async function loadHeroAsset(url = 'assets/hero.glb') {
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = V(), _v2 = V(), _v3 = V(), _m = new THREE.Matrix4();
 
+/* ---------------------------------------------------------------- authored cuts
+   The clip has one cut (high right, down across to low left). The other cuts are drawn here as paths for the sword hand
+   and the blade, keyed on the same clip time, so the wind-up, charge, strike window and recovery keep their timing.
+   Each key: [clip time, hand from the right shoulder (right, up, forward) in metres, blade direction (right, up, forward),
+   torso turn in radians (+ = turned to the left, loaded for a cut going right)]. */
+export const SWING_PATHS = {
+  // backhand: from the left hip, rising across to the right shoulder
+  backhand: [
+    [0.00, [-0.05, -0.28, 0.28], [0.1, 0.7, 0.6], 0.0],
+    [0.21, [-0.50, -0.30, 0.10], [-0.55, 0.25, -0.8], 0.55],
+    [0.28, [-0.42, -0.22, 0.30], [-0.9, 0.05, 0.4], 0.45],
+    [0.44, [-0.02, -0.08, 0.55], [0.05, 0.12, 1.0], 0.0],
+    [0.60, [0.42, 0.10, 0.30], [0.9, 0.35, 0.15], -0.45],
+    [0.80, [0.40, 0.05, 0.05], [0.55, 0.5, -0.6], -0.4],
+    [1.05, [0.05, -0.28, 0.28], [0.1, 0.7, 0.6], 0.0],
+  ],
+  // overhead: up over the head and straight down the middle
+  overhead: [
+    [0.00, [0.00, -0.25, 0.30], [0.05, 0.7, 0.6], 0.0],
+    [0.21, [-0.02, 0.42, -0.02], [0.0, 0.35, -1.0], 0.15],
+    [0.28, [-0.04, 0.46, 0.14], [0.0, 1.0, 0.15], 0.12],
+    [0.44, [-0.10, 0.18, 0.52], [0.0, 0.15, 1.0], 0.0],
+    [0.60, [-0.14, -0.34, 0.46], [0.0, -0.75, 0.65], -0.05],
+    [0.85, [-0.12, -0.42, 0.32], [0.0, -0.9, 0.35], 0.0],
+    [1.25, [0.00, -0.25, 0.30], [0.05, 0.7, 0.6], 0.0],
+  ],
+  // sweep: arm out, a wide flat cut right to left at waist height, the body turning through it
+  sweep: [
+    [0.00, [0.05, -0.25, 0.30], [0.1, 0.6, 0.7], 0.0],
+    [0.21, [0.48, -0.08, -0.10], [0.75, 0.15, -0.65], -0.7],
+    [0.28, [0.50, -0.10, 0.12], [0.95, 0.05, 0.25], -0.65],
+    [0.44, [0.05, -0.12, 0.55], [0.1, 0.0, 1.0], 0.0],
+    [0.60, [-0.45, -0.12, 0.25], [-0.95, 0.05, 0.25], 0.75],
+    [0.85, [-0.40, -0.20, 0.05], [-0.6, 0.3, -0.6], 0.6],
+    [1.25, [0.05, -0.25, 0.30], [0.1, 0.6, 0.7], 0.0],
+  ],
+};
+const ease3 = (k) => k * k * (3 - 2 * k);
+function samplePath(P, t, hand, blade) {
+  let i = 0; while (i < P.length - 2 && t > P[i + 1][0]) i++;
+  const a = P[i], b = P[i + 1], k = ease3(clamp((t - a[0]) / (b[0] - a[0]), 0, 1));
+  hand.set(lerp(a[1][0], b[1][0], k), lerp(a[1][1], b[1][1], k), lerp(a[1][2], b[1][2], k));
+  blade.set(lerp(a[2][0], b[2][0], k), lerp(a[2][1], b[2][1], k), lerp(a[2][2], b[2][2], k)).normalize();
+  return lerp(a[3], b[3], k);
+}
+
 /* a hammered-metal normal map made from noise: it breaks the plates' reflections up so steel reads as steel */
 function hammeredNormal(size = 128, strength = 2.2) {
   const h = new Float32Array(size * size);
@@ -98,6 +144,7 @@ export class Hero {
     this.buildCloak();
     this.buildActions();
     this.ik = { w: 0, target: V(), kick: 0, bash: 0, bashT: 0, flare: 0, pole: V() };
+    this.sw = { path: null, t: 0, w: 0, hand: V(), blade: V(), twist: 0 };
     this.state = { clip: null };
     this.set = {};
   }
@@ -115,7 +162,7 @@ export class Hero {
       cloak: std({ color: 0x35503d, metalness: 0.0, roughness: 0.92, side: THREE.DoubleSide }),
       blade: std({ color: 0xc7ccd4, metalness: 1.0, roughness: 0.22, envMapIntensity: 1.3 }),
       wood: std({ color: 0x5a3f2a, metalness: 0.0, roughness: 0.75 }),
-      glow: new THREE.MeshBasicMaterial({ color: 0x7ff3ff, toneMapped: false }),
+      glow: new THREE.MeshBasicMaterial({ color: 0x0c0a08 }),      // the visor slit: dark, a face behind it
     };
   }
   recolour() {
@@ -323,9 +370,9 @@ export class Hero {
   }
 
   /** start a one-shot clip as a full-body layer (attack, roll, cast, bash...) */
-  playOnce(name, { from = 0, speed = 1, hold = false } = {}) {
+  playOnce(name, { from = 0, speed = 1, hold = false, bodyW = 1 } = {}) {
     const a = this.A[name]; a.reset(); a.time = from; a.timeScale = speed; a.paused = false; a.enabled = true; a.play();
-    this.layer = { name, hold, t0: from, speed, age: 0 };
+    this.layer = { name, hold, t0: from, speed, age: 0, bodyW };      // bodyW < 1: the clip only lends part of its body motion
     return a;
   }
   stopLayer() { this.layer = null; }
@@ -371,7 +418,7 @@ export class Hero {
     // ---- the one-shot layer (attack, roll, cast, bash, interact)
     for (const n of ['Roll', 'Sword_Attack', 'Spell_Simple_Shoot', 'Punch_Cross', 'Punch_Jab', 'Interact']) {
       const on = this.layer && this.layer.name === n;
-      ease(n, on ? 1 : 0, on ? 30 : 12);
+      ease(n, on ? this.layer.bodyW : 0, on ? 30 : 12);
     }
     if (this.layer) {
       this.layer.age += dt;
@@ -392,6 +439,7 @@ export class Hero {
     this.hand.rotation.z = THREE.MathUtils.lerp(Math.PI / 2, Math.PI, this.thrust);
     // ---- over the clips: the shield arm and the parrying blade
     this.updateShield(dt, s);
+    this.updateSwing(dt);
     this.updateCloak(dt, t, sp, s.turn || 0, s.vy || 0);
   }
 
@@ -466,6 +514,35 @@ export class Hero {
     };
     setDir(ub, A, E);
     setDir(fb, this.P(fb), T);
+  }
+
+  /** drive the sword arm along an authored cut (SWING_PATHS) at clip time t; null lets the clip's own cut play */
+  setSwing(path, t = 0) { this.sw.path = path && SWING_PATHS[path] ? path : null; if (this.sw.path) { this.sw.t = t; this.sw.last = this.sw.path; } }
+  updateSwing(dt) {
+    const sw = this.sw;
+    sw.w = damp(sw.w, sw.path && this.layer ? 1 : 0, sw.path ? 30 : 12, dt);
+    if (sw.w < 0.02 || !sw.last) return;
+    const twist = samplePath(SWING_PATHS[sw.last], sw.t, sw.hand, sw.blade);
+    const bw = this.root.getWorldQuaternion(new THREE.Quaternion());
+    // the torso turns into the cut (split over two spine joints)
+    const up = V(0, 1, 0);
+    for (const b of [this.spine2, this.spine3]) {
+      const pw = b.parent.getWorldQuaternion(new THREE.Quaternion());
+      const axis = up.clone().applyQuaternion(pw.clone().invert());
+      b.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, twist * 0.6 * sw.w));
+      b.updateMatrixWorld(true);
+    }
+    const fwd = V(0, 0, 1).applyQuaternion(bw), rgt = V(-1, 0, 0).applyQuaternion(bw), upb = V(0, 1, 0).applyQuaternion(bw);
+    const T = this.P(this.upperR).addScaledVector(rgt, sw.hand.x).addScaledVector(upb, sw.hand.y).addScaledVector(fwd, sw.hand.z);
+    this.solveArm(this.upperR, this.foreR, this.handR, T, fwd, sw.w, 1);
+    // the wrist: lay the blade along the path's direction
+    this.handR.updateWorldMatrix(true, false); this.hand.updateWorldMatrix(true, false);
+    const cur = V(0, -1, 0).applyQuaternion(this.hand.getWorldQuaternion(new THREE.Quaternion()));
+    const want = V().addScaledVector(rgt, sw.blade.x).addScaledVector(upb, sw.blade.y).addScaledVector(fwd, sw.blade.z).normalize();
+    const dq = new THREE.Quaternion().setFromUnitVectors(cur, want);
+    const hq = this.handR.getWorldQuaternion(new THREE.Quaternion()), pq = this.handR.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+    this.handR.quaternion.slerp(pq.multiply(dq.multiply(hq)), sw.w);
+    this.handR.updateMatrixWorld(true);
   }
 
   /** the blade comes up across the body for a moment (a parry, or the first instant of a raised guard) */

@@ -416,6 +416,64 @@ export class Audio {
     if (heavy) this._thump(t, 0.7, 140, 45, 0.25, 0.8);
   }
 
+  /**
+   * What a blow sounds like depends on what it met. Steel on steel rings high and inharmonic (a bell-like set of partials
+   * that do not sit on one pitch); a shield is a dull wooden knock with a rattle of its iron rim; flesh is a low, wet thud
+   * with a cloth slap; mail and plate are a short, damped clank. s is the strength (0.5 light .. 1.5 heavy).
+   */
+  impact(kind, s = 1) {
+    if (!this.ctx || !this.enabled) return;
+    const t = this.t, out = this.master, ctx = this.ctx;
+    const ring = (f, partials, dur, amp) => partials.forEach(([m, a], i) => {
+      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f * m * (1 + (Math.random() - 0.5) * 0.01), t);
+      const g = ctx.createGain(); const d = dur / (1 + i * 0.35);
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(amp * a, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0003, t + d);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.03);
+    });
+    const burst = (type, f, q, dur, amp, f1 = null) => {
+      const n = this._noise(dur + 0.02); const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.setValueAtTime(f, t); fl.Q.value = q;
+      if (f1) fl.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      const g = ctx.createGain(); g.gain.setValueAtTime(amp, t); g.gain.exponentialRampToValueAtTime(0.0003, t + dur);
+      n.connect(fl); fl.connect(g); g.connect(out);
+    };
+    const v = Math.min(1.6, 0.6 + s * 0.45);
+    switch (kind) {
+      case 'steel': {          // blade meets blade: the clink
+        const f = 1150 + Math.random() * 450;
+        ring(f, [[1, 1], [2.32, 0.7], [4.25, 0.45], [6.63, 0.3], [9.4, 0.16]], 0.55 + s * 0.35, 0.09 * v);
+        burst('highpass', 3800, 0.7, 0.03, 0.5 * v);
+        break;
+      }
+      case 'parry': {          // a clean parry: a bright ring that hangs, with the scrape of one edge along the other
+        const f = 1500 + Math.random() * 300;
+        ring(f, [[1, 1], [2.32, 0.8], [4.25, 0.5], [6.63, 0.35], [9.4, 0.2]], 1.1, 0.1 * v);
+        burst('bandpass', 5200, 2.5, 0.22, 0.22 * v, 1800);
+        burst('highpass', 4200, 0.7, 0.025, 0.55 * v);
+        break;
+      }
+      case 'shield': {         // wood with an iron rim: a knock, a low body, a short rattle
+        burst('lowpass', 520, 1.2, 0.12, 0.9 * v);
+        this._thump(t, v, 150, 70, 0.14, 0.7);
+        ring(720 + Math.random() * 80, [[1, 1], [2.7, 0.5], [5.1, 0.25]], 0.18, 0.05 * v);
+        burst('bandpass', 1900, 3, 0.06, 0.18 * v);
+        break;
+      }
+      case 'flesh': {          // a blade into a body
+        this._thump(t, v, 110, 48, 0.16, 0.85);
+        burst('lowpass', 900, 0.9, 0.09, 0.75 * v);
+        burst('bandpass', 2600, 1.4, 0.05, 0.25 * v, 900);          // the wet edge of it
+        break;
+      }
+      case 'armour': {         // mail and plate: damped, short, metallic
+        ring(640 + Math.random() * 120, [[1, 1], [1.93, 0.6], [3.1, 0.4]], 0.16, 0.08 * v);
+        burst('bandpass', 2400, 1.1, 0.07, 0.45 * v);
+        this._thump(t, v * 0.6, 130, 60, 0.1, 0.5);
+        break;
+      }
+      case 'whoosh': this._whoosh(t, 0.55 * v, 380 + s * 200, 1900 + s * 900, 0.18 + s * 0.08); break;
+    }
+  }
+
   /** a foot in the river */
   splash() {
     if (!this.ctx || !this.enabled) return;

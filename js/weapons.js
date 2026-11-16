@@ -3,7 +3,7 @@ import { Melee } from './melee.js';
 import { clamp, lerp, rnd, TAU, Builder, deg, addRim, angleTo } from './core.js';
 
 /* ============================================================ definitions
-   A mythic arsenal: two blades up close, a spear and a fire rune at range.
+   Steel up close, a thrown spear and a fire pot at range.
    Melee weapons carry a combo; each step has its damage, length, the moment
    in the swing that it lands (hit), and a style the hero's arm plays out. */
 export const WEAPONS = [
@@ -21,7 +21,7 @@ export const WEAPONS = [
     recoilPitch: 0, recoilYaw: 0, shake: 0.1, kickVis: 0, push: 0,
     mag: 1, reserve: Infinity, reload: 0.1, range: 3,
     tracer: 0x9ff4ff, flash: 0x9ff4ff, flashSize: 0, sound: 'sword',
-    color: 0x7ff3ff, desc: 'Three strikes; the third is a heavy overhead.'
+    color: 0xd6dde4, desc: 'A forehand, a backhand, an overhead. Hold for a heavy blow; run and strike to lunge.'
   },
   {
     id: 'axe', name: 'AXE', mod: 'WAR AXE',
@@ -75,7 +75,6 @@ export function buildGunModel(id) {
     b.add(box(0.058, 0.84, 0.012), STEEL, { pos: [0, -0.54, 0] });                              // blade
     b.add(box(0.06, 0.84, 0.006), STEELD, { pos: [0, -0.54, 0.0] });                            // bevel shade
     b.add(new THREE.ConeGeometry(0.041, 0.13, 4), STEEL, { pos: [0, -1.02, 0], rot: [Math.PI, Math.PI / 4, 0], scale: [1, 1, 0.3] });
-    gl.add(box(0.012, 0.72, 0.016), C, { pos: [0, -0.52, 0] });                                 // fuller glow
     muzzle.position.set(0, -1.08, 0);
   } else if (id === 'axe') {
     b.add(cyl(0.024, 0.028, 1.02), WOOD, { pos: [0, -0.34, 0] });                              // haft
@@ -85,7 +84,6 @@ export function buildGunModel(id) {
     b.add(box(0.026, 0.3, 0.24), STEEL, { pos: [0, -0.8, -0.14] });                             // bearded blade
     b.add(box(0.03, 0.12, 0.08), STEEL, { pos: [0, -0.68, -0.22], rot: [0.5, 0, 0] });          // beard
     b.add(new THREE.ConeGeometry(0.035, 0.14, 4), STEELD, { pos: [0, -0.8, 0.1], rot: [Math.PI / 2, 0, 0] }); // back spike
-    gl.add(box(0.03, 0.2, 0.02), C, { pos: [0, -0.8, -0.2] });                                 // rune on the blade
     muzzle.position.set(0, -0.8, -0.26);
   } else if (id === 'spear') {
     b.add(cyl(0.02, 0.022, 1.95, 8), WOOD, { pos: [0, -0.5, 0] });                        // shaft
@@ -107,6 +105,13 @@ export function buildGunModel(id) {
   const glow = new THREE.Mesh(gl.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
   group.add(mesh, glow, muzzle);
   group.userData.muzzle = muzzle;
+  // blood on the steel: a skin over the blade that darkens with each cut and dries off slowly (melee.js sets it)
+  if (id === 'sword' || id === 'axe') {
+    const bm = new THREE.MeshStandardMaterial({ color: 0x4a0505, roughness: 0.35, metalness: 0.1, transparent: true, opacity: 0, depthWrite: false });
+    const blood = id === 'sword' ? new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.6, 0.016), bm) : new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.26, 0.2), bm);
+    blood.position.set(0, id === 'sword' ? -0.7 : -0.8, id === 'sword' ? 0 : -0.15);
+    group.add(blood); group.userData.blood = blood;
+  }
   group.userData.color = C;
   return group;
 }

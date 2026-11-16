@@ -245,6 +245,41 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b32: steel that stops, counters, blood
+
+**Contact.** The blade is a solid thing. Each frame of a strike it is swept against what is in front of it, and what it
+meets first decides the blow (`js/melee.js` `contact()`): a soldier's **shield** (a disc on its face) stops the cut, which
+springs back along its path, checks you and leaves you open a beat (a wooden knock with an iron rattle). His **blade**,
+when he is swinging it, meets yours: a **clash**, both thrown back, his attack broken (a bright inharmonic ring). A
+**body** takes the cut: the edge drags a moment, blood sprays along the swing and stains the ground, a wound stays on him
+(one instanced mesh for every wound in the field), and blood builds on your blade and dries off. A held heavy blow
+smashes a shield aside instead of bouncing. His blows on your shield spring back the same way and leave him longer to
+recover. Hitstop, shake and (on Android, and on a gamepad) vibration scale with what was hit. Sounds: `audio.impact()`
+(steel, parry, shield, flesh, armour, whoosh).
+
+**Different attacks.** Tap: forehand (the captured clip), rising backhand, overhead (authored hand and blade paths in
+`hero.js` `SWING_PATHS`, on the clip's timing, the torso turning into the cut). Hold: the blade stops high and charges
+(a ring fills the attack button, steel rings when full) into a heavy blow. Run and strike: a lunging thrust. A sheathed
+sword draws and cuts in one press.
+
+**Counter (Arkham / Mordor).** While a man shows a yellow `!` the GUARD button lights as COUNTER. Press it and you turn
+to him, take the blow on your blade and cut back with a riposte; two at once are both taken. Red `!!` cannot be
+countered: it says ROLL.
+
+**Special.** The SPECIAL button appears when ready: FINISH a stunned or beaten man (or anyone at full flow), or SWEEP
+(3 flow) when they crowd you, a wide cut that staggers everyone around.
+
+**Injury.** Hurt men hunch and limp and wind up slower; below about a quarter they go down on one knee, open to a
+finisher, then fight on hurt. You bleed when hit.
+
+**Findable.** USE shows greyed with WALK CLOSER and the distance when something usable is within 30 m. The pause
+screen has a HOW TO FIGHT card; first-fight tips show once per device. Also: a blow from point-blank always counts as in
+front of your shield, and soldiers no longer walk inside you during a heavy wind-up (that made shield blocks fail).
+
+Tests (scratch): contact_test 13/13 (shield stop, geometry, shield smash, blood/wound/drag, counter, double counter, red
+refuses, kneel, sweep, his rebound, thrust, three cuts, USE), fight_test 14, combat_test 10, adv_func 15, p2 6, vault 10,
+rt31 5.
+
 ## b31: soldiers, readable fights, finishing moves
 
 The monsters are gone. The vale is held by the Ashen Company: footmen and spearmen behind shields, swordsmen who parry,
