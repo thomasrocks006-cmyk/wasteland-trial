@@ -24,7 +24,7 @@ const ASSETS = [
   './js/textures.js',
   './assets/tex/rock_c.jpg', './assets/tex/rock_n.jpg', './assets/tex/slate_c.jpg', './assets/tex/slate_n.jpg', './assets/tex/ground_c.jpg', './assets/tex/ground_n.jpg',
   './assets/tex/bark_c.jpg', './assets/tex/bark_n.jpg', './assets/tex/birch_c.jpg', './assets/tex/birch_n.jpg',
-  './assets/hero.glb',
+  './assets/hero.glb', './assets/ual2.bin',
   './vendor/addons/loaders/GLTFLoader.js',
   './vendor/addons/utils/BufferGeometryUtils.js',
   './vendor/addons/utils/SkeletonUtils.js',

@@ -16,12 +16,45 @@ import { clamp, damp, lerp } from './core.js';
    root, body, torso, head, hand (weapon socket), back (sheath), cloak. */
 
 let ASSET = null;
-export async function loadHeroAsset(url = 'assets/hero.glb') {
+export async function loadHeroAsset(url = 'assets/hero.glb', extra = 'assets/ual2.bin') {
   if (ASSET) return ASSET;
-  ASSET = await new GLTFLoader().loadAsync(url);
+  const [g, more] = await Promise.all([new GLTFLoader().loadAsync(url), extra ? loadClipPack(extra).catch(() => []) : []]);
+  for (const c of more) g.animations.push(c);           // hero and soldiers share these (SoldierFactory reads the same asset)
+  ASSET = g;
   return ASSET;
 }
 
+/**
+ * The second library's sword-and-shield clips (Quaternius, CC0), retargeted onto this rig by tools/retarget.html and
+ * packed by the scratch packer: 'UAL2', a JSON header (fps, bone names, clips), then per clip int16 quaternions
+ * (frame-major, bone order) and float32 hips positions.
+ */
+export async function loadClipPack(url) {
+  const buf = await (await fetch(url)).arrayBuffer();
+  const dv = new DataView(buf);
+  if (String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3)) !== 'UAL2') throw new Error('not a clip pack');
+  const hl = dv.getUint32(4, true), head = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 8, hl)));
+  let off = 8 + hl; const B = head.bones.length, out = [];
+  for (const c of head.clips) {
+    const n = c.n, times = new Float32Array(n); for (let f = 0; f < n; f++) times[f] = Math.min(c.dur, f / head.fps);
+    const q = new Int16Array(buf.slice(off, off + n * B * 8)); off += n * B * 8;
+    const p = new Float32Array(buf.slice(off, off + n * 12)); off += n * 12;
+    const tracks = head.bones.map((name, b) => {
+      const v = new Float32Array(n * 4);
+      for (let f = 0; f < n; f++) {
+        let x = q[(f * B + b) * 4] / 32767, y = q[(f * B + b) * 4 + 1] / 32767, z = q[(f * B + b) * 4 + 2] / 32767, w = q[(f * B + b) * 4 + 3] / 32767;
+        const l = Math.hypot(x, y, z, w) || 1; v[f * 4] = x / l; v[f * 4 + 1] = y / l; v[f * 4 + 2] = z / l; v[f * 4 + 3] = w / l;
+      }
+      return new THREE.QuaternionKeyframeTrack(name + '.quaternion', times, v);
+    });
+    tracks.push(new THREE.VectorKeyframeTrack(head.posBone + '.position', times, p));
+    out.push(new THREE.AnimationClip(c.name, c.dur, tracks));
+  }
+  return out;
+}
+
+export const UAL2_ONESHOT = ['Sword_Regular_A', 'Sword_Regular_A_Rec', 'Sword_Regular_B', 'Sword_Regular_B_Rec', 'Sword_Regular_C', 'Sword_Regular_Combo', 'Sword_Heavy_Combo', 'Sword_Block', 'Sword_Dash', 'Shield_Dash', 'Shield_OneShot', 'Idle_Shield_Break', 'Hit_Knockback', 'Melee_Hook'];
+export const UAL2_LOOP = ['Idle_Shield_Loop'];
 const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = V(), _v2 = V(), _v3 = V(), _m = new THREE.Matrix4();
 
@@ -472,6 +505,9 @@ export class Hero {
     const mk = (name, key = name, loop = THREE.LoopRepeat) => { const a = this.mixer.clipAction(this.clips[name]); a.setLoop(loop, Infinity); a.clampWhenFinished = true; this.A[key] = a; return a; };
     for (const n of ['Idle_Loop', 'Sword_Idle', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Loop', 'Spell_Simple_Idle_Loop']) mk(n);
     for (const n of ['Roll', 'Jump_Start', 'Jump_Land', 'Sword_Attack', 'Hit_Chest', 'Hit_Head', 'Death01', 'Spell_Simple_Shoot', 'Punch_Cross', 'Punch_Jab', 'Interact']) mk(n, n, THREE.LoopOnce);
+    // the sword-and-shield set from the second library (assets/ual2.bin), when it loaded
+    for (const n of UAL2_ONESHOT) if (this.clips[n]) mk(n, n, THREE.LoopOnce);
+    for (const n of UAL2_LOOP) if (this.clips[n]) mk(n);
     for (const k in this.A) { this.A[k].enabled = true; this.A[k].setEffectiveWeight(0); this.A[k].play(); }
     this.A.Idle_Loop.setEffectiveWeight(1);
     this.w = {};      // current blend weights, eased toward their targets
@@ -489,7 +525,13 @@ export class Hero {
   stopLayer() { this.layer = null; }
   get layerTime() { return this.layer ? this.A[this.layer.name].time : 0; }
   holdLayer(on) { if (this.layer) this.A[this.layer.name].paused = on; }
-  hitReact(strong = false) { this.overlay.hit = strong ? 1 : 0.7; this.A.Hit_Chest.reset(); this.A.Hit_Chest.timeScale = 1.1; this.A.Hit_Chest.play(); }
+  hitReact(strong = false) {
+    // a heavy blow knocks him back a step (captured), a light one is a flinch over whatever he was doing
+    if (strong && this.A.Hit_Knockback && !this.dead) { this.playOnce('Hit_Knockback', { from: 0.0, speed: 1.25 }); return; }
+    this.overlay.hit = strong ? 1 : 0.7; this.A.Hit_Chest.reset(); this.A.Hit_Chest.timeScale = 1.1; this.A.Hit_Chest.play();
+  }
+  /** the shield arm is beaten down: a captured stagger */
+  guardBroken() { if (this.A.Idle_Shield_Break && !this.dead) this.playOnce('Idle_Shield_Break', { from: 0.05, speed: 1.2 }); }
   die() { this.dead = true; const a = this.A.Death01; a.reset(); a.timeScale = 1; a.play(); }
   revive() { this.dead = false; this.A.Death01.stop(); this.A.Death01.setEffectiveWeight(0); this.layer = null; if (this.cloth) this.cloth.ready = false; }
 
@@ -508,7 +550,10 @@ export class Hero {
     const tIdleSword = (!run || sp < 0.5) && s.drawn ? 1 : 0, tIdle = (!run || sp < 0.5) && !s.drawn ? 1 : 0;
     const locoBusy = this.layer || this.dead || !onGround;
     const open = locoBusy ? 0 : 1;
-    ease('Idle_Loop', tIdle * open, 10); ease('Sword_Idle', tIdleSword * open, 10);
+    // standing behind the shield: the captured guard stance (the arm is still placed by the IK below)
+    const gs = s.guard && A.Idle_Shield_Loop ? 1 : 0;
+    ease('Idle_Loop', tIdle * open, 10); ease('Sword_Idle', tIdleSword * open * (1 - gs), 10);
+    if (A.Idle_Shield_Loop) ease('Idle_Shield_Loop', tIdleSword * open * gs, 12);
     ease('Walk_Loop', tWalk * open, 10); ease('Jog_Fwd_Loop', Math.max(0, tJog - tSpr * 0.0) * open, 10); ease('Sprint_Loop', tSpr * open, 10);
     const back = s.moveRel !== undefined && Math.abs(s.moveRel) > 2.0;
     A.Walk_Loop.timeScale = (back ? -1 : 1) * clamp(sp / 1.7, 0.6, 1.5);
@@ -527,14 +572,16 @@ export class Hero {
     this.landT = Math.max(0, (this.landT || 0) - dt);
     ease('Jump_Land', this.landT > 0 && !this.layer ? 1 : 0, 14);
     // ---- the one-shot layer (attack, roll, cast, bash, interact)
-    for (const n of ['Roll', 'Sword_Attack', 'Spell_Simple_Shoot', 'Punch_Cross', 'Punch_Jab', 'Interact']) {
+    for (const n of this.layerNames || (this.layerNames = ['Roll', 'Sword_Attack', 'Spell_Simple_Shoot', 'Punch_Cross', 'Punch_Jab', 'Interact', ...UAL2_ONESHOT.filter((k) => this.A[k])])) {
       const on = this.layer && this.layer.name === n;
       ease(n, on ? this.layer.bodyW : 0, on ? 30 : 12);
     }
     if (this.layer) {
       this.layer.age += dt;
       const a = A[this.layer.name];
-      if (!a.isRunning() && !a.paused) this.layer = null;                     // clip finished
+      // clip finished (a clamped one-shot ends paused at its last frame, so check the time too; a held charge pauses mid-clip)
+      const dur = a.getClip().duration;
+      if ((!a.isRunning() && !a.paused) || (a.timeScale > 0 && a.time >= dur - 1e-3) || (a.timeScale < 0 && a.time <= 1e-3)) this.layer = null;
     }
     // ---- reactions
     this.overlay.hit = Math.max(0, this.overlay.hit - dt * 3.2);

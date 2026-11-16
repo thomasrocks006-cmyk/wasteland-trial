@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>retarget</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
+<script type="module">
+/* Bakes clips from Quaternius' Universal Animation Library 2 (CC0, Unreal-style bone names) onto the hero rig
+   (Godot-style DEF- names). Same mannequin, different bone axes: each frame, each bone's world rotation relative to the
+   shared T-pose is carried across; the hips' travel is carried in world space, scaled by hip height. Run by
+   tools/retarget.cjs; the source file is served by the runner, it is not in the repo. */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const q = new URLSearchParams(location.search), WANT = (q.get('clips') || '').split(','), FPS = 30;
+const L = new GLTFLoader();
+const [src, tgt] = await Promise.all([L.loadAsync('/__ual2.glb'), L.loadAsync('../assets/hero.glb')]);
+const MAP = { pelvis: 'hips', spine_01: 'spine001', spine_02: 'spine002', spine_03: 'spine003', neck_01: 'neck', Head: 'head' };
+for (const s of ['l', 'r']) {
+  const S = s.toUpperCase();
+  Object.assign(MAP, { ['clavicle_' + s]: 'shoulder' + S, ['upperarm_' + s]: 'upper_arm' + S, ['lowerarm_' + s]: 'forearm' + S, ['hand_' + s]: 'hand' + S,
+    ['thigh_' + s]: 'thigh' + S, ['calf_' + s]: 'shin' + S, ['foot_' + s]: 'foot' + S, ['ball_' + s]: 'toe' + S });
+  for (const f of ['index', 'middle', 'pinky', 'ring']) for (const k of [1, 2, 3]) MAP[f + '_0' + k + '_' + s] = 'f_' + f + '0' + k + S;
+  for (const k of [1, 2, 3]) MAP['thumb_0' + k + '_' + s] = 'thumb0' + k + S;
+}
+const bonesOf = (root) => { const m = {}; root.traverse((o) => { if (o.isBone) m[o.name] = o; }); return m; };
+const SB = bonesOf(src.scene), TB = bonesOf(tgt.scene);
+const pairs = [];
+for (const [s, t] of Object.entries(MAP)) { const a = SB[s], b = TB['DEF-' + t]; if (a && b) pairs.push([a, b]); }
+const missing = Object.entries(MAP).filter(([s, t]) => !SB[s] || !TB['DEF-' + t]).map(([s, t]) => s + '>' + t);
+// parents before children
+const depth = (o) => { let d = 0; while (o.parent) { d++; o = o.parent; } return d; };
+pairs.sort((x, y) => depth(x[1]) - depth(y[1]));
+const pose = (gltf, name, t) => { const mx = new THREE.AnimationMixer(gltf.scene); const c = gltf.animations.find((a) => a.name === name); const a = mx.clipAction(c); a.play(); mx.setTime(t); gltf.scene.updateMatrixWorld(true); return mx; };
+// the shared T-pose
+pose(src, 'A_TPose', 0); pose(tgt, 'A_TPose', 0);
+const WS = new Map(), WT = new Map();
+for (const [a, b] of pairs) { WS.set(a, a.getWorldQuaternion(new THREE.Quaternion())); WT.set(b, b.getWorldQuaternion(new THREE.Quaternion())); }
+const sh = SB.pelvis, th = TB['DEF-hips'];
+const PS0 = sh.getWorldPosition(new THREE.Vector3()), PT0 = th.getWorldPosition(new THREE.Vector3());
+const scale = (PT0.y - tgt.scene.getWorldPosition(new THREE.Vector3()).y) / Math.max(1e-6, PS0.y - src.scene.getWorldPosition(new THREE.Vector3()).y);
+const out = [], info = [];
+for (const name of WANT) {
+  const clip = src.animations.find((c) => c.name === name); if (!clip) { info.push('no ' + name); continue; }
+  const mx = new THREE.AnimationMixer(src.scene); const act = mx.clipAction(clip); act.play();
+  const n = Math.max(2, Math.round(clip.duration * FPS) + 1), times = [];
+  const qv = pairs.map(() => []), pv = [];
+  for (let f = 0; f < n; f++) {
+    const t = Math.min(clip.duration, f / FPS); times.push(t); mx.setTime(t); src.scene.updateMatrixWorld(true);
+    pairs.forEach(([a, b], i) => {
+      const dq = a.getWorldQuaternion(new THREE.Quaternion()).multiply(WS.get(a).clone().invert());
+      const want = dq.multiply(WT.get(b));
+      const pw = b.parent.getWorldQuaternion(new THREE.Quaternion());
+      b.quaternion.copy(pw.invert().multiply(want)); b.updateMatrixWorld(true);
+      qv[i].push(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
+    });
+    const dp = sh.getWorldPosition(new THREE.Vector3()).sub(PS0).multiplyScalar(scale);
+    const wp = PT0.clone().add(dp); const lp = th.parent.worldToLocal(wp.clone());
+    th.position.copy(lp); th.updateMatrixWorld(true); pv.push(lp.x, lp.y, lp.z);
+  }
+  const r = (a) => a.map((v) => Math.round(v * 1e4) / 1e4);
+  const tracks = pairs.map(([a, b], i) => new THREE.QuaternionKeyframeTrack(b.name + '.quaternion', times, r(qv[i])));
+  tracks.push(new THREE.VectorKeyframeTrack(th.name + '.position', times, r(pv)));
+  out.push(THREE.AnimationClip.toJSON(new THREE.AnimationClip(name, clip.duration, tracks)));
+  info.push(name + ' ' + clip.duration.toFixed(2) + 's ' + n + 'f');
+}
+window.__out = { clips: out, info, missing, pairs: pairs.length, scale };
+</script>

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Tokens, newAI, think, stun, endAttack } from './soldier_ai.js';
+import { Tokens, newAI, think, stun, endAttack, useCapturedAttacks } from './soldier_ai.js';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, rnd, rng, pick,
   terrainHeight, Builder, raySphere, angleTo, ARENA_R, addRim
@@ -368,7 +368,7 @@ export class Enemies {
     this.onEnrage = null;
   }
 
-  setFactory(f) { this.factory = f; }
+  setFactory(f) { this.factory = f; if (f && f.clips) useCapturedAttacks(f.clips); }
   get alive() { return this.list.filter(e => e.alive); }
   get count() { return this.list.reduce((n, e) => n + (e.alive ? 1 : 0), 0); }
 
@@ -431,7 +431,7 @@ export class Enemies {
       // the blade met his shield (it is solid, raised or not): it stops there, unless a heavy blow smashes it aside
       if (contact === 'shield') {
         if (!breaks0 || ai.mode === 'stun') { if (e.view) e.view.kick = 1; if (this.onBlocked) this.onBlocked(e, point); return 'blocked'; }
-        stun(this, e, 1.4); if (e.view) e.view.kick = 1.6;
+        stun(this, e, 1.4); if (e.view) { e.view.kick = 1.6; e.view.playReact('Idle_Shield_Break', 1.1, 0.05); }
         e.hp -= amount * 0.3; e.flash = 1; if (e.passive && !e.aggro) this.alert(e);
         if (e.hp <= 0) this.kill(e);
         return 'broke';
@@ -453,11 +453,11 @@ export class Enemies {
         if (this.fx && point) { this.fx.spark(point, dir ? dir.clone().negate() : new THREE.Vector3(0, 1, 0), 0xffe6a0, 9, 6, 0.1, 0.3); this.fx.ring(point, 0xffd9a0, 0.9, 0.18); }
         if (this.audio && this.audio.clang) this.audio.clang(2, false);
         if (e.view) e.view.kick = 1;
-        if (quick && ai.mode !== 'stun') { ai.cd = Math.min(ai.cd, 0.25); }
+        if (quick && ai.mode !== 'stun') { ai.cd = Math.min(ai.cd, 0.25); if (e.view) e.view.playReact('Sword_Block', 1.6, 0.15); }
         if (this.onBlocked) this.onBlocked(e, point);
         return 'blocked';
       }
-      if (guarded && breaks) { stun(this, e, 1.5); if (this.fx && point) this.fx.ring(point, 0xffb040, 2.2, 0.3); if (this.audio && this.audio.roar) this.audio.roar(6); }
+      if (guarded && breaks) { stun(this, e, 1.5); if (e.view) e.view.playReact('Idle_Shield_Break', 1.1, 0.05); if (this.fx && point) this.fx.ring(point, 0xffb040, 2.2, 0.3); if (this.audio && this.audio.roar) this.audio.roar(6); }
       if (e.type.armor && !(info && (info.heavy || info.riposte || info.exec))) amount *= e.type.armor;
     }
     e.hp -= amount;
@@ -488,7 +488,7 @@ export class Enemies {
       const kb = e.type.heavy ? 0.35 : 1.0;
       e.vel.addScaledVector(new THREE.Vector3(dir.x, 0, dir.z).normalize(), amount * 0.05 * kb);
     }
-    if (e.view && e.hp > 0) e.view.hitReact(!!head);
+    if (e.view && e.hp > 0) { if (amount >= 45 && !e.kneeled && !(e.ai && e.ai.mode === 'stun')) e.view.playReact('Hit_Knockback', 1.3); else e.view.hitReact(!!head); }
     if (e.hp <= 0) this.kill(e);
     else if (e.ai && !e.type.boss && !e.kneeled && e.hp < e.maxHp * 0.28) {
       // beaten: he goes down on one knee, open to a finishing move, then gets up hurt

@@ -662,6 +662,7 @@ export class Player {
         this.hp = Math.max(0, this.hp - amount * 0.6 * this.dmgTakenMul);
         this.hurtFlash = 1; this.shake = Math.min(2.0, this.shake + 0.6);
         this.lastDefence = 'broken';
+        if (this.hero && this.hero.guardBroken) { if (this.cancelAttack) this.cancelAttack(); this.hero.guardBroken(); }
         if (this.onGuardBreak) this.onGuardBreak();
         if (this.hp <= 0) this.alive = false;
         return;
@@ -681,7 +682,7 @@ export class Player {
     this.hp = Math.max(0, this.hp - amount * this.dmgTakenMul);
     this.hurtFlash = 1;
     if (this.onHitTaken) this.onHitTaken(amount);
-    if (this.hero) { this.hero.hitReact(amount > 20); if (this.cancelAttack) this.cancelAttack(); }
+    if (this.hero) { if (this.cancelAttack) this.cancelAttack(); this.hero.hitReact(amount > 20); }     // cancel first, so a knockback is not cut off
     this.shake = Math.min(2.0, this.shake + 0.45);
     if (fromX !== undefined) {
       const a = Math.atan2(fromX - this.pos.x, fromZ - this.pos.z);

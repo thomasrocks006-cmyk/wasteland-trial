@@ -35,6 +35,20 @@ const SPECS = {
   },
 };
 
+/* The motion-captured set (the second animation library, assets/ual2.bin): three real cuts that each flow into a
+   recovery unless the next press comes, a heavy overhead out of the heavy combo, a running dash-cut. Windows are the
+   measured stretches where the blade tip moves fast (tools/hero_view.html ?profile=). */
+const MOCAP = {
+  light: [
+    { clip: 'Sword_Regular_A', from: 0.0, speed: 1.1, s0: 0.08, s1: 0.33, end: 0.43, rec: 'Sword_Regular_A_Rec', dmg: 34, stam: 7, lunge: 3.4, stop: 0.06, shake: 0.22, stag: 0.2, kb: 4.2 },
+    { clip: 'Sword_Regular_B', from: 0.02, speed: 1.15, s0: 0.19, s1: 0.35, end: 0.53, rec: 'Sword_Regular_B_Rec', dmg: 37, stam: 7, lunge: 3.4, stop: 0.06, shake: 0.22, stag: 0.2, kb: 4.2 },
+    { clip: 'Sword_Regular_C', from: 0.0, speed: 1.05, windows: [[0.06, 0.31], [0.56, 0.76]], s0: 0.06, s1: 0.76, end: 1.05, dmg: 52, stam: 13, lunge: 5.2, stop: 0.12, shake: 0.55, stag: 0.55, kb: 8, finisher: true },
+  ],
+  heavy: { clip: 'Sword_Heavy_Combo', chargeAt: 1.6, from: 1.4, speed: 1.0, s0: 1.68, s1: 1.94, end: 2.12, dmg: 118, stam: 26, lunge: 5.6, stop: 0.17, shake: 0.9, stag: 0.9, kb: 11, finisher: true, slam: true, heavy: true },
+  thrust: { clip: 'Sword_Dash', from: 0.14, speed: 1.1, s0: 0.21, s1: 0.42, end: 0.8, dmg: 52, stam: 10, lunge: 7, stop: 0.08, shake: 0.35, stag: 0.4, kb: 5.5 },
+  sweep: SPECS.sword.sweep,
+};
+
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _tip = new THREE.Vector3(), _base = new THREE.Vector3();
 const _sc = new THREE.Vector3(), _sn = new THREE.Vector3(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _g0 = new THREE.Vector3(), _g1 = new THREE.Vector3(), _sq = new THREE.Quaternion(), _ws = new THREE.Vector3();
 const _r1 = new THREE.Vector3(), _r2 = new THREE.Vector3(), _r3 = new THREE.Vector3();
@@ -89,7 +103,8 @@ export class Melee {
 
   get pl() { return this.ws.player; }
   get hero() { return this.ws.player.hero; }
-  get specs() { return SPECS[this.ws.def.id] || SPECS.sword; }
+  get specs() { return this.ws.def.id === 'sword' && this.hero.A.Sword_Regular_A && this.hero.A.Sword_Heavy_Combo ? MOCAP : SPECS[this.ws.def.id] || SPECS.sword; }
+  get mocap() { return this.specs === MOCAP; }
   get busy() { return !!this.atk; }
   /** 0..1 while holding at the top of the wind-up */
   get charge() { return this.atk && this.atk.charging ? clamp(this.holdT / 0.6, 0, 1) : 0; }
@@ -107,10 +122,13 @@ export class Melee {
     this.holdT = 0;
     // on the run: a lunging thrust
     if (this.specs.thrust && (pl.sprinting || Math.hypot(pl.vel.x, pl.vel.z) > 5.2) && this.clock - this.lastEnd > 0.4) { this.combo = 0; this.begin(this.specs.thrust, false); return; }
+    // the captured set decides on release: a tap is a cut, a hold of a fifth of a second winds up the heavy blow
+    if (this.mocap) { this.pending = true; return; }
     this.begin(this.nextLight(), true);
   }
   hold(dt) {
     this.holdT += dt;
+    if (this.pending && this.holdT >= 0.18) { this.pending = false; this.combo = 0; this.begin(this.specs.heavy, true); }
     const a = this.atk;
     if (a && a.holdable && !a.released && !a.pausedOnce && this.hero.layerTime >= this.specs.heavy.chargeAt) {
       a.charging = true; a.pausedOnce = true; this.hero.holdLayer(true);        // the blade stays up: a visible charge
@@ -119,9 +137,15 @@ export class Melee {
     if (a && a.charging && !a.cued && this.holdT >= 0.6) { a.cued = true; if (this.ws.audio.impact) this.ws.audio.impact('steel', 0.35); if (this.ws.ctx.haptic) this.ws.ctx.haptic(15); }   // full: a ring of steel
   }
   release() {
+    if (this.pending) { this.pending = false; this.begin(this.nextLight(), false); return; }
     const a = this.atk;
     if (!a) return;
     a.released = true;
+    if (a.charging && this.mocap) {             // the heavy was wound from the start: release lets it fall, harder the longer it was held
+      a.charging = false; this.hero.holdLayer(false); a.chargeK = clamp((this.holdT - 0.18) / 0.5, 0, 1);
+      if (this.ws.audio.roar && a.chargeK > 0.6) this.ws.audio.roar(8);
+      return;
+    }
     if (a.charging) {
       a.charging = false; this.hero.holdLayer(false);
       if (this.holdT >= 0.6 && this.pl.spend(this.specs.heavy.stam - a.spec.stam)) { a.spec = this.specs.heavy; this.hero.A.Sword_Attack.timeScale = a.spec.speed; if (this.ws.audio.roar) this.ws.audio.roar(8); }
@@ -139,7 +163,7 @@ export class Melee {
   begin(spec, holdable = false, forced = null) {
     const pl = this.pl, ws = this.ws;
     if (!pl.spend(spec.stam)) { if (ws.onWinded) ws.onWinded(); return false; }
-    this.atk = { spec, holdable: holdable && spec === this.specs.light[0], hit: new Set(), buffered: false, charging: false, released: !holdable, pausedOnce: false, started: false, assist: false, rebound: 0, drag: 0 };
+    this.atk = { spec, holdable: holdable && (spec === this.specs.light[0] || !!spec.chargeAt), hit: new Set(), buffered: false, charging: false, released: !holdable, pausedOnce: false, started: false, assist: false, rebound: 0, drag: 0 };
     this.havePrev = false;
     this.hero.playOnce(spec.clip || 'Sword_Attack', { from: spec.from, speed: spec.speed, bodyW: spec.path ? 0.3 : 1 });
     this.hero.setSwing(spec.path || null, spec.from); this.hero.setThrust(spec.thrust ? 1 : 0);
@@ -211,14 +235,31 @@ export class Melee {
     ws.swingT = 0.2; ws.idleT = 0;
     // the movement penalty eases off through the recovery
     pl.moveMul = t < S.s1 ? 0.3 : clamp(0.3 + (t - S.s1) / (S.end - S.s1) * 0.7, 0.3, 1);
+    // the recovery clip after a captured cut: the next press goes straight into the next cut; moving off ends it early
+    if (a.inRec) {
+      pl.moveMul = clamp(0.5 + t * 1.2, 0.5, 1);
+      if (a.buffered) { const next = this.nextLight(true); this.atk = null; this.begin(next, false); return; }
+      if ((pl.wish && pl.wish.mag > 0.5 && t > 0.22) || t >= a.recEnd || !hero.layer) this.finish();
+      return;
+    }
     if (!a.started && t >= S.s0 - 0.02) this.strikeStart(a);
-    const active = t >= S.s0 && t <= S.s1;
+    let active = t >= S.s0 && t <= S.s1;
+    if (S.windows) {
+      const w = S.windows.findIndex(([w0, w1]) => t >= w0 && t <= w1);
+      active = w >= 0;
+      if (w >= 0 && a.win !== undefined && w !== a.win) { a.hit = new Set(); a.assist = false; this.havePrev = false; }     // the second blow of the cut can strike again
+      if (w >= 0) a.win = w;
+    }
     if (active) this.sweep(a, t);
-    if (!a.assist && t >= (S.s0 + S.s1) * 0.5) { a.assist = true; this.assist(a); }
+    const wnd = S.windows && a.win !== undefined ? S.windows[a.win] : [S.s0, S.s1];
+    if (!a.assist && active && t >= (wnd[0] + wnd[1]) * 0.5) { a.assist = true; this.assist(a); }
     // a buffered press chains the moment the blow is through
     if (t > S.s1 && a.buffered && !a.charging) { const next = this.nextLight(true); this.atk = null; this.begin(next, false); return; }
     if (a.truncate && t > S.s0 + 0.12) { this.finish(); return; }
-    if (t >= S.end || !hero.layer) this.finish();
+    if (t >= S.end || !hero.layer) {
+      if (S.rec && hero.A[S.rec] && hero.layer) { a.inRec = true; hero.playOnce(S.rec, { from: 0, speed: 1.15 }); a.recEnd = hero.A[S.rec].getClip().duration * 0.9; return; }
+      this.finish();
+    }
   }
   finish() {
     this.atk = null; this.lastEnd = this.clock; this.pl.moveMul = 1; this.ws.swingT = 0;
@@ -332,7 +373,7 @@ export class Melee {
     const dx = e.pos.x - pl.pos.x, dz = e.pos.z - pl.pos.z, dl = Math.hypot(dx, dz) || 1;
     const dir = new THREE.Vector3(dx / dl, 0, dz / dl);
     const rip = pl.riposteT > 0 ? 1.8 : 1;
-    const dmg = S.dmg * ws.mods.dmg * (S.heavy ? ws.mods.heavy : 1) * (pl.dmgMul || 1) * rip * (head ? 1.25 : 1);
+    const dmg = S.dmg * ws.mods.dmg * (S.heavy ? ws.mods.heavy * (a.chargeK !== undefined ? 0.75 + 0.5 * a.chargeK : 1) : 1) * (pl.dmgMul || 1) * rip * (head ? 1.25 : 1);
     const res = ws.ctx.applyDamage(e, dmg, point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy, breaks: !!S.heavy, riposte: rip > 1, contact, aoe: !!S.aoe });
     if (res === 'blocked' || res === 'clash') {
       if (res === 'blocked' && contact !== 'shield' && e.view && e.view.shield) e.view.shield.getWorldPosition(point);
@@ -449,13 +490,14 @@ export class Melee {
     for (const e of (this.ws.ctx.enemies() || [])) if (e.alive && e.ai && Math.hypot(e.pos.x - pl.pos.x, e.pos.z - pl.pos.z) < 3.2 + e.type.radius) n++;
     return n;
   }
-  canSweep() { return !this.exec && !this.atk && this.specs.sweep && this.flow >= 3 && this.sweepTargets() >= 1; }
+  canSweep() { return !this.exec && (!this.atk || this.atk.inRec) && this.specs.sweep && this.flow >= 3 && this.sweepTargets() >= 1; }
   /** what SPECIAL would do now: 'finish', 'sweep' or null */
   specialKind() { return this.canExecute() ? 'finish' : this.canSweep() ? 'sweep' : null; }
   special() {
     const k = this.specialKind();
     if (k === 'finish') return this.execute();
     if (k === 'sweep') {
+      if (this.atk) this.finish();
       this.flow -= 3; if (this.ws.ctx.onFlow) this.ws.ctx.onFlow(this.flow);
       this.begin(this.specs.sweep, false);
       if (this.ws.audio.roar) this.ws.audio.roar(6);
@@ -491,7 +533,7 @@ export class Melee {
     }
     return best;
   }
-  canExecute() { return !this.exec && !this.atk && this.pl.alive ? this.execTarget() : null; }
+  canExecute() { return !this.exec && (!this.atk || this.atk.inRec) && this.pl.alive ? this.execTarget() : null; }      // the recovery after a cut can be cut short by a finisher
 
   execute() {
     const t = this.canExecute();
@@ -583,7 +625,7 @@ export class Melee {
   /** a new run: drop any swing, finishing move, flow or bash still in flight */
   reset() {
     if (this.exec) this.endExec(false);
-    this.atk = null; this.bashT = 0; this.breakFlow(); this.hero.stopLayer(); this.pl.moveMul = 1;
+    this.atk = null; this.pending = false; this.bashT = 0; this.breakFlow(); this.hero.stopLayer(); this.pl.moveMul = 1;
   }
 
   endExec(ok) {
@@ -599,6 +641,7 @@ export class Melee {
     if (this.bashCd > 0 || this.bashT > 0) return;
     if (!pl.spend(13)) { if (this.ws.onWinded) this.ws.onWinded(); return; }
     this.hero.shieldBash(0.32);
+    if (this.hero.A.Shield_OneShot && !this.atk) this.hero.playOnce('Shield_OneShot', { from: 0.0, speed: 1.15 });
     this.bashT = 0.13; this.bashCd = 0.75;
     pl.faceLock = Math.max(pl.faceLock, 0.5);
     pl.knock.addScaledVector(_a.set(Math.sin(pl.camYaw), 0, Math.cos(pl.camYaw)), 2.2);

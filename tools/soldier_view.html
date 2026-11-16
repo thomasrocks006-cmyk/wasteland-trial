@@ -15,7 +15,7 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x4a5560);
   const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; scene.environment = new THREE.PMREMGenerator(r).fromEquirectangular(t).texture; }
 scene.add(new THREE.HemisphereLight(0xdde8ff, 0x556040, 0.8)); const dl = new THREE.DirectionalLight(0xfff0d8, 2.6); dl.position.set(3, 5, 4); scene.add(dl);
 const floor = new THREE.Mesh(new THREE.CircleGeometry(40, 32), new THREE.MeshStandardMaterial({ color: 0x4a5a3c, roughness: 1 })); floor.rotation.x = -Math.PI / 2; scene.add(floor);
-const asset = await loadHeroAsset('../assets/hero.glb'); const F = new SoldierFactory(asset);
+const asset = await loadHeroAsset('../assets/hero.glb', '../assets/ual2.bin'); const F = new SoldierFactory(asset);
 const styles = ['footman', 'swordsman', 'spearman', 'crossbow', 'captain', 'warlord'];
 const mode = q.get('mode') || 'idle';
 const cam = new THREE.PerspectiveCamera(30, (W / 6) / H, 0.1, 50); r.clear();
@@ -25,6 +25,8 @@ styles.forEach((s, i) => {
   if (mode === 'tell') so.setLayer(s === 'spearman' ? 'Punch_Cross' : s === 'crossbow' ? 'Spell_Simple_Shoot' : 'Sword_Attack', s === 'spearman' ? 0.4 : s === 'crossbow' ? 0.2 : 0.21);
   if (mode === 'strike') so.setLayer(s === 'spearman' ? 'Punch_Cross' : s === 'crossbow' ? 'Spell_Simple_Shoot' : 'Sword_Attack', s === 'spearman' ? 0.4 : 0.45);
   if (mode === 'run') o.speed = 4;
+  if (q.get('layer')) so.setLayer(q.get('layer'), +(q.get('t') || 0));
+  if (q.get('react')) so.playReact(q.get('react'), 0.0001, +(q.get('t') || 0));
   for (let k = 0; k < 40; k++) so.update(0.03, o);
   so.root.rotation.y = 0.5;
   cam.position.set(Math.sin(0.1) * 4.8, 1.2, Math.cos(0.1) * 4.8); cam.lookAt(0, 0.95, 0);

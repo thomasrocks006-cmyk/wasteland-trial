@@ -14,11 +14,28 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x4a5560);
   const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromEquirectangular(t).texture; }
 scene.add(new THREE.HemisphereLight(0xdde8ff, 0x556040, 0.8)); const dl = new THREE.DirectionalLight(0xfff0d8, 2.6); dl.position.set(3, 5, 4); dl.castShadow = true; scene.add(dl);
 const floor = new THREE.Mesh(new THREE.CircleGeometry(300, 32), new THREE.MeshStandardMaterial({ color: 0x4a5a3c, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-const asset = await loadHeroAsset('../assets/hero.glb');
+const asset = await loadHeroAsset('../assets/hero.glb', q.get('ual2') ? null : '../assets/ual2.bin');
+if (q.get('ual2')) { const j = await (await fetch(q.get('ual2'))).json(); for (const c of j) asset.animations.push(THREE.AnimationClip.parse(c)); }
 const hero = new Hero(asset); scene.add(hero.root);
 // a plain blade in the hand for the viewer
 const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.0, 0.012), hero.mats.blade); blade.position.y = -0.55; hero.hand.add(blade);
 const guard = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.03, 0.04), hero.mats.brass); guard.position.y = -0.02; hero.hand.add(guard);
+if (q.get('profile')) {
+  const out = {};
+  for (const name of q.get('profile').split(',')) {
+    const a = hero.A[name]; if (!a) { out[name] = 'missing'; continue; }
+    hero.revive(); hero.stopLayer(); const dur = a.getClip().duration; const rows = []; let prev = null;
+    hero.playOnce(name, { from: 0 }); hero.holdLayer(true); for (let k = 0; k < 20; k++) hero.update(0.05, 0, { speed: 0, grounded: true, drawn: true });
+    for (let t = 0; t <= dur + 1e-6; t += 1 / 30) {
+      a.time = t; hero.update(1e-4, 0, { speed: 0, grounded: true, drawn: true }); hero.root.updateMatrixWorld(true);
+      const tip = hero.hand.localToWorld(new THREE.Vector3(0, -1.05, 0)), hand = hero.hand.getWorldPosition(new THREE.Vector3());
+      const sp = prev ? tip.distanceTo(prev) * 30 : 0; prev = tip.clone();
+      rows.push([+t.toFixed(2), +sp.toFixed(1), +tip.x.toFixed(2), +tip.y.toFixed(2), +tip.z.toFixed(2), +hand.z.toFixed(2)]);
+    }
+    out[name] = { dur: +dur.toFixed(2), rows };
+  }
+  window.__out = true; window.__prof = out;
+}
 const cases = JSON.parse(q.get('cases') || '[]');
 const n = cases.length, cw = W / n;
 const cam = new THREE.PerspectiveCamera(30, cw / H, 0.1, 50);

@@ -21,6 +21,13 @@ export const ATTACKS = {
   shoot: { tell: 1.0, strike: 0.12, rec: 1.2, reach: 22, dmg: 1.0, parry: false, clip: 'Spell_Simple_Shoot', c0: 0.0, c1: 0.1, c2: 0.4, c3: 0.5, ranged: true },
 };
 
+/** with the captured set loaded, the slash is a real cut (with a wind-up you can read) and the heavy a real overhead */
+export function useCapturedAttacks(clips) {
+  if (clips.Sword_Regular_B) Object.assign(ATTACKS.slash, { clip: 'Sword_Regular_B', c0: 0.0, c1: 0.2, c2: 0.36, c3: 0.53 });
+  if (clips.Sword_Heavy_Combo) Object.assign(ATTACKS.heavy, { clip: 'Sword_Heavy_Combo', c0: 1.4, c1: 1.66, c2: 1.94, c3: 2.15 });
+  if (clips.Shield_OneShot) Object.assign(ATTACKS.bash, { clip: 'Shield_OneShot', c0: 0.0, c1: 0.03, c2: 0.16, c3: 0.6 });
+}
+
 const _a = new THREE.Vector3(), _b = new THREE.Vector3();
 
 export class Tokens {

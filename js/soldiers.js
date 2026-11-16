@@ -262,11 +262,16 @@ export class Soldier {
     mk('Sword_Attack', 'Sword_Attack', THREE.LoopOnce); mk('Punch_Cross', 'Punch_Cross', THREE.LoopOnce); mk('Spell_Simple_Shoot', 'Spell_Simple_Shoot', THREE.LoopOnce);
     mk('Hit_Chest', 'Hit_Chest', THREE.LoopOnce); mk('Hit_Head', 'Hit_Head', THREE.LoopOnce); mk('Death01', 'Death01', THREE.LoopOnce); mk('Roll', 'Roll', THREE.LoopOnce);
     if (factory.clips.Crouch_Idle_Loop) mk('Crouch_Idle_Loop');
+    // the captured sword-and-shield set, when it loaded (assets/ual2.bin)
+    this.layerClips = ['Sword_Attack', 'Punch_Cross', 'Spell_Simple_Shoot', 'Roll'];
+    for (const n of ['Sword_Regular_B', 'Sword_Heavy_Combo', 'Sword_Block', 'Idle_Shield_Break', 'Hit_Knockback', 'Shield_OneShot']) if (factory.clips[n]) { mk(n, n, THREE.LoopOnce); this.A[n].paused = true; this.layerClips.push(n); }
+    if (factory.clips.Idle_Shield_Loop) mk('Idle_Shield_Loop');
     for (const k of ['Sword_Attack', 'Punch_Cross', 'Spell_Simple_Shoot', 'Hit_Chest', 'Hit_Head', 'Death01', 'Roll']) this.A[k].paused = true;
     this.w = {}; for (const k in this.A) this.w[k] = 0; this.w.Idle_Loop = 1;
     this.layer = null;        // { name, t } : a clip whose time the AI sets directly
     this.hitW = 0; this.dead = false; this.guardW = 0; this.kick = 0; this.thrustBlend = 0; this.bash = 0; this.stunned = false;
     this.far = false; this.acc = 0;
+    this.react = null;        // a reaction clip that plays by itself: { name, t, speed }
     this.kneel = 0; this.hurt = 0; this.wounds = []; this.phase = Math.random() * 6;
   }
 
@@ -307,6 +312,8 @@ export class Soldier {
 
   /** pose a one-shot clip at a time (seconds into the clip); null returns to locomotion */
   setLayer(name, t) { this.layer = name ? { name, t } : null; }
+  /** play a captured reaction through once (a parry, a guard beaten down, a knockback); false if he has no such clip */
+  playReact(name, speed = 1.2, from = 0) { if (!this.A[name] || this.dead) return false; this.react = { name, t: from, speed, dur: this.A[name].getClip().duration }; return true; }
   hitReact(head = false) { this.hitW = 1; const a = head ? this.A.Hit_Head : this.A.Hit_Chest; a.time = 0; a.paused = false; a.timeScale = 1.2; a.play(); this.hitHead = head; }
   die() { this.dead = true; const a = this.A.Death01; a.paused = false; a.time = 0; a.timeScale = 1.1; a.play(); }
   /** the weapon's point in the world (for clash sparks) */
@@ -320,20 +327,23 @@ export class Soldier {
     // distant soldiers: a coarse step (no IK), a third of the cost
     if (o.dist > 38 && !this.dead) { this.acc += dt; this.far = true; if (this.acc < 0.09) return; dt = this.acc; this.acc = 0; } else { this.far = false; this.acc = 0; }
     const A = this.A, w = this.w, ease = (k, tg, r) => { w[k] = damp(w[k], tg, r, dt); };
-    const sp = o.speed, busy = !!this.layer || this.dead || this.kneel > 0;
+    if (this.react) { this.react.t += dt * this.react.speed; if (this.react.t >= this.react.dur * 0.92) this.react = null; }
+    const sp = o.speed, busy = !!this.layer || this.dead || this.kneel > 0 || !!this.react;
     this.kneel = Math.max(0, this.kneel - dt); this.hurt = o.hurt || 0;
     const run = sp > 0.25;
-    ease('Idle_Loop', !busy && !run && !o.drawn ? 1 : 0, 10); ease('Sword_Idle', !busy && !run && o.drawn ? 1 : 0, 10);
+    const gs = o.guard && A.Idle_Shield_Loop ? 1 : 0;               // behind his shield: the captured guard stance
+    ease('Idle_Loop', !busy && !run && !o.drawn ? 1 : 0, 10); ease('Sword_Idle', !busy && !run && o.drawn ? 1 - gs : 0, 10);
+    if (A.Idle_Shield_Loop) ease('Idle_Shield_Loop', !busy && !run && o.drawn ? gs : 0, 10);
     ease('Walk_Loop', !busy && run && sp < 3.6 ? 1 : 0, 10); ease('Jog_Fwd_Loop', !busy && run && sp >= 3.6 ? 1 : 0, 10);
     A.Walk_Loop.timeScale = (o.moveBack ? -1 : 1) * clamp(sp / 1.7, 0.6, 1.5);
     A.Jog_Fwd_Loop.timeScale = (o.moveBack ? -1 : 1) * clamp(sp / 3.7, 0.7, 1.4);
-    for (const n of ['Sword_Attack', 'Punch_Cross', 'Spell_Simple_Shoot', 'Roll']) {
-      const on = this.layer && this.layer.name === n;
+    for (const n of this.layerClips) {
+      const on = (this.layer && this.layer.name === n) || (this.react && this.react.name === n && !this.layer);
       ease(n, on ? 1 : 0, on ? 26 : 14);
-      if (on) { A[n].paused = true; A[n].time = this.layer.t; }
+      if (on) { A[n].paused = true; A[n].time = this.layer && this.layer.name === n ? this.layer.t : this.react.t; }
     }
     if (A.Crouch_Idle_Loop) ease('Crouch_Idle_Loop', this.kneel > 0 && !this.dead ? 1 : 0, this.kneel > 0 ? 9 : 5);
-    if (this.stunned && !this.dead && this.kneel <= 0) { this.hitHead = true; this.hitW = 1; A.Hit_Head.paused = true; A.Hit_Head.time = 0.22; }     // reeling, head down
+    if (this.stunned && !this.dead && this.kneel <= 0 && !this.react) { this.hitHead = true; this.hitW = 1; A.Hit_Head.paused = true; A.Hit_Head.time = 0.22; }     // reeling, head down
     else this.hitW = Math.max(0, this.hitW - dt * 3);
     ease('Hit_Chest', !this.hitHead ? this.hitW * 0.9 : 0, 40); ease('Hit_Head', this.hitHead ? this.hitW * 0.9 : 0, 40);
     ease('Death01', this.dead ? 1 : 0, this.dead ? 18 : 30);
