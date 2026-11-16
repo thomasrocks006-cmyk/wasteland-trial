@@ -245,6 +245,19 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b33: a cloth cape
+
+The cloak was a stiff sheet bolted to the upper back and tilted to look like it hung, so it passed through his back, hips
+and legs whenever he crouched, lunged or swung. It is now cloth (`hero.js` buildCloak / updateCloak), simulated the way
+engine cloth is (Unreal Chaos Cloth, Unity Cloth, PhysX): 117 points (9 x 13) joined by stretch, shear and bend springs
+(Verlet integration, position-based constraints, 2 substeps x 6 iterations), the collar row pinned along the shoulder
+blades, gravity and still-air drag (so it streams back when he runs), a slow gust. It cannot pass into the body: capsules
+round the back, hips, shoulders, arms, thighs and shins push it out without throwing it (inelastic), a backstop plane along
+the spine keeps it from wrapping round the front, and it rests on the ground. Only half his own travel reaches it as
+inertia (the world velocity scale engines use) so a run does not fling it about; a teleport or revive starts it at rest.
+Measured in game: no cloth inside the body standing, running or turning; a few points up to ~5 cm for a frame in the
+fastest attack twists; streams back ~33 degrees at a run; about 0.4 ms a frame on the test box.
+
 ## b32: steel that stops, counters, blood
 
 **Contact.** The blade is a solid thing. Each frame of a strike it is swept against what is in front of it, and what it

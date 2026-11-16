@@ -13,7 +13,7 @@ const scene = new THREE.Scene(); scene.background = new THREE.Color(0x4a5560);
   g.addColorStop(0, '#5f86bf'); g.addColorStop(0.45, '#c8d4dc'); g.addColorStop(0.5, '#ece0c8'); g.addColorStop(0.55, '#6f7e4c'); g.addColorStop(1, '#3a4630'); x.fillStyle = g; x.fillRect(0, 0, 256, 128);
   const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromEquirectangular(t).texture; }
 scene.add(new THREE.HemisphereLight(0xdde8ff, 0x556040, 0.8)); const dl = new THREE.DirectionalLight(0xfff0d8, 2.6); dl.position.set(3, 5, 4); dl.castShadow = true; scene.add(dl);
-const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 32), new THREE.MeshStandardMaterial({ color: 0x4a5a3c, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(300, 32), new THREE.MeshStandardMaterial({ color: 0x4a5a3c, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
 const asset = await loadHeroAsset('../assets/hero.glb');
 const hero = new Hero(asset); scene.add(hero.root);
 // a plain blade in the hand for the viewer
@@ -26,7 +26,7 @@ const view = q.get('view') || 'front';
 r.clear();
 for (let i = 0; i < n; i++) {
   const c = cases[i];
-  hero.revive(); hero.stopLayer(); hero.setSwing(null); hero.sw.w = 0; hero.sw.last = null; hero.ik.parry = 0; hero.ik.pw = 0; hero.setThrust(0); hero.thrust = 0;
+  hero.root.position.set(0, 0, 0); hero.mats.cloak.color.setHex(c.cloakHex || 0x35503d); hero.clothOff = c.off || null; hero.revive(); hero.stopLayer(); hero.setSwing(null); hero.sw.w = 0; hero.sw.last = null; hero.ik.parry = 0; hero.ik.pw = 0; hero.setThrust(0); hero.thrust = 0;
   const s = Object.assign({ speed: 0, sprint: false, grounded: true, vy: 0, drawn: true, guard: false }, c.s || {});
   let t = 0;
   if (c.layer) { const a = hero.playOnce(c.layer, { from: c.from || 0, speed: c.speed || 1 }); if (c.hold) hero.holdLayer(true); }
@@ -35,12 +35,12 @@ for (let i = 0; i < n; i++) {
   if (c.bash) hero.shieldBash(1);
   if (c.parry) hero.swordParry(9);
   if (c.thrust) hero.setThrust(1);
-  const steps = c.steps || 40; for (let k = 0; k < steps; k++) { t += 0.03; if (c.swing) hero.setSwing(c.swing, c.st); hero.update(0.03, t, s); }
+  const steps = c.steps || 40; for (let k = 0; k < steps; k++) { t += 0.03; if (c.move) hero.root.position.z += c.move * 0.03; hero.root.updateMatrixWorld(true); if (c.swing) hero.setSwing(c.swing, c.st); hero.update(0.03, t, s); }
   if (c.layer && !c.hold) { /* let it run to the requested time */ }
-  { hero.root.updateMatrixWorld(true); const bw = hero.root.getWorldQuaternion(new THREE.Quaternion()).invert(); const d = new THREE.Vector3(0, -1, 0).applyQuaternion(hero.hand.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(bw); const hp = hero.hand.getWorldPosition(new THREE.Vector3()).sub(hero.upperR.getWorldPosition(new THREE.Vector3())).applyQuaternion(bw); (window.__dbg = window.__dbg || []).push({ c: c.swing + '@' + c.st, bladeRUF: [-d.x, d.y, d.z].map(v => +v.toFixed(2)), handRUF: [-hp.x, hp.y, hp.z].map(v => +v.toFixed(2)), w: +hero.sw.w.toFixed(2) }); }
+  { hero.root.updateMatrixWorld(true); const bw = hero.root.getWorldQuaternion(new THREE.Quaternion()).invert(); const d = new THREE.Vector3(0, -1, 0).applyQuaternion(hero.hand.getWorldQuaternion(new THREE.Quaternion())).applyQuaternion(bw); const hp = hero.hand.getWorldPosition(new THREE.Vector3()).sub(hero.upperR.getWorldPosition(new THREE.Vector3())).applyQuaternion(bw); const P = hero.cloth.pos, rp = hero.root.position, col = (i) => [P[i*3] - rp.x, P[i*3+1] - rp.y, P[i*3+2] - rp.z].map(v => +v.toFixed(2)); const wid = (r) => { const a = r * 9, b = r * 9 + 8, R = hero.cloth.rest; return +Math.hypot(P[a*3]-P[b*3], P[a*3+1]-P[b*3+1], P[a*3+2]-P[b*3+2]).toFixed(2) + '/' + Math.hypot(R[a*3]-R[b*3], R[a*3+1]-R[b*3+1], R[a*3+2]-R[b*3+2]).toFixed(2); }; (window.__dbg = window.__dbg || []).push({ widths: [0, 3, 6, 9, 12].map(wid).join(' '), collar: col(4), mid: col(58), hem: col(112), meshHem: Array.from(hero.cloak.geometry.attributes.position.array.slice(112*3, 112*3+3)).map(v => +v.toFixed(2)), c: c.swing + '@' + c.st, bladeRUF: [-d.x, d.y, d.z].map(v => +v.toFixed(2)), handRUF: [-hp.x, hp.y, hp.z].map(v => +v.toFixed(2)), w: +hero.sw.w.toFixed(2) }); }
   hero.root.rotation.y = c.yaw || 0;
   const ang = c.cam === 'side' ? Math.PI / 2 : c.cam === 'back' ? Math.PI : c.cam === '3q' ? 0.6 : 0; const D = 4.6;
-  cam.position.set(Math.sin(ang) * D, 1.15, Math.cos(ang) * D); cam.lookAt(0, 0.95, 0);
+  const rz = hero.root.position.z; if (c.cam === 'top') { cam.position.set(0.01, 5.5, rz); cam.up.set(0, 0, 1); cam.lookAt(0, 0.9, rz); } else { cam.up.set(0, 1, 0); cam.position.set(Math.sin(ang) * D, 1.15, rz + Math.cos(ang) * D); cam.lookAt(0, 0.95, rz); }
   r.setViewport(i * cw, 0, cw, H); r.setScissor(i * cw, 0, cw, H); r.setScissorTest(true); r.render(scene, cam);
 }
 window.__out = true;
