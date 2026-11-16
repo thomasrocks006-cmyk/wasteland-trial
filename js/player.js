@@ -540,6 +540,9 @@ export class Player {
     this.parryWindow = 0.32;
     this.guardDmgTaken = 0.2;  // share of a blocked hit that still lands
     this.guardCostMul = 1;     // perks: blocked blows cost less stamina
+    this.guardIdle = 9;        // seconds since the guard last dropped: a parry needs a fresh raise, so tapping it is not a shield
+    this.parryReady = false;
+    this.lockBreak = 0;
     this.lockTarget = null;
     this.onParry = null; this.onBlock = null; this.onGuardBreak = null;
     this.sprinting = false;
@@ -627,7 +630,7 @@ export class Player {
     // the guard turns blows from the front: the first instant turns them completely (a parry)
     if (this.guard && fromX !== undefined && Math.abs(angleTo(this.camYaw, Math.atan2(fromX - this.pos.x, fromZ - this.pos.z))) < 1.9) {
       this.iframe = 0.25;
-      if (this.guardT <= this.parryWindow) {
+      if (this.parryReady && this.guardT <= this.parryWindow) {
         this.stam = Math.min(this.maxStam, this.stam + 14);
         this.shieldMat.opacity = 1;
         if (this.onParry) this.onParry(fromX, fromZ);
@@ -735,14 +738,19 @@ export class Player {
 
     // ---- stamina: guard up, sprint drain, refill
     if (this.staminaOn) {
+      const wasGuard = this.guard;
       this.guard = !!input.guard && !this.exhausted && this.dodging <= 0 && this.grounded;
+      if (this.guard && !wasGuard) this.parryReady = this.guardIdle >= 0.55;     // a raise soon after a drop is a plain block
+      this.guardIdle = this.guard ? 0 : this.guardIdle + dt;
       this.guardT = this.guard ? this.guardT + dt : 0;
       this.stamDelay = Math.max(0, this.stamDelay - dt);
       if (this.stamDelay <= 0 && !this.guard) this.stam = Math.min(this.maxStam, this.stam + (this.exhausted ? 20 : 34) * dt);
       if (this.exhausted && this.stam >= 25) this.exhausted = false;
       if (this.lockTarget) {
         const lt = this.lockTarget, dx = lt.pos.x - this.pos.x, dz = lt.pos.z - this.pos.z;
-        if (!lt.alive || Math.hypot(dx, dz) > 34) this.lockTarget = null;
+        // a deliberate swipe of the look stick lets go; small drift does not
+        this.lockBreak = Math.max(0, this.lockBreak - dt * 0.5) + Math.abs(input.lookX);
+        if (!lt.alive || Math.hypot(dx, dz) > 34 || this.lockBreak > 0.4) { this.lockTarget = null; this.lockBreak = 0; }
         else this.camYaw = dampAngle(this.camYaw, Math.atan2(dx, dz), 6, dt);
       }
     } else { this.guard = false; this.guardT = 0; this.lockTarget = null; }

@@ -54,7 +54,7 @@
   <div id="compass" class="hidden"><div id="compassMarks"></div><div id="compassNotch"></div></div>
   <div id="banner"><i></i><b></b></div>
   <div id="lockMark" class="hidden"></div>
-  <button id="btnUse" class="hidden"><i>USE</i><span id="useWhy"></span></button>
+  <button id="btnUse" aria-label="Use the place in front of you" class="hidden"><i>USE</i><span id="useWhy"></span></button>
 
   <!-- health -->
   <div id="healthWrap">
@@ -99,8 +99,8 @@
     <button id="btnJump" class="tbtn small">JUMP</button>
     <button id="btnReload" class="tbtn small">RELOAD</button>
     <button id="btnDodge" class="tbtn small dodge">DODGE</button>
-    <button id="btnLock" class="tbtn small lock">LOCK</button>
-    <button id="btnGuard" class="tbtn small guard">GUARD</button>
+    <button id="btnLock" aria-label="Lock on to the nearest threat" class="tbtn small lock">LOCK</button>
+    <button id="btnGuard" aria-label="Hold to guard; raise just before a hit to parry" class="tbtn small guard">GUARD</button>
     <button id="btnFire" class="tbtn fire"><svg viewBox="0 0 48 48"><path d="M36 6 L42 6 L42 12 L20 34 L14 28 Z"/><path d="M11 25 L23 37 M12 36 L6 42 M15 31 L9 37"/></svg></button>
   </div>
 
@@ -188,11 +188,12 @@
       <div class="jRow"><span>LIGHTS</span><b id="jRunes">0 / 5</b></div>
       <div class="jRow"><span>PLACES FOUND</span><b id="jPlaces">0 / 13</b></div>
       <div class="jRow"><span>THE PASS</span><b id="jPass">SEALED</b></div>
+      <div class="jRow"><span>SLAIN · PARRIES</span><b id="jKills">0 · 0</b></div>
       <div class="jList" id="jRelics"></div>
       <div class="jList" id="jLore"></div>
       <div class="jList dim" id="jBest"></div>
     </div>
-    <div class="pauseStats">
+    <div class="pauseStats" id="pauseStats">
       <div><span>WAVE</span><b id="pWave">1</b></div>
       <div><span>SCORE</span><b id="pScore">0</b></div>
       <div><span>ACCURACY</span><b id="pAcc">0%</b></div>

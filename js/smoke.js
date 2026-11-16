@@ -557,7 +557,7 @@ export async function runSmoke() {
     pl.iframe = 0; pl.hp = pl.maxHp; pl.stam = pl.maxStam; pl.exhausted = false;
     const e = d.enemies.spawn('grunt', pl.pos.x + Math.sin(pl.camYaw) * 2, pl.pos.z + Math.cos(pl.camYaw) * 2);
     e.spawnT = 1; e.state = 'chase';
-    pl.guard = true; pl.guardT = 0.1;
+    pl.guard = true; pl.parryReady = true; pl.guardT = 0.1;
     const hp0 = pl.hp; pl.damage(30, e.pos.x, e.pos.z);
     assert(pl.hp === hp0 && e.state === 'stagger', 'parry failed: hp ' + pl.hp + ' state ' + e.state);
     pl.iframe = 0; pl.guardT = 1; pl.damage(30, e.pos.x, e.pos.z);

@@ -296,7 +296,8 @@ export const ENEMY_TYPES = {
 };
 
 /* ------------------------------------------------------------------ instancers */
-const MAX_PER_TYPE = { grunt: 26, shooter: 14, brute: 8, wasp: 12, boss: 2, wolf: 16, stonekin: 10 };
+// generous: an enemy past its type's cap is simulated but never drawn, which reads as being hit by nothing
+const MAX_PER_TYPE = { grunt: 40, shooter: 24, brute: 16, wasp: 24, boss: 2, wolf: 40, stonekin: 24 };
 
 class TypeRender {
   constructor(scene, type) {
@@ -353,8 +354,8 @@ export class Enemies {
     const eyeGeo = new THREE.SphereGeometry(0.075, 8, 6);   // small furnace-lit eyes; 0.13 read as white blobs up close
     this.eyeMesh = new THREE.InstancedMesh(eyeGeo, new THREE.MeshBasicMaterial({
       transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false
-    }), 72);
-    this.eyeMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(72 * 3), 3);
+    }), 160);
+    this.eyeMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(160 * 3), 3);
     this.eyeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.eyeMesh.frustumCulled = false;
     this.eyeMesh.count = 0;
@@ -995,7 +996,7 @@ export class Enemies {
     // eye glows
     let ei = 0;
     for (const e of this.list) {
-      if (!e.alive || ei + 2 > 72) continue;
+      if (!e.alive || ei + 2 > 160) continue;
       const t = e.type;
       const cosY = Math.cos(e.yaw), sinY = Math.sin(e.yaw);
       const col = t.boss ? 0xff5a18 : (e.key === 'wasp' ? 0xffb030 : (e.key === 'shooter' ? 0xffc860 : 0xff7a20));

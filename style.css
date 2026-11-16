@@ -473,3 +473,10 @@ body.wander #bossBar{top:calc(env(safe-area-inset-top,0px) + 76px);}
 .thr.f{color:#d9d4c8}.thr.k{color:#7fd6a8}
 
 .draftLater{margin-top:8px;background:transparent;border:1px solid rgba(255,190,120,.2);color:rgba(244,231,210,.55);font-family:inherit;font-weight:800;font-size:8px;letter-spacing:.2em;padding:7px 14px;cursor:pointer;}
+
+/* the skill draft in the vale sits below the compass, smaller, so it never hides the heading */
+body.wander #draft{top:calc(env(safe-area-inset-top,0px) + 76px);}
+body.wander .card{min-height:76px;padding:9px 9px 9px;}
+body.wander .card b{margin:4px 0 3px;font-size:13px;}
+body.wander .card span{font-size:9px;}
+body.wander .draftHead{margin-bottom:6px;}

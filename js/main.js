@@ -900,12 +900,12 @@ function showBanner(kicker, name) {
 }
 
 const adv = new Adventure(scene, world, {
-  save, persist, enemies, fx, audio, player,
+  save, persist, enemies, fx, audio, player, perkIds: PERKS.map((pk) => pk.id),
   toast: (t) => showToast(t),
   callout: (t) => showCallout(t),
   banner: showBanner,
   lore: (title, text) => { $('loreTitle').textContent = title; $('loreText').textContent = text; openReading('loreCard'); },
-  victory: () => { setTimeout(() => { if (GAME.state === 'playing') openReading('victory'); }, 2400); },
+  victory: () => { victoryDue = performance.now() + 2400; },
   onLevelUp: (lvl) => { showCallout('LEVEL ' + lvl); audio.streak(5); applyProgress(true); persist(); },
   onRelic: (id, r) => { setTimeout(() => showBanner('RELIC FOUND', r.name), 700); applyProgress(false); },
   onXp: () => { },
@@ -959,11 +959,11 @@ player.onParry = (x, z) => {
   timeWarp(0.12, 0.14);
   showCallout('PARRY');
   GAME.parries = (GAME.parries || 0) + 1;
-  adv.addXp(5, 'parry');
+  if (performance.now() - lastParryXp > 2000) { lastParryXp = performance.now(); adv.addXp(4, 'parry'); }
 };
 player.onBlock = () => { audio.clang(1, false); fx.ring(new THREE.Vector3(player.pos.x, player.pos.y + 1.1, player.pos.z), 0x7fd8ff, 1.8, 0.25); };
 player.onGuardBreak = () => { audio.playerHurt(); showCallout('GUARD BROKEN'); };
-let windedAt = 0;
+let windedAt = 0, lastParryXp = 0;
 weapons.onWinded = () => { if (performance.now() - windedAt > 900) { windedAt = performance.now(); showToast('WINDED'); } };
 
 /* ================================================================ wander mode
@@ -1015,6 +1015,7 @@ function updateWander(dt) {
   audio.setMood(hunting ? 'combat' : calmT > 4 ? 'explore' : audio.nextMood);
   if (calmT > 5 && player.alive) player.heal(5 * dt);
   adv.adv.playSecs += dt;
+  if (victoryDue && performance.now() > victoryDue) { victoryDue = 0; openReading('victory'); return; }
   autosaveT += dt; if (autosaveT > 20) { autosaveT = 0; persist(); }
   adv.update(dt, GAME.time, player);
   // a skill to choose waits for a calm moment
@@ -1023,7 +1024,7 @@ function updateWander(dt) {
   ui.objective.textContent = hunting ? 'SENTINELS HUNT YOU' : o.text;
   objectivePoi = o.poi;
 }
-let objectivePoi = null, autosaveT = 0, freeCam = null, draftLaterUntil = 0;
+let victoryDue = 0, objectivePoi = null, autosaveT = 0, freeCam = null, draftLaterUntil = 0;
 
 /* the valley's sound follows you: river by distance and side, the cascade, wind up high */
 const CASCADE = (() => { let k = 0; for (let i = 1; i < RIVER.length - 1; i++) if (RIVER[i - 1].wy - RIVER[i + 1].wy > 0.8) k = i; return RIVER[k]; })();
@@ -1158,17 +1159,26 @@ function togglePause() {
 function fillJournal() {
   const j = $('journal'), wander = GAME.mode === 'wander';
   j.classList.toggle('hidden', !wander);
+  $('pauseStats').classList.toggle('hidden', wander);
   if (!wander) return;
+  $('jKills').textContent = GAME.kills + ' · ' + (GAME.parries || 0);
   const a = adv.adv;
   $('jLevel').textContent = 'LEVEL ' + a.level;
   $('jXp').textContent = a.level >= MAX_LEVEL ? 'MAX' : a.xp + ' / ' + xpNeed(a.level) + ' XP';
   $('jRunes').textContent = adv.runes + ' / ' + RUNES_NEEDED;
   $('jPlaces').textContent = adv.placesFound + ' / ' + adv.places.length;
   $('jPass').textContent = a.passOpen ? 'OPEN' : 'SEALED';
-  $('jRelics').innerHTML = '<b>RELICS ' + a.relics.length + ' / ' + Object.keys(RELICS).length + '</b>' + a.relics.map((id) => '<span class="rd">' + RELICS[id].name + ' · ' + RELICS[id].desc + '</span>').join('');
-  const read = Object.keys(a.read);
-  $('jLore').innerHTML = '<b>INSCRIPTIONS ' + read.length + ' / ' + Object.keys(LORE).length + '</b>' + read.map((k) => '<span class="rd" data-k="' + k + '">' + LORE[k].title + '</span>').join('');
-  $('jLore').querySelectorAll('.rd').forEach((el) => el.addEventListener('click', () => { $('loreTitle').textContent = LORE[el.dataset.k].title; $('loreText').textContent = LORE[el.dataset.k].text; $('pause').classList.add('hidden'); GAME.state = 'playing'; openReading('loreCard'); readingFrom = 'paused'; }));
+  const fill = (el, head, rows) => {
+    el.textContent = '';
+    const h = document.createElement('b'); h.textContent = head; el.appendChild(h);
+    for (const r of rows) { const s = document.createElement('span'); s.className = 'rd'; s.textContent = r.text; if (r.click) s.addEventListener('click', r.click); el.appendChild(s); }
+  };
+  fill($('jRelics'), 'RELICS ' + a.relics.length + ' / ' + Object.keys(RELICS).length, a.relics.map((id) => ({ text: RELICS[id].name + ' · ' + RELICS[id].desc })));
+  const read = Object.keys(a.read).filter((k) => LORE[k]);
+  fill($('jLore'), 'INSCRIPTIONS ' + read.length + ' / ' + Object.keys(LORE).length, read.map((k) => ({
+    text: LORE[k].title,
+    click: () => { $('loreTitle').textContent = LORE[k].title; $('loreText').textContent = LORE[k].text; $('pause').classList.add('hidden'); GAME.state = 'playing'; openReading('loreCard'); readingFrom = 'paused'; },
+  })));
   const bs = Object.entries(a.bestiary).map(([k, n]) => (k === 'boss' ? 'WARDEN' : k.toUpperCase()) + ' ' + n).join(' · ');
   $('jBest').textContent = bs ? 'SLAIN: ' + bs : '';
 }
@@ -1571,58 +1581,64 @@ const cmList = [];
 const COMPASS_SPAN = 1.2217;      // 70 degrees either side of the heading
 let lastUse = '';
 const _lk = new THREE.Vector3();
+const W = {};            // cached elements and last written values: the HUD only touches the DOM when something changed
+const wEl = (id) => W[id] || (W[id] = $(id));
+function wSet(el, prop, v) { if (el._v !== v + prop) { el._v = v + prop; if (prop === 'text') el.textContent = v; else el.style[prop] = v; } }
+function wClass(el, cls, on) { if (el._c !== undefined && el._c[cls] === on) return; (el._c || (el._c = {}))[cls] = on; el.classList.toggle(cls, on); }
 function updateWanderHud() {
   // stamina and level
-  $('stamFill').style.width = (clamp(player.stam / player.maxStam, 0, 1) * 100) + '%';
-  $('stamWrap').classList.toggle('winded', player.exhausted);
-  const a = adv.adv;
-  $('lvlNum').textContent = 'LV ' + a.level;
-  $('xpFill').style.width = (a.level >= MAX_LEVEL ? 100 : clamp(a.xp / xpNeed(a.level), 0, 1) * 100) + '%';
-  ui.wave.textContent = adv.runes + '/' + RUNES_NEEDED;
-  ui.waveBar.style.width = (adv.runes / RUNES_NEEDED * 100) + '%';
+  const sf = wEl('stamFill'), a = adv.adv;
+  sf._w = Math.round(clamp(player.stam / player.maxStam, 0, 1) * 100);
+  if (sf._ww !== sf._w) { sf._ww = sf._w; sf.style.width = sf._w + '%'; }
+  wClass(wEl('stamWrap'), 'winded', player.exhausted);
+  wSet(wEl('lvlNum'), 'text', 'LV ' + a.level);
+  const xpW = Math.round((a.level >= MAX_LEVEL ? 1 : clamp(a.xp / xpNeed(a.level), 0, 1)) * 100);
+  const xf = wEl('xpFill'); if (xf._ww !== xpW) { xf._ww = xpW; xf.style.width = xpW + '%'; }
+  wSet(ui.wave, 'text', adv.runes + '/' + RUNES_NEEDED);
+  const rw = Math.round(adv.runes / RUNES_NEEDED * 100); if (ui.waveBar._ww !== rw) { ui.waveBar._ww = rw; ui.waveBar.style.width = rw + '%'; }
 
   // compass: the places found, and the objective
-  $('compass').classList.remove('hidden');
+  wClass(wEl('compass'), 'hidden', false);
   const heading = player.camYaw;
   for (let k = 0; k < 12; k++) {
     const rel = angleTo(heading, k * Math.PI / 6), t = cmTicks[k];
-    if (Math.abs(rel) > COMPASS_SPAN) { t.style.display = 'none'; continue; }
-    t.style.display = ''; t.style.left = (50 - rel / COMPASS_SPAN * 50) + '%';
+    if (Math.abs(rel) > COMPASS_SPAN) { wSet(t, 'display', 'none'); continue; }
+    wSet(t, 'display', ''); wSet(t, 'left', (50 - rel / COMPASS_SPAN * 50).toFixed(1) + '%');
   }
   adv.compass(player, objectivePoi, cmList);
   const seen = new Set();
   for (const m of cmList) {
     seen.add(m.id);
     let el = cmk.get(m.id);
-    if (!el) { el = document.createElement('div'); el.className = 'cmk'; el.innerHTML = '<i></i><u></u>'; el.firstChild.textContent = GLYPH[m.glyph] || '◆'; el.lastChild.style.textDecoration = 'none'; compassEl.appendChild(el); cmk.set(m.id, el); }
-    if (Math.abs(m.rel) > COMPASS_SPAN) { el.style.display = 'none'; continue; }
-    el.style.display = ''; el.style.left = (50 - m.rel / COMPASS_SPAN * 50) + '%';
-    el.classList.toggle('obj', m.obj); el.classList.toggle('done', m.done && !m.obj);
-    el.lastChild.textContent = m.obj ? Math.round(m.dist) + 'M' : '';
+    if (!el) { el = document.createElement('div'); el.className = 'cmk'; el.innerHTML = '<i></i><u></u>'; el.firstChild.textContent = GLYPH[m.glyph] || '◆'; el.lastChild.style.textDecoration = 'none'; compassEl.appendChild(el); cmk.set(m.id, el); el._u = el.lastChild; }
+    if (Math.abs(m.rel) > COMPASS_SPAN) { wSet(el, 'display', 'none'); continue; }
+    wSet(el, 'display', ''); wSet(el, 'left', (50 - m.rel / COMPASS_SPAN * 50).toFixed(1) + '%');
+    wClass(el, 'obj', m.obj); wClass(el, 'done', m.done && !m.obj);
+    wSet(el._u, 'text', m.obj ? Math.round(m.dist) + 'M' : '');
   }
-  for (const [id, el] of cmk) if (!seen.has(id)) el.style.display = 'none';
+  for (const [id, el] of cmk) if (!seen.has(id)) wSet(el, 'display', 'none');
 
   // the context button
-  const n = adv.near, btn = $('btnUse');
-  btn.classList.toggle('hidden', !n);
+  const n = adv.near, btn = wEl('btnUse');
+  wClass(btn, 'hidden', !n);
   if (n) {
     const key = n.label + '|' + n.why + '|' + n.enabled;
-    if (key !== lastUse) { lastUse = key; btn.querySelector('i').textContent = n.label; $('useWhy').textContent = n.why; btn.classList.toggle('off', !n.enabled); }
+    if (key !== lastUse) { lastUse = key; btn.querySelector('i').textContent = n.label; wEl('useWhy').textContent = n.why; btn.classList.toggle('off', !n.enabled); }
   } else lastUse = '';
 
   // the lock-on mark follows the target on screen
-  const lt = player.lockTarget, mark = $('lockMark');
-  $('btnLock').classList.toggle('on', !!lt);
+  const lt = player.lockTarget, mark = wEl('lockMark');
+  wClass(wEl('btnLock'), 'on', !!lt);
   if (lt && lt.alive) {
     _lk.set(lt.pos.x, lt.pos.y + lt.type.height * 0.62, lt.pos.z).project(camera);
     const vis = _lk.z < 1 && Math.abs(_lk.x) < 1.1 && Math.abs(_lk.y) < 1.1;
-    mark.classList.toggle('hidden', !vis);
-    if (vis) mark.style.transform = `translate(${(_lk.x * 0.5 + 0.5) * window.innerWidth}px,${(-_lk.y * 0.5 + 0.5) * window.innerHeight}px) rotate(45deg)`;
-  } else mark.classList.add('hidden');
+    wClass(mark, 'hidden', !vis);
+    if (vis) mark.style.transform = `translate(${((_lk.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_lk.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px) rotate(45deg)`;
+  } else wClass(mark, 'hidden', true);
 
   // the strike button shows the heavy charge
-  const hc = weapons.heavyCharge, fb = $('btnFire');
-  fb.classList.toggle('charging', hc > 0); fb.classList.toggle('charged', hc >= 1); fb.classList.toggle('winded', player.exhausted);
+  const hc = weapons.heavyCharge, fb = wEl('btnFire');
+  wClass(fb, 'charging', hc > 0); wClass(fb, 'charged', hc >= 1); wClass(fb, 'winded', player.exhausted);
   if (hc > 0) fb.style.setProperty('--c', hc.toFixed(2));
 }
 

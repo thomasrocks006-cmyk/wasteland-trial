@@ -46,11 +46,26 @@ const defaults = () => ({
   relics: [], perks: [], bestiary: {},
   passOpen: false, deaths: 0, playSecs: 0,
 });
-export function loadAdv(save) {
-  const a = Object.assign(defaults(), save.adv || {});
-  for (const k of ['found', 'done', 'cleared', 'read', 'bestiary']) a[k] = Object.assign({}, a[k]);
-  a.relics = Array.isArray(a.relics) ? a.relics.slice() : [];
-  a.perks = Array.isArray(a.perks) ? a.perks.slice() : [];
+const KNOWN_KINDS = ['grunt', 'shooter', 'brute', 'wasp', 'wolf', 'stonekin', 'boss'];
+const clampInt = (v, lo, hi, dflt) => (Number.isFinite(+v) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, Math.floor(+v))) : dflt);
+/** a save is data from outside: a hand-edited, truncated or older file must never reach the game as NaN or markup */
+export function loadAdv(save, knownPlaces = null, knownPerks = null) {
+  const raw = save.adv && typeof save.adv === 'object' ? save.adv : {};
+  const a = defaults();
+  a.level = clampInt(raw.level, 1, MAX_LEVEL, 1);
+  a.xp = clampInt(raw.xp, 0, 1e6, 0);
+  a.picks = clampInt(raw.picks, 0, 99, 0);
+  a.deaths = clampInt(raw.deaths, 0, 1e6, 0);
+  a.playSecs = clampInt(raw.playSecs, 0, 1e9, 0);
+  a.passOpen = raw.passOpen === true;
+  const flags = (src, ok) => { const o = {}; if (src && typeof src === 'object') for (const k of Object.keys(src)) if (src[k] === true && (!ok || ok.includes(k))) o[k] = true; return o; };
+  a.found = flags(raw.found, knownPlaces); a.done = flags(raw.done, knownPlaces); a.cleared = flags(raw.cleared, knownPlaces);
+  a.read = flags(raw.read, Object.keys(LORE));
+  if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (raw.done[k] && (!knownPlaces || knownPlaces.includes(k))) a.done[k] = true;
+  a.relics = (Array.isArray(raw.relics) ? raw.relics : []).filter((id, i, arr) => RELICS[id] && arr.indexOf(id) === i);
+  a.perks = (Array.isArray(raw.perks) ? raw.perks : []).filter((id) => typeof id === 'string' && (!knownPerks || knownPerks.includes(id))).slice(0, 99);
+  if (raw.bestiary && typeof raw.bestiary === 'object') for (const k of KNOWN_KINDS) if (k in raw.bestiary) a.bestiary[k] = clampInt(raw.bestiary[k], 0, 1e7, 0);
+  while (a.level < MAX_LEVEL && a.xp >= xpNeed(a.level)) { a.xp -= xpNeed(a.level); a.level++; a.picks++; }
   save.adv = a;
   return a;
 }
@@ -116,8 +131,8 @@ export class Adventure {
   constructor(scene, world, ctx) {
     this.scene = scene; this.world = world; this.ctx = ctx;
     this.save = ctx.save;
-    this.adv = loadAdv(this.save);
     this.places = buildPlaces(world);
+    this.adv = loadAdv(this.save, this.places.map((p) => p.id), ctx.perkIds || null);
     this.byId = {};
     for (const p of this.places) {
       this.byId[p.id] = p;
@@ -181,8 +196,13 @@ export class Adventure {
       const [x, z] = p.at, y = p.y;
       // the ground ring: dim until the place is done, then it takes the place's colour
       const ringMat = new THREE.MeshBasicMaterial({ color: p.color, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
-      const ring = new THREE.Mesh(new THREE.RingGeometry(p.ring * 0.84, p.ring, 48), ringMat);
-      ring.rotation.x = -Math.PI / 2; ring.position.set(x, y + 0.18, z);
+      // the ring is laid on the ground itself: every vertex follows the terrain, so it never cuts into a slope
+      const rg = new THREE.RingGeometry(p.ring * 0.84, p.ring, Math.max(40, Math.round(p.ring * 7)), 1);
+      rg.rotateX(-Math.PI / 2);
+      const rp = rg.attributes.position;
+      for (let i = 0; i < rp.count; i++) rp.setY(i, terrainHeight(x + rp.getX(i), z + rp.getZ(i)) + 0.16);
+      const ring = new THREE.Mesh(rg, ringMat);
+      ring.position.set(x, 0, z);
       this.scene.add(ring);
       p.ringMesh = ring;
       // a beam to the sky once lit: you can see your progress across the valley
@@ -381,7 +401,6 @@ export class Adventure {
       if (p.ringMesh) {
         const b = p.ringMesh.userData.base || 0;
         p.ringMesh.material.opacity = b * (0.75 + 0.25 * Math.sin(time * 2.2 + p.at[0]));
-        p.ringMesh.scale.setScalar(1 + 0.03 * Math.sin(time * 1.7 + p.at[1]));
       }
       if (p.beam && p.beam.visible) p.beam.material.opacity = 0.34 + 0.08 * Math.sin(time * 3 + p.at[0] * 0.1);
     }
