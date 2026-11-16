@@ -7,11 +7,16 @@ import {
   GAP_A, LOWLAND_Y, gapAmount, TRAIL, TRAIL_LEN, trailDist, MeshBuilder, leafTexture, needleSprayTexture, fernTexture, barkTexture, birchTexture
 } from './core.js';
 import { sampleTime, sunVector, makeState, START_TOD } from './daynight.js';
+import { pbr } from './textures.js';
+import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const _v = new THREE.Vector3();
 let STONE_MAT = null;
 export function stoneMat() {
-  if (!STONE_MAT) { const t = stoneTexture(); STONE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, map: t, bumpMap: t, bumpScale: 3 }); }
+  if (!STONE_MAT) {
+    const t = stoneTexture(), n = t.userData.normal;
+    STONE_MAT = new THREE.MeshLambertMaterial(n ? { vertexColors: true, map: t, normalMap: n, normalScale: new THREE.Vector2(1.4, 1.4) } : { vertexColors: true, map: t, bumpMap: t, bumpScale: 3 });
+  }
   return STONE_MAT;
 }
 const _c1 = new THREE.Color(), _c2 = new THREE.Color(), _c3 = new THREE.Color();
@@ -324,7 +329,8 @@ export class World {
     geo.computeBoundingSphere();
     const gt = meadowTexture();      // blades, clover and soil; hue still from the vertex colours
     gt.repeat.set(TILES * 1.6, TILES * 1.6);
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: gt, bumpMap: gt, bumpScale: 1.6 });
+    const gn = gt.userData.normal;
+    const mat = new THREE.MeshLambertMaterial(gn ? { vertexColors: true, map: gt, normalMap: gn, normalScale: new THREE.Vector2(1.1, 1.1) } : { vertexColors: true, map: gt, bumpMap: gt, bumpScale: 1.6 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
     mesh.castShadow = false;
@@ -457,18 +463,27 @@ export class World {
   buildRocks() {
     const variants = [];
     for (let v = 0; v < 3; v++) {
-      const g = new THREE.IcosahedronGeometry(1, 1).toNonIndexed();
-      const pa = g.attributes.position;
+      // a finer sphere, shaped by layered noise (broad lumps, then fractures), shaded smooth: a boulder, not a gem
+      let g = new THREE.IcosahedronGeometry(1, this.quality === 'high' ? 3 : 2);
+      g.deleteAttribute('uv'); g.deleteAttribute('normal');
+      g = mergeVertices(g);
+      const pa = g.attributes.position, uv = new Float32Array(pa.count * 2);
       for (let i = 0; i < pa.count; i++) {
-        const x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
-        const n = fbm(x * 1.7 + v * 9, z * 1.7 + y * 1.3, 3);
-        const s = 0.72 + n * 0.75;
-        pa.setXYZ(i, x * s, y * s * 0.72, z * s);
+        let x = pa.getX(i), y = pa.getY(i), z = pa.getZ(i);
+        const n1 = fbm(x * 1.5 + v * 9, z * 1.5 + y * 1.2, 3), n2 = fbm(x * 4.2 + v * 3, z * 4.2 + y * 3.5, 3), ridge = Math.abs(n2 - 0.5);
+        const s = 0.7 + n1 * 0.7 + (0.5 - ridge) * 0.12;
+        const lx = x, ly = y, lz = z; x *= s; y *= s * 0.72; z *= s;
+        pa.setXYZ(i, x, y, z);
+        // triplanar-ish uv from the original direction: the dominant axis picks the plane
+        const ax = Math.abs(lx), ay = Math.abs(ly), az = Math.abs(lz);
+        if (ay >= ax && ay >= az) { uv[i * 2] = x * 0.55; uv[i * 2 + 1] = z * 0.55; } else if (ax >= az) { uv[i * 2] = z * 0.55; uv[i * 2 + 1] = y * 0.55; } else { uv[i * 2] = x * 0.55; uv[i * 2 + 1] = y * 0.55; }
       }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
       g.computeVertexNormals();
       variants.push(g);
     }
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: false, flatShading: true });
+    const sl = pbr('slate', { repeat: 1, anisotropy: 4 });
+    const mat = new THREE.MeshLambertMaterial(sl ? { map: sl, normalMap: sl.userData.normal, normalScale: new THREE.Vector2(1.3, 1.3), color: 0xd8d4cc } : { vertexColors: false, flatShading: true });
 
     const COUNT = this.quality === 'fast' ? 60 : 110;
     const dummy = new THREE.Object3D();
@@ -1622,8 +1637,8 @@ export class World {
     const bt = barkTexture(); bt.repeat.set(2, 3);
     const brt = birchTexture(); brt.repeat.set(1, 2);
     const MATS = {
-      bark: { mat: new THREE.MeshLambertMaterial({ vertexColors: true, map: bt, bumpMap: bt, bumpScale: 4 }) },
-      birch: { mat: new THREE.MeshLambertMaterial({ vertexColors: true, map: brt, bumpMap: brt, bumpScale: 1.5 }) },
+      bark: { mat: new THREE.MeshLambertMaterial(bt.userData.normal ? { vertexColors: true, map: bt, normalMap: bt.userData.normal, normalScale: new THREE.Vector2(1.5, 1.5) } : { vertexColors: true, map: bt, bumpMap: bt, bumpScale: 4 }) },
+      birch: { mat: new THREE.MeshLambertMaterial(brt.userData.normal ? { vertexColors: true, map: brt, normalMap: brt.userData.normal, normalScale: new THREE.Vector2(1.2, 1.2) } : { vertexColors: true, map: brt, bumpMap: brt, bumpScale: 1.5 }) },
       leaves: cardMat(leafTexture(), 0.06),
       needles: cardMat(needleSprayTexture(), 0.04),
       ferns: cardMat(fernTexture(), 0.03),
@@ -1838,6 +1853,21 @@ export class World {
 
   groundAt(x, z) { return terrainHeight(x, z); }
 
+  /**
+   * Image-based lighting from the real sky: the sky shader itself is rendered into a cube and filtered, so steel, shields and
+   * every standard material reflect the actual sun, horizon and stars of the moment instead of a fixed gradient.
+   */
+  setRenderer(renderer) { this.pmrem = new THREE.PMREMGenerator(renderer); this.envT = -1; this.refreshEnvironment(true); }
+  refreshEnvironment(force = false) {
+    if (!this.pmrem || this.cave) return;
+    if (!force && Math.abs(this.tod - this.envT) < 0.02 && Math.abs(this.tod - this.envT) < 0.5) return;
+    this.envT = this.tod;
+    if (!this.envScene) { this.envScene = new THREE.Scene(); this.envSky = new THREE.Mesh(this.sky.geometry, this.sky.material); this.envSky.frustumCulled = false; this.envScene.add(this.envSky); }
+    const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 1000);
+    if (this.envTarget) this.envTarget.dispose();
+    this.envTarget = rt; this.scene.environment = rt.texture;
+  }
+
   /** go underground into a vault: its floor, its rooms' walls, its pillars and its dark */
   enterUnderground(vault) {
     this.valleyObstacles = this.obstacles;
@@ -1899,7 +1929,10 @@ export class World {
       for (let a = 0; a < 32; a++) {
         const ang = (a / 32) * TAU;
         const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-        if (!this.isClear(x, z, 1.8)) continue;
+        if (!this.isClear(x, z, 3.2)) continue;           // room to move, and no trunk at your shoulder
+        // the camera rides behind (away from the dais): keep trunks out of its way, or the first view is a wall of branches
+        const ox = Math.cos(ang), oz = Math.sin(ang);
+        if (!this.isClear(x + ox * 4.5, z + oz * 4.5, 2.2) || !this.isClear(x + ox * 8, z + oz * 8, 1.6)) continue;
         const n = terrainNormal(x, z, _v);
         if (n.y < 0.93) continue;                       // flat-ish only
         // prefer standing back from the dais, with it in view

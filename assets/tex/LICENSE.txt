@@ -1,0 +1,2 @@
+Textures in this folder are from ambientCG.com (CC0 1.0): Rock030, Rock022, Ground037, Bark012, Bark007.
+The hero model and animations are Quaternius' Universal Animation Library (CC0 1.0), pruned.

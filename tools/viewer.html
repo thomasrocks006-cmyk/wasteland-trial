@@ -1,0 +1,26 @@
+<!doctype html><meta charset="utf-8"><title>hero viewer</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
+<body style="margin:0;background:#222"><canvas id="c" width="1600" height="420"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+const q = new URLSearchParams(location.search), clip = q.get('clip') || 'Sword_Attack', n = +(q.get('n') || 8);
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true }); r.setSize(1600, 420, false); r.autoClear = false;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x3a3d44);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6)); const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(2, 4, 3); scene.add(dl);
+const g = await new GLTFLoader().loadAsync('../assets/hero.glb');
+const m = g.scene; scene.add(m);
+const bones = []; m.traverse(o => { if (o.isBone) bones.push(o.name); });
+const hand = bones.map(nm => m.getObjectByName(nm)).find(o => /^DEF-hand/.test(o.name) && /R$/.test(o.name));
+const sword = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.9, 0.08), new THREE.MeshStandardMaterial({ color: 0xccccdd })); sword.position.y = 0.45; hand.add(sword);
+const mixer = new THREE.AnimationMixer(m); const c = THREE.AnimationClip.findByName(g.animations, clip); const a = mixer.clipAction(c); a.play();
+const cam = new THREE.PerspectiveCamera(35, (1600 / n) / 420, 0.1, 50); cam.position.set(0, 1.2, 4.2); cam.lookAt(0, 1, 0);
+const traj = []; const v = new THREE.Vector3(), tip = new THREE.Vector3();
+r.clear();
+for (let i = 0; i < n; i++) {
+  const t = (i / (n - 1)) * c.duration * 0.999; mixer.setTime(t); m.updateMatrixWorld(true);
+  hand.getWorldPosition(v); sword.localToWorld(tip.set(0, 0.45, 0)); traj.push([+t.toFixed(2), +v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2), +tip.x.toFixed(2), +tip.y.toFixed(2), +tip.z.toFixed(2)]);
+  r.setViewport(i * 1600 / n, 0, 1600 / n, 420); r.setScissor(i * 1600 / n, 0, 1600 / n, 420); r.setScissorTest(true); r.render(scene, cam);
+}
+window.__out = { clip, dur: c.duration, bones, traj };
+</script>

@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><title>hero</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
+<body style="margin:0;background:#222"><canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { Hero, loadHeroAsset } from '../js/hero.js';
+const q = new URLSearchParams(location.search); const W = +(q.get('w') || 2000), H = +(q.get('h') || 560);
+const cv = document.getElementById('c'); cv.width = W; cv.height = H;
+const r = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: true }); r.setSize(W, H, false); r.autoClear = false;
+r.outputColorSpace = THREE.SRGBColorSpace; r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.1; r.shadowMap.enabled = true;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x4a5560);
+{ const c = document.createElement('canvas'); c.width = 256; c.height = 128; const x = c.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, '#5f86bf'); g.addColorStop(0.45, '#c8d4dc'); g.addColorStop(0.5, '#ece0c8'); g.addColorStop(0.55, '#6f7e4c'); g.addColorStop(1, '#3a4630'); x.fillStyle = g; x.fillRect(0, 0, 256, 128);
+  const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; const pm = new THREE.PMREMGenerator(r); scene.environment = pm.fromEquirectangular(t).texture; }
+scene.add(new THREE.HemisphereLight(0xdde8ff, 0x556040, 0.8)); const dl = new THREE.DirectionalLight(0xfff0d8, 2.6); dl.position.set(3, 5, 4); dl.castShadow = true; scene.add(dl);
+const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 32), new THREE.MeshStandardMaterial({ color: 0x4a5a3c, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const asset = await loadHeroAsset('../assets/hero.glb');
+const hero = new Hero(asset); scene.add(hero.root);
+// a plain blade in the hand for the viewer
+const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.0, 0.012), hero.mats.blade); blade.position.y = -0.55; hero.hand.add(blade);
+const guard = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.03, 0.04), hero.mats.brass); guard.position.y = -0.02; hero.hand.add(guard);
+const cases = JSON.parse(q.get('cases') || '[]');
+const n = cases.length, cw = W / n;
+const cam = new THREE.PerspectiveCamera(30, cw / H, 0.1, 50);
+const view = q.get('view') || 'front';
+r.clear();
+for (let i = 0; i < n; i++) {
+  const c = cases[i];
+  hero.revive(); hero.stopLayer();
+  const s = Object.assign({ speed: 0, sprint: false, grounded: true, vy: 0, drawn: true, guard: false }, c.s || {});
+  let t = 0;
+  if (c.layer) { const a = hero.playOnce(c.layer, { from: c.from || 0, speed: c.speed || 1 }); if (c.hold) hero.holdLayer(true); }
+  if (c.die) { hero.die(); }
+  if (c.bash) hero.shieldBash(1);
+  const steps = c.steps || 40; for (let k = 0; k < steps; k++) { t += 0.03; hero.update(0.03, t, s); }
+  if (c.layer && !c.hold) { /* let it run to the requested time */ }
+  hero.root.rotation.y = c.yaw || 0;
+  const ang = c.cam === 'side' ? Math.PI / 2 : c.cam === 'back' ? Math.PI : c.cam === '3q' ? 0.6 : 0; const D = 4.6;
+  cam.position.set(Math.sin(ang) * D, 1.15, Math.cos(ang) * D); cam.lookAt(0, 0.95, 0);
+  r.setViewport(i * cw, 0, cw, H); r.setScissor(i * cw, 0, cw, H); r.setScissorTest(true); r.render(scene, cam);
+}
+window.__out = true;
+</script>

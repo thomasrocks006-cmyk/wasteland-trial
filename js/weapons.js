@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Melee } from './melee.js';
 import { clamp, lerp, rnd, TAU, Builder, deg, addRim, angleTo } from './core.js';
 
 /* ============================================================ definitions
@@ -129,6 +130,8 @@ export class WeaponSystem {
     // a second copy of each weapon rides across the hero's back while sheathed
     this.backModels = WEAPONS.map(w => buildGunModel(w.id));
     this.backModels.forEach((m) => { m.visible = false; if (player.model.back) player.model.back.add(m); });
+    this.melee = player.hero ? new Melee(this) : null;       // real sword play on the skinned hero
+    if (player.hero) player.cancelAttack = () => this.melee.cancel();
     this.drawn = false;        // sheathed until you attack
     this.drawT = 0;            // >0 while drawing or sheathing
     this.drawDir = 0;          // +1 drawing, -1 sheathing
@@ -208,6 +211,7 @@ export class WeaponSystem {
     if (i === this.index || i < 0 || i >= WEAPONS.length) return;
     this.idleT = 0; this.throwPending = 0; this.handHidden = 0;
     this._mHeld = false; this.holdT = 0;
+    if (this.melee) this.melee.cancel();
     this.index = i;
     this.swingT = 0; this.swingDone = true; this.comboIdx = 0;
     this.reloading = false;
@@ -418,6 +422,12 @@ export class WeaponSystem {
 
   /** Wander's blade input: a tap swings at once; a press held ~0.6 s and released is the heavy strike */
   meleeInput(held, dt, camera) {
+    if (this.melee) {
+      if (held && !this._mHeld) { this._mHeld = true; this.holdT = 0; this.melee.press(); }
+      else if (held) { this.holdT += dt; this.melee.hold(dt); }
+      else if (this._mHeld) { this._mHeld = false; this.melee.release(); this.holdT = 0; }
+      return;
+    }
     if (held && !this._mHeld) {
       this._mHeld = true; this.holdT = 0;
       if (!this.player.guard) this.fire(camera);
@@ -430,7 +440,7 @@ export class WeaponSystem {
     }
   }
   /** 0..1 while a press is being held toward the heavy strike (drives the button glow) */
-  get heavyCharge() { return this._mHeld && this.def.melee ? clamp((this.holdT - 0.25) / 0.35, 0, 1) : 0; }
+  get heavyCharge() { if (this.melee) return this.def.melee ? this.melee.charge : 0; return this._mHeld && this.def.melee ? clamp((this.holdT - 0.25) / 0.35, 0, 1) : 0; }
 
   heavy() {
     const h = HEAVY[this.def.id];
@@ -530,15 +540,16 @@ export class WeaponSystem {
       if (f.hitWorld) this.fx.puff(f.end, null, 0x8c7d5c, 0.3, 2, 0.55, 0.8);
       this.flights.splice(i, 1);
     }
-    // the blade's trail through the strike
-    if (this.swingT > 0 && this.def.melee && this.fx.trailSample) {
+    // the blade's trail through the strike (the old hero's; the new one trails from its swept blade)
+    if (!this.melee && this.swingT > 0 && this.def.melee && this.fx.trailSample) {
       const el = this.swingCur.dur - this.swingT;
       if (el > this.swingCur.hit - 0.12 && el < this.swingCur.hit + 0.1) {
         const m = this.models[this.index];
         this.fx.trailSample(this._tmp.setFromMatrixPosition(m.userData.muzzle.matrixWorld), new THREE.Vector3().setFromMatrixPosition(m.matrixWorld), this.def.color);
       }
     }
-    if (this.swingT > 0) {
+    if (this.melee) { if (this.def.melee) this.melee.update(dt); else if (this.melee.atk) this.melee.cancel(); }
+    else if (this.swingT > 0) {
       this.swingT -= dt;
       const el = this.swingCur.dur - this.swingT;
       if (!this.swingDone && el >= this.swingCur.hit) { this.swingDone = true; this.strike(); }

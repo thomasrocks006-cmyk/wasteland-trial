@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>grip viewer</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
+<body style="margin:0;background:#222"><canvas id="c" width="1800" height="900"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SU from 'three/addons/utils/SkeletonUtils.js';
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true, preserveDrawingBuffer: true }); r.setSize(1800, 900, false); r.autoClear = false;
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x3a3d44);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6)); const dl = new THREE.DirectionalLight(0xffffff, 2); dl.position.set(2, 4, 3); scene.add(dl);
+const g = await new GLTFLoader().loadAsync('../assets/hero.glb');
+const dirs = [['+X', [1, 0, 0]], ['-X', [-1, 0, 0]], ['+Z', [0, 0, 1]], ['-Z', [0, 0, -1]], ['+Y', [0, 1, 0]], ['-Y', [0, -1, 0]]];
+const cam = new THREE.PerspectiveCamera(32, 300 / 450, 0.1, 50); cam.position.set(0, 1.2, 4.6); cam.lookAt(0, 1, 0);
+r.clear();
+const rows = [['Sword_Idle', 0.2], ['Sword_Attack', 0.21]];
+const bones0 = []; g.scene.traverse(o => { if (o.isBone) bones0.push(o); });
+for (let ri = 0; ri < rows.length; ri++) for (let i = 0; i < dirs.length; i++) {
+  const inst = SU.clone(g.scene); scene.add(inst);
+  const hand = []; inst.traverse(o => { if (o.isBone && /^DEF-hand/.test(o.name) && /R$/.test(o.name)) hand.push(o); });
+  const sw = new THREE.Group(); const blade = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.9, 0.1), new THREE.MeshStandardMaterial({ color: 0xddddee })); blade.position.y = 0.45;
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.06), new THREE.MeshStandardMaterial({ color: 0xaa8833 })); sw.add(blade, guard);
+  const d = new THREE.Vector3(...dirs[i][1]); sw.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d); hand[0].add(sw);
+  const mixer = new THREE.AnimationMixer(inst); const a = mixer.clipAction(THREE.AnimationClip.findByName(g.animations, rows[ri][0])); a.play(); mixer.setTime(rows[ri][1]); inst.updateMatrixWorld(true);
+  r.setViewport(i * 300, (1 - ri) * 450, 300, 450); r.setScissor(i * 300, (1 - ri) * 450, 300, 450); r.setScissorTest(true); r.render(scene, cam);
+  scene.remove(inst);
+}
+window.__out = true;
+</script>

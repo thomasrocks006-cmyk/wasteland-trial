@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Hero } from './hero.js';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, deg, angleTo,
   terrainHeight, Builder, ARENA_R, addRim, fabricTexture, leatherTexture, waterLevel
@@ -476,9 +477,10 @@ export function buildHero() {
 }
 
 export class Player {
-  constructor(scene, world) {
+  constructor(scene, world, heroAsset = null) {
     this.world = world;
-    this.model = buildHero();
+    this.hero = heroAsset ? new Hero(heroAsset) : null;    // the skinned, armoured Warden; the procedural hero below is the fallback
+    this.model = this.hero || buildHero();
     scene.add(this.model.root);
 
     this.pos = new THREE.Vector3(0, 0, 0);
@@ -548,6 +550,10 @@ export class Player {
     this.lockTarget = null;
     this.onParry = null; this.onBlock = null; this.onGuardBreak = null;
     this.sprinting = false;
+    this.moveMul = 1;          // attacks slow you; eased back by the melee system
+    this.riposteT = 0;         // after a parry: the next blow hits much harder
+    this.faceOverride = null;  // { yaw, t }: turn the body to a foe for a blow
+    this.cancelAttack = null;
     this.armorMul = 1;         // relics: a share of every blow absorbed (separate from the forms' own multiplier)
 
     const auraMat = new THREE.MeshBasicMaterial({
@@ -635,6 +641,8 @@ export class Player {
       if (this.parryReady && this.guardT <= this.parryWindow) {
         this.stam = Math.min(this.maxStam, this.stam + this.parryRefund);
         this.shieldMat.opacity = 1;
+        if (this.hero) this.hero.shieldHit(true);
+        this.riposteT = 1.1;
         if (this.onParry) this.onParry(fromX, fromZ);
         return;
       }
@@ -651,6 +659,7 @@ export class Player {
       this.hp = Math.max(0, this.hp - amount * this.guardDmgTaken * this.dmgTakenMul);
       this.shieldMat.opacity = 0.9;
       this.shake = Math.min(2.0, this.shake + 0.25);
+      if (this.hero) this.hero.shieldHit(false);
       if (this.onBlock) this.onBlock(fromX, fromZ);
       if (this.hp <= 0) this.alive = false;
       return;
@@ -658,6 +667,7 @@ export class Player {
     this.iframe = 0.40;
     this.hp = Math.max(0, this.hp - amount * this.dmgTakenMul);
     this.hurtFlash = 1;
+    if (this.hero) { this.hero.hitReact(amount > 20); if (this.cancelAttack) this.cancelAttack(); }
     this.shake = Math.min(2.0, this.shake + 0.45);
     if (fromX !== undefined) {
       const a = Math.atan2(fromX - this.pos.x, fromZ - this.pos.z);
@@ -669,7 +679,14 @@ export class Player {
   heal(n) { this.hp = Math.min(this.maxHp, this.hp + n); }
 
   /** R / L horizontal slashes, O overhead chop, T spear throw, C rune cast */
-  startSwing(style, dur) { this.swingAnim = { style, dur, t: 0 }; }
+  startSwing(style, dur) {
+    if (this.hero) {                       // the clips do the work; melee swings are the melee system's
+      if (style === 'T') this.hero.playOnce('Punch_Cross', { from: 0.0, speed: 1.9 });
+      else if (style === 'C') this.hero.playOnce('Spell_Simple_Shoot', { from: 0.0, speed: 1.4 });
+      return;
+    }
+    this.swingAnim = { style, dur, t: 0 };
+  }
 
   addEco(n) { this.eco = Math.min(this.maxEco, this.eco + n); }
 
@@ -737,6 +754,8 @@ export class Player {
     this.landDip = damp(this.landDip || 0, 0, 11, dt);
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
     this.iframe = Math.max(0, this.iframe - dt);
+    this.riposteT = Math.max(0, this.riposteT - dt);
+    if (this.faceOverride) { this.faceOverride.t -= dt; if (this.faceOverride.t <= 0) this.faceOverride = null; }
 
     // ---- stamina: guard up, sprint drain, refill
     if (this.staminaOn) {
@@ -756,7 +775,8 @@ export class Player {
         else this.camYaw = dampAngle(this.camYaw, Math.atan2(dx, dz), 6, dt);
       }
     } else { this.guard = false; this.guardT = 0; this.lockTarget = null; }
-    this.shieldMat.opacity = this.guard ? Math.max(0.28 + Math.sin(performance.now() * 0.01) * 0.05, this.shieldMat.opacity - dt * 3) : Math.max(0, this.shieldMat.opacity - dt * 4);
+    const steady = this.hero ? 0 : 0.28 + Math.sin(performance.now() * 0.01) * 0.05;
+    this.shieldMat.opacity = this.guard ? Math.max(steady, this.shieldMat.opacity - dt * 3) : Math.max(0, this.shieldMat.opacity - dt * 4);
     this.shield.visible = this.shieldMat.opacity > 0.02;
     if (this.guard) this.faceLock = Math.max(this.faceLock, 0.2);
 
@@ -781,7 +801,7 @@ export class Player {
     const canSprint = input.sprint && (!this.staminaOn || (this.stam > 0 && !this.exhausted));
     this.sprinting = canSprint && mag > 0.5;
     if (this.staminaOn && this.sprinting) { this.stam = Math.max(0, this.stam - 11 * this.sprintCostMul * dt); this.stamDelay = 0.8; if (this.stam <= 0) this.exhausted = true; }
-    const spd = this.speed * (canSprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1) * (this.guard ? 0.55 : 1)
+    const spd = this.speed * (canSprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1) * (this.guard ? 0.55 : 1) * this.moveMul
       * (1 - Math.min(0.4, this.inWater * 0.45));      // wading through the river is slower
     let wishX = 0, wishZ = 0;
     if (mag > 0.06) {
@@ -809,6 +829,7 @@ export class Player {
       this.dodgeCd = this.dodgeCdBase;
       this.iframe = Math.max(this.iframe, this.dodgeIframe);
       this.yaw = Math.atan2(this.dodgeVX, this.dodgeVZ);
+      if (this.hero) { if (this.cancelAttack) this.cancelAttack(); this.hero.playOnce('Roll', { from: 0.04, speed: 4.2 }); }
       if (this.onDodge) this.onDodge();
     }
 
@@ -870,11 +891,44 @@ export class Player {
     // ---- facing
     this.faceLock = Math.max(0, this.faceLock - dt);
     let targetYaw = this.yaw;
-    if (this.aim || this.faceLock > 0) targetYaw = this.camYaw;
+    if (this.aim || this.faceLock > 0) targetYaw = this.faceOverride ? this.faceOverride.yaw : this.camYaw;
     else if (mag > 0.08) targetYaw = Math.atan2(wishX, wishZ);
     this.yaw = dampAngle(this.yaw, targetYaw, this.aim ? 22 : 16, dt);
 
-    // ---- model transform
+    if (this.hero) this.poseHero(dt, mag, wishX, wishZ); else this.poseOld(dt);
+    this.updateCamera(dt);
+  }
+
+  /* the skinned hero: place it, decide its animation state, and let hero.js blend the clips */
+  poseHero(dt, mag, wishX, wishZ) {
+    const h = this.hero, horiz = Math.hypot(this.vel.x, this.vel.z), moving = horiz > 0.35;
+    this.landSquash = damp(this.landSquash, 0, 9, dt);
+    // footsteps keep their own beat, from the same stride clock the old hero used
+    if (moving && this.grounded) {
+      this.walkPhase += dt * (5.2 + horiz * 0.85);
+      this.stepTimer -= dt;
+      if (this.stepTimer <= 0) { this.stepTimer = clamp(0.42 - horiz * 0.02, 0.16, 0.42); if (this.onFootstep) this.onFootstep(horiz); }
+    }
+    // facing: the body follows the stick; when the camera owns the facing (guard, aim, lock, a blow) it opens toward where you travel
+    const locked = this.aim || this.faceLock > 0 || this.guard || !!this.lockTarget;
+    let rel = 0, yawOff = 0;
+    if (moving) {
+      rel = angleTo(this.yaw, Math.atan2(this.vel.x, this.vel.z));
+      if (locked && Math.abs(rel) < 2.0) yawOff = clamp(rel * 0.5, -0.8, 0.8);
+    }
+    this._yawOff = damp(this._yawOff || 0, yawOff, 10, dt);
+    h.root.position.copy(this.pos);
+    h.root.rotation.y = this.yaw + this._yawOff;
+    const turn = angleTo(this._lastYaw === undefined ? this.yaw : this._lastYaw, this.yaw) / Math.max(dt, 1e-3);
+    this._lastYaw = this.yaw;
+    h.update(dt, performance.now() * 0.001, {
+      speed: horiz, sprint: this.sprinting, grounded: this.grounded, vy: this.vy,
+      drawn: this.weaponKind !== 'none', guard: this.guard, moveRel: locked ? rel : 0, turn: clamp(turn, -6, 6) * 0.2,
+    });
+  }
+
+  /* the procedural fallback hero */
+  poseOld(dt) {
     this.landSquash = damp(this.landSquash, 0, 9, dt);
     const m = this.model;
     m.root.position.copy(this.pos);
@@ -1035,7 +1089,6 @@ export class Player {
     const bob = Math.sin(this.walkPhase * 2) * 0.045 * swAmt + Math.sin(performance.now() * 0.0018) * 0.012;
     m.body.position.y = damp(m.body.position.y, bob - 0.085, 16, dt);  // 0.085 = sole height, so feet touch
 
-    this.updateCamera(dt);
   }
 
   updateCamera(dt) {

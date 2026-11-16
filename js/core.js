@@ -94,7 +94,9 @@ function duneHeight(x, z) {
 
 /** Neutral limestone: hue still comes from vertex colour, this only adds the
  *  surface. Kept close to white so multiplying it never muddies the palette. */
+import { pbr } from './textures.js';
 export function stoneTexture() {
+  { const r = pbr('rock'); if (r) return r; }
   const S = 512;
   const cv = document.createElement('canvas');
   cv.width = cv.height = S;
@@ -786,6 +788,7 @@ export function needleTexture() {
 /** Meadow ground: fine blades, clover and soil specks over soft noise. Detail
  *  only (greyscale, light): the terrain's vertex colours carry the hue. */
 export function meadowTexture() {
+  { const r = pbr('ground', { anisotropy: 8 }); if (r) return r; }
   const S = 512;
   const cv = document.createElement('canvas'); cv.width = cv.height = S;
   const ctx = cv.getContext('2d');
@@ -949,6 +952,7 @@ export function fernTexture() {
 
 /** bark: deep vertical furrows and plates; greyscale so vertex colour sets the wood */
 export function barkTexture() {
+  { const r = pbr('bark', { anisotropy: 4 }); if (r) return r; }
   const S = 256;
   const cv = document.createElement('canvas'); cv.width = cv.height = S;
   const ctx = cv.getContext('2d');
@@ -969,6 +973,7 @@ export function barkTexture() {
 
 /** birch bark: white with dark horizontal lenticels and scars */
 export function birchTexture() {
+  { const r = pbr('birch', { anisotropy: 4 }); if (r) return r; }
   const r = mulberry32(8383);
   const cv = document.createElement('canvas'); cv.width = 128; cv.height = 256;
   const ctx = cv.getContext('2d');

@@ -460,6 +460,13 @@ export class Enemies {
     if (e.hp <= 0) this.kill(e);
   }
 
+  /** knocked off balance for a moment: it cannot act, and a blow it was winding up is lost */
+  stagger(e, dur) {
+    if (!e.alive || e.state === 'spawn') return;
+    if (e.type.boss) dur *= 0.35;
+    e.pendingHit = 0; e.state = 'stagger'; e.stateT = 0; e.staggerDur = Math.max(e.staggerDur || 0, dur); e.flash = 1;
+  }
+
   /** a parry: whoever struck from (x, z) is thrown off balance and left open */
   parried(x, z) {
     let best = null, bd = 7;

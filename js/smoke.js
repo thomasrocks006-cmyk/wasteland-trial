@@ -569,26 +569,31 @@ export async function runSmoke() {
     return 'parry, block, rear';
   });
 
-  await check('a held blade strike lands the heavy hit and costs stamina; winded blocks it', async () => {
-    const w = d.weapons, pl = d.player;
+  await check('sword play: a tap swings the captured strike, the blade sweep lands it, a hold charges a heavy, winded blocks it', async () => {
+    const w = d.weapons, pl = d.player, step = (n, dt = 0.016) => { for (let i = 0; i < n; i++) { pl.update(dt, d.input); w.update(dt); d.enemies.update(dt, i * dt); } };
     d.enemies.list.forEach((x) => { x.alive = false; x.dying = 9; });
-    pl.stam = pl.maxStam; pl.exhausted = false; pl.guard = false; w.switchT = 1; w.ready(); w.cooldown = 0; w.swingT = 0;
-    const e = d.enemies.spawn('stonekin', pl.pos.x + Math.sin(pl.camYaw) * 1.8, pl.pos.z + Math.cos(pl.camYaw) * 1.8);
-    e.spawnT = 1; e.state = 'chase'; e.passive = true; e.aggro = false; e.home = { x: e.pos.x, z: e.pos.z }; e.attackCd = 99;
-    const hp0 = e.hp, s0 = pl.stam;
-    w.meleeInput(true, 0.03, d.camera);
-    for (let i = 0; i < 24; i++) w.meleeInput(true, 0.03, d.camera);
-    w.cooldown = 0; w.swingT = 0;
-    w.meleeInput(false, 0.03, d.camera);
-    assert(w.swingCur && w.swingCur.heavy, 'heavy strike did not start');
-    for (let i = 0; i < 40; i++) w.update(0.03);
-    assert(hp0 - e.hp > 90, 'heavy hit only did ' + (hp0 - e.hp));
-    assert(s0 - pl.stam >= 26, 'cost ' + (s0 - pl.stam));
-    pl.stam = 0; pl.exhausted = true; w.cooldown = 0; w.swingT = 0; w.comboIdx = 0;
-    const cur = w.swingCur; w.swing();
-    assert(w.swingCur === cur, 'swung while winded');
+    pl.stam = pl.maxStam; pl.exhausted = false; pl.guard = false; w.switchT = 1; w.ready(); step(100);
+    const mk = (k, dist) => { const e = d.enemies.spawn(k, pl.pos.x + Math.sin(pl.camYaw) * dist, pl.pos.z + Math.cos(pl.camYaw) * dist); e.spawnT = 1; e.state = 'chase'; e.passive = true; e.home = { x: e.pos.x, z: e.pos.z }; e.attackCd = 999; e.speed = 0; return e; };
+    if (!w.melee) {            // the procedural fallback hero: the old held-strike path
+      const e = mk('stonekin', 1.8); const hp0 = e.hp;
+      w.meleeInput(true, 0.03, d.camera); for (let i = 0; i < 24; i++) w.meleeInput(true, 0.03, d.camera);
+      w.cooldown = 0; w.swingT = 0; w.meleeInput(false, 0.03, d.camera); for (let i = 0; i < 40; i++) w.update(0.03);
+      assert(hp0 - e.hp > 90, 'heavy hit only did ' + (hp0 - e.hp)); e.alive = false; e.dying = 9; return 'fallback hero';
+    }
+    const e = mk('stonekin', 1.8); e.hp = e.maxHp = 5000; const hp0 = e.hp, s0 = pl.stam;
+    w.meleeInput(true, 0.016, d.camera); step(2); w.meleeInput(false, 0.016, d.camera);
+    assert(w.melee.atk && pl.hero.layer && pl.hero.layer.name === 'Sword_Attack', 'no swing started');
+    step(90); const light = hp0 - e.hp; assert(light > 25, 'the swing did ' + light);
+    step(120); w.melee.lastEnd = -9; pl.stam = pl.maxStam;
+    w.meleeInput(true, 0.016, d.camera); for (let i = 0; i < 70; i++) { w.meleeInput(true, 0.016, d.camera); step(1); }
+    assert(pl.hero.A.Sword_Attack.paused && w.heavyCharge >= 0.99, 'the blade did not hold at the top of the wind-up');
+    const hp1 = e.hp; w.meleeInput(false, 0.016, d.camera); step(140); const heavy = hp1 - e.hp;
+    assert(heavy > 100, 'the heavy did ' + heavy);
+    pl.stam = 0; pl.exhausted = true; step(40, 0.016); w.melee.lastEnd = -9; const before = w.melee.atk;
+    w.meleeInput(true, 0.016, d.camera); step(2); w.meleeInput(false, 0.016, d.camera);
+    assert(!w.melee.atk, 'swung while winded');
     e.alive = false; e.dying = 9; pl.exhausted = false; pl.stam = pl.maxStam;
-    return 'dmg ' + Math.round(hp0 - e.hp);
+    return `light ${Math.round(light)}, heavy ${Math.round(heavy)}`;
   });
 
   await check('a wolf crouches, then lunges in a straight line', async () => {

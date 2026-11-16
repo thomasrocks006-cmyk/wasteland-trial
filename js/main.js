@@ -10,6 +10,8 @@ import { Audio } from './audio.js';
 import { WeaponSystem, WEAPONS } from './weapons.js';
 import { Enemies, ENEMY_TYPES } from './enemies.js';
 import { Wildlife } from './wildlife.js';
+import { loadHeroAsset } from './hero.js';
+import { preloadTextures } from './textures.js';
 import { drawMap } from './map.js';
 import { buildVault } from './vault.js';
 import { DAY_LEN, START_TOD, phaseName } from './daynight.js';
@@ -78,8 +80,13 @@ resize();
 
 /* ================================================================ entities */
 const audio = new Audio();
+await preloadTextures();        // photographic surfaces, ready before anything is built
 const world = new World(scene, QUALITY);
-const player = new Player(scene, world);
+world.setRenderer(renderer);    // reflections from the real sky
+// the armoured Warden is a skinned model with captured motion; if its file cannot be loaded the procedural hero stands in
+let heroAsset = null;
+try { heroAsset = await loadHeroAsset(); } catch (err) { console.warn('hero asset unavailable, using the procedural hero:', err && err.message); }
+const player = new Player(scene, world, heroAsset);
 const fx = new FX(scene, camera, QUALITY);
 const enemies = new Enemies(scene, world, fx, audio, player);
 const wildlife = new Wildlife(scene, world);
@@ -258,7 +265,9 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
     });
   },
   // a blade connecting: a short freeze, longer on a finisher
-  onMeleeHit: (n, finisher) => timeWarp(0.08, finisher ? 0.09 : 0.045),
+  onMeleeHit: (n, finisher, heavy, stop) => timeWarp(heavy ? 0.04 : 0.07, stop || (finisher ? 0.09 : 0.045)),
+  stagger: (e, d) => enemies.stagger(e, d),
+  onRiposte: () => { showCallout('RIPOSTE'); audio.streak(3); },
   onAmmo: () => syncAmmoUI(),
 });
 
@@ -972,6 +981,7 @@ function leaveVault() {
 /* relics you can see on the hero: a bronze pauldron, the Heartstone on the chest, a horn at the hip, a fang at the throat */
 const gear = {};
 function heroGear() {
+  if (player.hero) { player.hero.setGear(GAME.mode === 'wander' ? adv.adv.relics : []); return; }
   const torso = player.model.torso;
   if (!torso) return;
   if (!gear.clasp) {
@@ -1162,7 +1172,7 @@ function resetRun(mode = GAME.mode || 'wander') {
   applyProgress(true);
   player.alive = true;
   player.hp = player.maxHp;
-  player.iframe = 0; player.dodging = 0; player.model.body.rotation.set(0, 0, 0);
+  player.iframe = 0; player.dodging = 0; player.model.body.rotation.set(0, 0, 0); if (player.hero) player.hero.revive();
   const sp = world.pickSpawn();
   player.pos.set(sp[0], terrainHeight(sp[0], sp[1]), sp[1]);
   // face the monument from the spawn point
@@ -1334,7 +1344,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b29';
+const BUILD = 'b30';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
@@ -1539,7 +1549,7 @@ function frame(now) {
     if (!player.alive && GAME.state === 'playing') {
       setTimeout(endRun, 700);
       GAME.state = 'dying';
-      player.model.body.rotation.x = 1.2;
+      if (player.hero) player.hero.die(); else player.model.body.rotation.x = 1.2;
     }
   } else if (GAME.state === 'title') {
     // slow orbit of the dais behind the title
@@ -1697,6 +1707,7 @@ function setTod(t, force = false) {
   if (!force && Math.abs(GAME.tod - todApplied) < 0.0004) return;
   todApplied = GAME.tod;
   world.applyTime(GAME.tod);
+  world.refreshEnvironment(force);
   renderer.toneMappingExposure = world.exposure;
   const k = 0.3 + 0.7 * (1 - world.night);            // the sky the hero reflects dims with the day
   for (const [mat, base] of heroMats) mat.envMapIntensity = base * k;

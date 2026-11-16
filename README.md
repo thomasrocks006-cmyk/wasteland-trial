@@ -206,6 +206,45 @@ stonekin, parries) that pay XP, a skill pick and two relics (Wolf-Fang Charm, He
 found; relics show on the hero (bronze pauldron, Heartstone gem, hunting horn, wolf fang);
 stonekin and the Warden break into rock and light when slain.
 
+## b30: a real hero, real sword play, real surfaces
+
+**The hero.** The procedural hero is replaced by a skinned human (Quaternius' CC0 Universal
+Animation Library mannequin: 53 bones, proper proportions) driven by motion-captured clips:
+idle, walk, jog, sprint, roll, jump, a sword strike, hit reactions and death. He is dressed as
+a Warden in armour fitted plate by plate (helm with a glowing visor, gorget, breastplate,
+pauldrons, vambraces, tassets, cuisses, greaves, sabatons), with a cloak that hangs under
+gravity, a real sword and a painted heater shield. The rigid armour is baked into five skinned
+meshes so it costs a handful of draw calls. The old procedural hero is kept as the fallback if
+`assets/hero.glb` cannot be loaded. Dev views: `tools/hero_view.html`, `tools/viewer.html`.
+
+**Sword and shield.** Rebuilt on the clips (js/melee.js).
+- A press starts the swing at once. The blade goes up; if you are still holding when it reaches
+  the top it stops there and charges (a visible, readable charge). Let go early for a quick cut;
+  let go after the charge for a heavy overhead.
+- The blow lands where the blade actually is: each frame of the strike the blade and the path
+  its tip travelled are swept against what is in front of you, with an assist so close targets
+  are never missed. Contact has a freeze, a shove, a stagger, a shake and a clang.
+- Attacks are commitments: you slow while swinging; the next link comes on the next press once
+  the blow is through (cut, cut, finisher); a dodge cuts the recovery short.
+- The shield is posed by inverse kinematics: it hangs at the side, comes up to the front on
+  GUARD, jolts when it takes a blow, flares on a parry, and **bashes** (guard + attack: a
+  stagger and a shove). A parry opens a **riposte**: the next blow within a second hits
+  about 1.8x.
+
+**Surfaces.** Photographic CC0 textures with normal maps (ambientCG: slate, rock, mossy ground,
+two barks) replace the procedural noise on stone, ground and trunks; boulders are now smooth,
+finer and textured instead of flat-shaded gems; the steel and the shield reflect the real sky
+at the current time of day (image-based lighting rendered from the sky shader). The spawn
+point no longer drops you inside fir branches.
+
+**Credits.** Hero and animations: Quaternius, Universal Animation Library (CC0). Textures:
+ambientCG (CC0). Three.js addons (GLTFLoader, SkeletonUtils, BufferGeometryUtils): MIT.
+
+**Still the old look:** the bronze sentinels and wolves (instanced procedural models), the
+grass and foliage cards, the faceted far mountains. Replacing the enemies with skinned,
+animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
+instanced one).
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),
