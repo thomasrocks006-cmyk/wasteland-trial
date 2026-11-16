@@ -448,6 +448,7 @@ export class WeaponSystem {
   }
 
   swing(override) {
+    if (this.melee) { this.melee.press(); return; }       // the skinned hero fights with the clip-driven melee, in the Trial too
     this.idleT = 0;
     const d = this.def, M = d.melee;
     if (this.cooldown > 0 || this.switchT < 0.98 || this.swingT > 0) return;

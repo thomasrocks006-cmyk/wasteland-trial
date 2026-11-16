@@ -937,7 +937,7 @@ const adv = new Adventure(scene, world, {
 /* ---- the Under-Vault: a door in the hillside, a fade, and a different floor under everything */
 let transitioning = false;
 function fadeThen(fn) {
-  if (transitioning) return;
+  if (transitioning) { setTimeout(() => fadeThen(fn), 220); return; }       // a press during the fade-in is honoured, not dropped
   transitioning = true;
   const f = $('fade'); f.classList.add('on'); player.iframe = Math.max(player.iframe, 2);
   setTimeout(() => {
@@ -953,6 +953,7 @@ function exitVaultState() {
 function enterVault() {
   if (GAME.mode !== 'wander' || adv.inVault) return;
   fadeThen(() => {
+    if (adv.inVault) return;
     persist(); clearField();
     setUnderground(vault.height); world.enterUnderground(vault); adv.setZone(true); vault.group.visible = true;
     player.pos.set(vault.spawn.x, vault.floorY, vault.spawn.z);
@@ -967,6 +968,7 @@ function enterVault() {
 function leaveVault() {
   if (!adv.inVault) return;
   fadeThen(() => {
+    if (!adv.inVault) return;
     persist(); exitVaultState();
     const d = adv.byId.vaultDoor, l = Math.hypot(d.at[0], d.at[1]) || 1;
     const x = d.at[0] - (d.at[0] / l) * 5.5, z = d.at[1] - (d.at[1] / l) * 5.5;
@@ -1524,7 +1526,7 @@ function frame(now) {
     weapons.update(dt);
     const heldFire = (input.fireHeld || mouseDown) && GAME.state === 'playing';
     // a blade in Wander: tap to swing, hold and release for the heavy strike. Everything else fires while held.
-    if (GAME.mode === 'wander' && weapons.def.melee) weapons.meleeInput(heldFire, dt, camera);
+    if (weapons.def.melee && (GAME.mode === 'wander' || weapons.melee)) weapons.meleeInput(heldFire, dt, camera);
     else if (heldFire) weapons.fire(camera);
 
     // ---------- waves
