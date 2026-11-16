@@ -128,6 +128,15 @@
   </div>
 </div>
 
+<!-- ============ MAP ============ -->
+<div id="mapCard" class="hidden">
+  <div class="mapInner">
+    <canvas id="mapCanvas" width="720" height="720"></canvas>
+    <div class="mapKey">◆ RUNE &nbsp; ▲ BEACON &nbsp; ◈ ALTAR &nbsp; ■ CACHE &nbsp; ✦ INSCRIPTION &nbsp; ▣ GATE &nbsp; <span style="color:#7ff3ff">▲ YOU</span></div>
+    <button id="mapClose" class="ghostWide">CLOSE MAP</button>
+  </div>
+</div>
+
 <!-- ============ LORE / VICTORY ============ -->
 <div id="loreCard" class="hidden">
   <div class="loreInner">
@@ -182,6 +191,7 @@
   <div class="pauseInner">
     <h2>PAUSED</h2>
     <button id="btnResume" class="cta">RESUME</button>
+    <button id="btnMap" class="ghostWide hidden">MAP</button>
     <button id="btnQuit" class="ghostWide">ABANDON RUN</button>
     <div id="journal" class="hidden">
       <div class="jHead"><b id="jLevel">LEVEL 1</b><span id="jXp">0 / 60 XP</span></div>
@@ -189,6 +199,7 @@
       <div class="jRow"><span>PLACES FOUND</span><b id="jPlaces">0 / 13</b></div>
       <div class="jRow"><span>THE PASS</span><b id="jPass">SEALED</b></div>
       <div class="jRow"><span>SLAIN · PARRIES</span><b id="jKills">0 · 0</b></div>
+      <div class="jList" id="jBounty"></div>
       <div class="jList" id="jRelics"></div>
       <div class="jList" id="jLore"></div>
       <div class="jList dim" id="jBest"></div>
@@ -239,6 +250,8 @@
   <div class="rotIcon"></div>
   <div>TURN YOUR PHONE SIDEWAYS</div>
 </div>
+
+<div id="fade"></div>
 
 <div id="loader">
   <div class="loadInner">

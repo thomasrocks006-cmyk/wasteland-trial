@@ -153,8 +153,10 @@ function stonekinParts() {
   for (const g of Object.values(parts)) {
     const a = g.attributes.color.array;
     for (let i = 0; i < a.length; i += 3) {
+      // the grunt's orange rune and eye slit become cold cyan light; everything else is weathered grey-green stone
+      if (a[i] > 0.85 && a[i + 1] < 0.6 && a[i + 2] < 0.2) { a[i] = 0.45; a[i + 1] = 0.95; a[i + 2] = 1.0; continue; }
       const l = Math.min(1, (a[i] * 0.3 + a[i + 1] * 0.59 + a[i + 2] * 0.11) * 1.5);
-      a[i] = 0.17 + l * 0.25; a[i + 1] = 0.22 + l * 0.29; a[i + 2] = 0.19 + l * 0.2;
+      a[i] = 0.26 + l * 0.3; a[i + 1] = 0.3 + l * 0.34; a[i + 2] = 0.26 + l * 0.24;
     }
     g.attributes.color.needsUpdate = true;
   }
@@ -287,6 +289,14 @@ export const ENEMY_TYPES = {
     legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
     armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
   },
+  colossus: {
+    key: 'colossus', hp: 1500, speed: 2.35, radius: 1.45, height: 4.75, headY: 3.4, headR: 0.85, eye: [0.175, 3.43, 0.89],
+    dmg: 30, attackRange: 4.4, attackCd: 2.6, score: 2600, hudName: 'STONE WARDEN', heavy: true, windup: 0.9,
+    size: 2.7, matte: true, bar: true,
+    parts: stonekinParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
+    legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
+    armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
+  },
   boss: {
     key: 'boss', hp: 1500, speed: 2.2, radius: 1.9, height: 2.4, headY: 1.7, headR: 0.75, eye: [0.24, 1.72, 1.52],
     dmg: 26, attackRange: 4.2, attackCd: 1.9, score: 2500, hudName: 'IRONCOIL', boss: true, heavy: true,
@@ -297,7 +307,7 @@ export const ENEMY_TYPES = {
 
 /* ------------------------------------------------------------------ instancers */
 // generous: an enemy past its type's cap is simulated but never drawn, which reads as being hit by nothing
-const MAX_PER_TYPE = { grunt: 40, shooter: 24, brute: 16, wasp: 24, boss: 2, wolf: 40, stonekin: 24 };
+const MAX_PER_TYPE = { grunt: 40, shooter: 24, brute: 16, wasp: 24, boss: 2, wolf: 40, stonekin: 24, colossus: 2 };
 
 class TypeRender {
   constructor(scene, type) {
@@ -655,6 +665,26 @@ export class Enemies {
       if (dist < (t.key === 'shooter' ? 24 : 16)) this.alert(e);
     } else if (e.state === 'stagger') {
       if (e.stateT > (e.staggerDur || 0.22)) { e.state = 'chase'; e.stateT = 0; e.staggerDur = 0; }
+    } else if (t.key === 'colossus') {
+      // the Stone Warden: it raises both fists (a long, readable tell), then brings them down. The shock
+      // runs out along the ground: jump it, or be somewhere else. Below half health it also rings the room with bolts.
+      if (!e.enraged && e.hp < e.maxHp * 0.5) {
+        e.enraged = true; e.speed *= 1.25; e.novaCd = 1.5;
+        if (this.fx) this.fx.ring(new THREE.Vector3(e.pos.x, e.pos.y + 0.2, e.pos.z), 0x9ff4c0, 10, 0.9);
+        if (this.audio) this.audio.roar(dist, true);
+        if (this.onEnrage) this.onEnrage(e);
+      }
+      if (e.enraged) { e.novaCd -= dt; if (e.novaCd <= 0) { this.nova(e); e.novaCd = 6; } }
+      e.volleyCd = (e.volleyCd === undefined ? rnd(2, 4) : e.volleyCd) - dt;
+      if (e.state === 'windup') {
+        if (e.stateT > (e.enraged ? 0.75 : 1.0)) { e.state = 'attack'; e.stateT = 0; this.slam(e, dist); e.attackCd = t.attackCd * (e.enraged ? 0.7 : 1); }
+      } else {
+        if (dist > t.attackRange * 0.8) { moveX = dirX; moveZ = dirZ; }
+        if (dist < t.attackRange * 1.05 && e.attackCd <= 0) {
+          e.state = 'windup'; e.stateT = 0;
+          if (this.audio) this.audio.roar(dist);
+        } else if (dist > 11 && e.volleyCd <= 0) { this.fireProjectile(e, pp, e.enraged ? 4 : 2); e.volleyCd = rnd(4, 6); }
+      }
     } else if (t.key === 'wolf') {
       // circle at the edge of reach, crouch (red flash), then one lunge in a straight line: sidestep it
       if (e.state === 'windup') {
@@ -867,6 +897,25 @@ export class Enemies {
         if (od < r && od > 1e-3) { p.pos.x = sg.x + (ox / od) * r; p.pos.z = sg.z + (oz / od) * r; }
       }
       px = sg.x; pz = sg.z;
+    }
+  }
+
+  /** the Warden's blow: everything on the ground within reach takes it; a jump clears it */
+  slam(e, dist) {
+    const p = this.player;
+    const at = new THREE.Vector3(e.pos.x + Math.sin(e.yaw) * 2.6, e.pos.y + 0.1, e.pos.z + Math.cos(e.yaw) * 2.6);
+    if (this.fx) {
+      this.fx.ring(at, 0xc8d4c0, 8.5, 0.55); this.fx.ring(at, 0x9ff4c0, 4.5, 0.4);
+      this.fx.puff(at, null, 0x8a8f86, 1.4, 10, 1.1, 3.2);
+    }
+    p.shake = Math.min(2, p.shake + 1.2);
+    if (!p.alive) return;
+    const d = Math.hypot(p.pos.x - at.x, p.pos.z - at.z);
+    const airborne = p.pos.y - this.world.groundAt(p.pos.x, p.pos.z) > 0.9;
+    if (d < 6.2 && !airborne) {
+      p.damage(e.dmg, e.pos.x, e.pos.z);
+      if (p.onHurt) p.onHurt();
+      p.knock.add(new THREE.Vector3(p.pos.x - at.x, 0, p.pos.z - at.z).normalize().multiplyScalar(12));
     }
   }
 

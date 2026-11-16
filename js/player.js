@@ -540,6 +540,8 @@ export class Player {
     this.parryWindow = 0.32;
     this.guardDmgTaken = 0.2;  // share of a blocked hit that still lands
     this.guardCostMul = 1;     // perks: blocked blows cost less stamina
+    this.sprintCostMul = 1;    // relics
+    this.parryRefund = 14;
     this.guardIdle = 9;        // seconds since the guard last dropped: a parry needs a fresh raise, so tapping it is not a shield
     this.parryReady = false;
     this.lockBreak = 0;
@@ -631,7 +633,7 @@ export class Player {
     if (this.guard && fromX !== undefined && Math.abs(angleTo(this.camYaw, Math.atan2(fromX - this.pos.x, fromZ - this.pos.z))) < 1.9) {
       this.iframe = 0.25;
       if (this.parryReady && this.guardT <= this.parryWindow) {
-        this.stam = Math.min(this.maxStam, this.stam + 14);
+        this.stam = Math.min(this.maxStam, this.stam + this.parryRefund);
         this.shieldMat.opacity = 1;
         if (this.onParry) this.onParry(fromX, fromZ);
         return;
@@ -778,7 +780,7 @@ export class Player {
     const mag = Math.min(1, Math.hypot(mx, my));
     const canSprint = input.sprint && (!this.staminaOn || (this.stam > 0 && !this.exhausted));
     this.sprinting = canSprint && mag > 0.5;
-    if (this.staminaOn && this.sprinting) { this.stam = Math.max(0, this.stam - 11 * dt); this.stamDelay = 0.8; if (this.stam <= 0) this.exhausted = true; }
+    if (this.staminaOn && this.sprinting) { this.stam = Math.max(0, this.stam - 11 * this.sprintCostMul * dt); this.stamDelay = 0.8; if (this.stam <= 0) this.exhausted = true; }
     const spd = this.speed * (canSprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1) * (this.guard ? 0.55 : 1)
       * (1 - Math.min(0.4, this.inWater * 0.45));      // wading through the river is slower
     let wishX = 0, wishZ = 0;

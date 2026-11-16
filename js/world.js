@@ -6,10 +6,11 @@ import {
   GRID_SEG, GRID_EXT, gridHeight, RIVER, RIVER_W, LAKE, LAKE_Y, waterDist, needleTexture, meadowTexture,
   GAP_A, LOWLAND_Y, gapAmount, TRAIL, TRAIL_LEN, trailDist, MeshBuilder, leafTexture, needleSprayTexture, fernTexture, barkTexture, birchTexture
 } from './core.js';
+import { sampleTime, sunVector, makeState, START_TOD } from './daynight.js';
 
 const _v = new THREE.Vector3();
 let STONE_MAT = null;
-function stoneMat() {
+export function stoneMat() {
   if (!STONE_MAT) { const t = stoneTexture(); STONE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, map: t, bumpMap: t, bumpScale: 3 }); }
   return STONE_MAT;
 }
@@ -54,7 +55,11 @@ export class World {
     // a low golden sun behind the overlook (over the cascade), so the view out through
     // the pass is lit from the front, not a backlit silhouette
     this.sunDir = new THREE.Vector3(-0.74, 0.26, 0.62).normalize();
+    this.lightDir = this.sunDir.clone();     // what the directional light and its shadows follow: the sun by day, the moon by night
+    this.exposure = 1.06; this.night = 0; this.shaftK = 1; this.tod = START_TOD;
+    this._tod = makeState();
     this.build();
+    this.applyTime(START_TOD);
   }
 
   build() {
@@ -94,6 +99,7 @@ export class World {
         uMid: { value: new THREE.Color(0xa6c3d8) },
         uHorizon: { value: new THREE.Color(0xe9e2d2) },
         uGround: { value: new THREE.Color(0x56704a) },
+        uMoon: { value: new THREE.Vector3(0, -1, 0) }, uStars: { value: 0 }, uDay: { value: 1 },
       },
       vertexShader: /* glsl */`
         varying vec3 vDir;
@@ -106,8 +112,9 @@ export class World {
       fragmentShader: /* glsl */`
         precision highp float;
         varying vec3 vDir;
-        uniform vec3 uSun, uZenith, uMid, uHorizon, uGround;
-        uniform float uTime;
+        uniform vec3 uSun, uZenith, uMid, uHorizon, uGround, uMoon;
+        uniform float uTime, uStars, uDay;
+        float h3(vec3 p){ p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 
         float h2(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123); }
         float vn(vec2 p){
@@ -128,11 +135,23 @@ export class World {
           col = mix(col, uZenith, smoothstep(0.16, 0.85, y));
           col = mix(uGround, col, smoothstep(-0.14, 0.02, y));
 
-          // sun
+          // sun (only while it is above the horizon)
           float sd = max(dot(d, normalize(uSun)), 0.0);
-          col += vec3(1.0,0.72,0.42) * pow(sd, 6.0) * 0.42;
-          col += vec3(1.0,0.86,0.62) * pow(sd, 90.0) * 1.35;
-          col += vec3(1.0,0.95,0.85) * smoothstep(0.9993, 0.99975, sd) * 3.2;
+          float aboveH = smoothstep(-0.06, 0.04, y);
+          col += (vec3(1.0,0.72,0.42) * pow(sd, 6.0) * 0.42
+                + vec3(1.0,0.86,0.62) * pow(sd, 90.0) * 1.35
+                + vec3(1.0,0.95,0.85) * smoothstep(0.9993, 0.99975, sd) * 3.2) * aboveH;
+
+          // night: stars that twinkle, and the moon opposite the sun
+          if (uStars > 0.01 && y > -0.03) {
+            vec3 q = d * 150.0;
+            float r = h3(floor(q));
+            float star = step(0.982, r) * smoothstep(0.55, 0.0, length(fract(q) - 0.5)) * (0.6 + 0.4 * sin(uTime * 2.1 + r * 80.0));
+            col += vec3(0.82, 0.9, 1.0) * star * uStars * smoothstep(0.0, 0.2, y) * 1.6;
+            float md = dot(d, normalize(uMoon));
+            col += vec3(0.85, 0.92, 1.0) * smoothstep(0.9987, 0.9992, md) * 2.4 * uStars;
+            col += vec3(0.35, 0.45, 0.75) * pow(max(md, 0.0), 70.0) * 0.3 * uStars;
+          }
 
           // dusty cloud bands near horizon
           if (y > -0.02) {
@@ -143,7 +162,7 @@ export class World {
             float band = smoothstep(0.42, 0.86, f*0.7 + f2*0.45);
             band *= smoothstep(-0.01, 0.20, y) * (1.0 - smoothstep(0.42, 0.95, y));
             vec3 cc = mix(vec3(0.93,0.90,0.88), vec3(1.0,0.98,0.95), f2);
-            col = mix(col, cc, band * 0.7);
+            col = mix(col, cc * (0.12 + 0.88 * uDay), band * 0.7);
           }
 
           // slight dither to kill banding
@@ -172,6 +191,7 @@ export class World {
     const scene = this.scene;
     const hemi = new THREE.HemisphereLight(0xd4e6ff, 0x5a6a40, 1.25);
     scene.add(hemi);
+    this.hemi = hemi;
 
     const sun = new THREE.DirectionalLight(0xffe2b2, 3.4);
     sun.position.copy(this.sunDir).multiplyScalar(90);
@@ -193,6 +213,7 @@ export class World {
     const bounce = new THREE.DirectionalLight(0x86b6ff, 0.46);
     bounce.position.set(-0.5, 0.45, 0.7);
     scene.add(bounce);
+    this.bounce = bounce;
 
     this.ambient = new THREE.AmbientLight(0x56657e, 0.34);
     scene.add(this.ambient);
@@ -1724,12 +1745,13 @@ export class World {
     // sun sprite follows the camera a little so it never leaves the dome
     if (this.sunSprite) {
       this.sunSprite.position.copy(this.sunDir).multiplyScalar(560).add(this.scene.position);
+      this.sunSprite.visible = this.sunDir.y > -0.05;
     }
 
     // shadow frustum follows the player
     const s = this.sun;
     this.shadowTarget.set(playerPos.x, terrainHeight(playerPos.x, playerPos.z), playerPos.z);
-    s.position.copy(this.shadowTarget).add(this.sunDir.clone().multiplyScalar(70));
+    s.position.copy(this.shadowTarget).addScaledVector(this.lightDir, 70);
     s.target.position.copy(this.shadowTarget);
     s.target.updateMatrixWorld();
 
@@ -1742,7 +1764,8 @@ export class World {
     }
 
     if (this.waterMat) this.waterMat.uniforms.uTime.value = t;
-    if (this.shafts) for (const s of this.shafts) s.m.material.opacity = 0.05 + Math.sin(t * 0.4 + s.seed) * 0.025;
+    if (this.shafts) for (const s of this.shafts) s.m.material.opacity = (0.05 + Math.sin(t * 0.4 + s.seed) * 0.025) * this.shaftK;
+    this.updateFireflies(dt, t, playerPos);
     if (this.clouds) for (const c of this.clouds) {
       c.a += c.w * dt;
       c.sp.position.x = Math.cos(c.a) * c.d; c.sp.position.z = Math.sin(c.a) * c.d;
@@ -1774,6 +1797,92 @@ export class World {
     }
   }
 
+  /** set the whole valley's light for a time of day: sky, fog, sun or moon, fills, water, haze, stars */
+  applyTime(tod) {
+    const S = this._tod; this.tod = tod;
+    sampleTime(tod, S);
+    sunVector(tod, this.sunDir);
+    const day = this.sunDir.y > -0.03;
+    // by night the one directional light becomes the moon; it never lies flatter than 0.2 so shadows stay sane
+    this.lightDir.copy(this.sunDir); if (!day) this.lightDir.negate();
+    this.lightDir.y = Math.max(0.2, this.lightDir.y); this.lightDir.normalize();
+    const u = this.sky.material.uniforms;
+    u.uSun.value.copy(this.sunDir); u.uMoon.value.copy(this.sunDir).negate();
+    u.uZenith.value.copy(S.zen); u.uMid.value.copy(S.mid); u.uHorizon.value.copy(S.hor); u.uGround.value.copy(S.gnd);
+    const night = Math.min(1, Math.max(0, (S.st - 0.1) / 0.8));
+    this.night = night;
+    u.uStars.value = S.st; u.uDay.value = 1 - night;
+    this.scene.fog.color.copy(S.fog);
+    this.sun.color.copy(S.sun); this.sun.intensity = S.sunI;
+    this.hemi.color.copy(S.hs); this.hemi.groundColor.copy(S.hg); this.hemi.intensity = S.hI;
+    this.ambient.color.copy(S.amb); this.ambient.intensity = S.aI;
+    this.bounce.color.copy(S.bn); this.bounce.intensity = S.bI;
+    this.fill.color.copy(S.fl); this.fill.intensity = S.fI;
+    this.exposure = S.ex;
+    if (this.cave) {           // underground: no sun, no sky; a cool dim fill and the dark
+      this.night = 0; this.shaftK = 0;
+      this.sun.intensity = 0;
+      // the rooms are lit by baked torchlight; these lights are for the hero and the enemies, who must read against them
+      this.hemi.color.setHex(0xa8aac0); this.hemi.groundColor.setHex(0x44424c); this.hemi.intensity = 1.2;
+      this.ambient.color.setHex(0x626478); this.ambient.intensity = 0.8;
+      this.bounce.intensity = 0.25; this.bounce.color.setHex(0x6a7ab8); this.fill.color.setHex(0xa8b0d0); this.fill.intensity = 0.55;
+      this.scene.fog.color.setHex(0x05060a); this.scene.fog.near = 5; this.scene.fog.far = 62;
+      this.exposure = 1.25;
+    }
+    if (this.sunSprite) { this.sunSprite.material.opacity = 0.55 * (1 - night); this.sunSprite.material.color.copy(S.sun); }
+    if (this.waterMat) { this.waterMat.uniforms.uSun.value.copy(this.lightDir); this.waterMat.uniforms.uSky.value.copy(S.hor).lerp(S.zen, 0.35); }
+    if (this.clouds) for (const c of this.clouds) c.sp.material.color.copy(S.hor).lerp(S.sun, 0.25).multiplyScalar(0.25 + 0.75 * (1 - night));
+    this.shaftK = Math.max(0, 1 - night * 1.6) * Math.max(0, Math.min(1, (this.sunDir.y + 0.05) / 0.25));
+    if (this.mist) for (const m of this.mist) m.sp.material.color.copy(S.fog).multiplyScalar(1.05);
+  }
+
+  groundAt(x, z) { return terrainHeight(x, z); }
+
+  /** go underground into a vault: its floor, its rooms' walls, its pillars and its dark */
+  enterUnderground(vault) {
+    this.valleyObstacles = this.obstacles;
+    this.obstacles = vault.obstacles;
+    this.bounds = vault.clamp;
+    this.cave = true;
+    this.scene.fog.near = 5; this.scene.fog.far = 62;
+    this.applyTime(this.tod);
+  }
+  leaveUnderground() {
+    if (!this.cave) return;
+    this.cave = false;
+    this.obstacles = this.valleyObstacles; this.valleyObstacles = null;
+    this.bounds = null;
+    this.scene.fog.near = 70; this.scene.fog.far = 1150;
+    this.applyTime(this.tod);
+  }
+
+  /** fireflies: a few dozen warm sparks that drift near the player after dark */
+  buildFireflies() {
+    const n = 70, pos = new Float32Array(n * 3);
+    this.fireData = [];
+    for (let i = 0; i < n; i++) this.fireData.push({ ph: rnd(0, TAU), sp: rnd(0.5, 1.4), r: rnd(4, 30), a: rnd(0, TAU), h: rnd(0.4, 3.2) });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const m = new THREE.PointsMaterial({ size: 0.28, map: radialSprite('rgba(255,244,170,1)', 'rgba(255,200,60,0)', 32), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffe890, sizeAttenuation: true });
+    this.fire = new THREE.Points(g, m); this.fire.frustumCulled = false; this.fire.visible = false;
+    this.scene.add(this.fire);
+  }
+  updateFireflies(dt, t, p) {
+    if (!this.fire) this.buildFireflies();
+    const on = this.night > 0.15;
+    this.fire.visible = on;
+    if (!on) return;
+    this.fire.material.opacity = Math.min(1, (this.night - 0.15) * 1.4) * (0.75 + 0.25 * Math.sin(t * 3));
+    const arr = this.fire.geometry.attributes.position.array;
+    for (let i = 0; i < this.fireData.length; i++) {
+      const o = this.fireData[i], a = o.a + t * 0.05 * o.sp + Math.sin(t * 0.7 + o.ph) * 0.4;
+      const x = p.x + Math.cos(a) * o.r, z = p.z + Math.sin(a) * o.r;
+      arr[i * 3] = x; arr[i * 3 + 2] = z;
+      arr[i * 3 + 1] = terrainHeight(x, z) + o.h + Math.sin(t * o.sp + o.ph) * 0.6;
+    }
+    this.fire.geometry.attributes.position.needsUpdate = true;
+  }
+
   /** is this spot clear of every obstacle? */
   isClear(x, z, pad = 1.0) {
     for (let i = 0; i < this.obstacles.length; i++) {
@@ -1803,6 +1912,7 @@ export class World {
 
   /** push a circle out of world obstacles; returns corrected x,z */
   resolveCollisions(x, z, radius) {
+    if (this.bounds) [x, z] = this.bounds(x, z, radius);      // underground: the walls of the rooms
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i];
       const dx = x - o.x, dz = z - o.z;
@@ -1814,6 +1924,7 @@ export class World {
         z = o.z + (dz / d) * rr;
       }
     }
+    if (this.bounds) return [x, z];
     // arena wall
     const r = Math.hypot(x, z);
     const maxR = ARENA_R - radius - 2;

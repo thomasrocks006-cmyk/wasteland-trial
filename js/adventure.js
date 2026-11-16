@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   TAU, rnd, pick, angleTo, terrainHeight, terrainNormal, GAP_A, TRAIL, TRAIL_LEN, RIVER, waterDist, Builder, canvasTex
 } from './core.js';
+import { START_TOD } from './daynight.js';
+import { FLOOR_Y } from './vault.js';
 
 /* ================================================================ the vale's story
    Wander's spine. Thirteen places in the valley, each with a reason to go there:
@@ -24,16 +26,44 @@ export const RELICS = {
   ring: { name: 'RING OF SECOND BREATH', desc: '+25 stamina' },
   horn: { name: "HUNTER'S HORN", desc: 'Kills restore 2 health' },
   cloak: { name: "THE WARDEN'S CLOAK", desc: '10% less damage taken; a crimson cloak' },
+  fang: { name: 'WOLF-FANG CHARM', desc: 'Sprinting costs 25% less stamina' },
+  talisman: { name: "HERMIT'S TALISMAN", desc: 'Parry window +0.08 s; a parry returns more stamina' },
+  heart: { name: 'THE VAULT HEARTSTONE', desc: '+25 max health; heavy strikes hit 20% harder' },
 };
 
 export const LORE = {
+  vault: { title: 'THE VAULT INSCRIPTION', text: 'BELOW THE VALE THE WARDENS KEPT THEIR OWN. WHAT SLEEPS AT THE END OF THIS HALL WAS PLACED, NOT BORN. IT HOLDS THE LAST OF THEIR KEYS. THE SEAL ANSWERS ONLY TO THE DEATH OF ITS GUARDS.' },
   colossi: { title: 'THE COLOSSI', text: 'Two stone wardens stand where the river enters the vale. Cut at their feet: WE HOLD THE WATER. THE WATER HOLDS THE VALLEY. NEITHER MAY BE LEFT UNWATCHED.' },
   cascade: { title: 'THE CASCADE', text: 'Scratched into a smooth stone beside the falls: FIVE LIGHTS KEEP THE PASS SEALED. ONE AT THE SHRINE. THREE ON THE TOWERS. ONE WHERE THE OLD STONES STAND.' },
   overlook: { title: 'THE OVERLOOK', text: 'Below the parapet the lowland runs green to the far mountains. A line is cut into the rail: THE WARDEN KEEPS THE WAY UNTIL FIVE LIGHTS ANSWER. THEN IT IS YOURS TO WALK.' },
   sentinels: { title: "THE WATCHERS' STONE", text: 'The bronze were never built to hunt. Cut into the base: THEY WALK THE VALE TO KEEP IT. STRIKE ONE AND THE REST REMEMBER. WHAT THE STONES GUARD, THE WOLVES GUARD TOO.' },
 };
 
+/* the hermit's bounties: counted from the day you first speak to him */
+export const QUESTS = [
+  { id: 'b1', name: 'WOLFSBANE', desc: 'Slay 8 wolves', key: 'wolf', need: 8, xp: 110, relic: 'fang' },
+  { id: 'b2', name: 'STONE-BREAKER', desc: 'Break 6 stonekin', key: 'stonekin', need: 6, xp: 170, picks: 1 },
+  { id: 'b3', name: 'STEADY HAND', desc: 'Turn aside 12 blows with a parry', key: 'parry', need: 12, xp: 120, relic: 'talisman' },
+];
+
+/* groups of guards: what clearing one earns, and what it does */
+export const GROUPS = {
+  altar: { xp: 80, msg: 'THE STONEKIN FALL' },
+  lair: { xp: 90, msg: 'THE DEN IS EMPTY' },
+  vaultA: { xp: 60, msg: 'THE ANTECHAMBER IS QUIET' },
+  vaultB: { xp: 110, msg: 'THE SEAL GIVES WAY', onClear: 'seal' },
+  vaultBoss: { xp: 500, msg: 'THE STONE WARDEN CRUMBLES', onClear: 'warden' },
+};
+/* who stands in the vault: [kind, x, z] per group */
+export const VAULT_GROUPS = {
+  vaultA: [['stonekin', -4, 31], ['stonekin', 4, 31]],
+  vaultB: [['stonekin', -6, -8], ['stonekin', 7, -10], ['shooter', -13, -18], ['shooter', 13, -20]],
+  vaultBoss: [['colossus', 0, -63]],
+};
+
 /* what walks where: the nearer a place of power, the more its own kind */
+/* after dark the vale hunts: wolves in packs, and the stone walks */
+export const NIGHT_MIX = [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'stonekin'], ['stonekin', 'stonekin']];
 export const REGION_MIX = {
   altar: [['stonekin', 'stonekin'], ['stonekin', 'grunt', 'grunt'], ['stonekin', 'shooter']],
   lair: [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf']],
@@ -44,9 +74,10 @@ const defaults = () => ({
   xp: 0, level: 1, picks: 0,
   found: {}, done: {}, cleared: {}, read: {},
   relics: [], perks: [], bestiary: {},
-  passOpen: false, deaths: 0, playSecs: 0,
+  passOpen: false, deaths: 0, playSecs: 0, tod: START_TOD,
+  quests: { started: false, wolf: 0, stonekin: 0, parry: 0, claimed: {} },
 });
-const KNOWN_KINDS = ['grunt', 'shooter', 'brute', 'wasp', 'wolf', 'stonekin', 'boss'];
+const KNOWN_KINDS = ['grunt', 'shooter', 'brute', 'wasp', 'wolf', 'stonekin', 'boss', 'colossus'];
 const clampInt = (v, lo, hi, dflt) => (Number.isFinite(+v) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, Math.floor(+v))) : dflt);
 /** a save is data from outside: a hand-edited, truncated or older file must never reach the game as NaN or markup */
 export function loadAdv(save, knownPlaces = null, knownPerks = null) {
@@ -57,14 +88,20 @@ export function loadAdv(save, knownPlaces = null, knownPerks = null) {
   a.picks = clampInt(raw.picks, 0, 99, 0);
   a.deaths = clampInt(raw.deaths, 0, 1e6, 0);
   a.playSecs = clampInt(raw.playSecs, 0, 1e9, 0);
+  a.tod = Number.isFinite(+raw.tod) && raw.tod !== null ? ((+raw.tod % 1) + 1) % 1 : START_TOD;
   a.passOpen = raw.passOpen === true;
   const flags = (src, ok) => { const o = {}; if (src && typeof src === 'object') for (const k of Object.keys(src)) if (src[k] === true && (!ok || ok.includes(k))) o[k] = true; return o; };
-  a.found = flags(raw.found, knownPlaces); a.done = flags(raw.done, knownPlaces); a.cleared = flags(raw.cleared, knownPlaces);
+  a.found = flags(raw.found, knownPlaces); a.done = flags(raw.done, knownPlaces); a.cleared = flags(raw.cleared, knownPlaces && knownPlaces.concat(Object.keys(GROUPS)));
   a.read = flags(raw.read, Object.keys(LORE));
   if (raw.done && typeof raw.done === 'object') for (const k of Object.keys(raw.done)) if (raw.done[k] && (!knownPlaces || knownPlaces.includes(k))) a.done[k] = true;
   a.relics = (Array.isArray(raw.relics) ? raw.relics : []).filter((id, i, arr) => RELICS[id] && arr.indexOf(id) === i);
   a.perks = (Array.isArray(raw.perks) ? raw.perks : []).filter((id) => typeof id === 'string' && (!knownPerks || knownPerks.includes(id))).slice(0, 99);
-  if (raw.bestiary && typeof raw.bestiary === 'object') for (const k of KNOWN_KINDS) if (k in raw.bestiary) a.bestiary[k] = clampInt(raw.bestiary[k], 0, 1e7, 0);
+  if (raw.bestiary && typeof raw.bestiary === 'object') for (const k of KNOWN_KINDS.concat(['colossus'])) if (k in raw.bestiary) a.bestiary[k] = clampInt(raw.bestiary[k], 0, 1e7, 0);
+  if (raw.quests && typeof raw.quests === 'object') {
+    a.quests.started = raw.quests.started === true;
+    for (const k of ['wolf', 'stonekin', 'parry']) a.quests[k] = clampInt(raw.quests[k], 0, 99999, 0);
+    for (const q of QUESTS) if (raw.quests.claimed && raw.quests.claimed[q.id] === true) a.quests.claimed[q.id] = true;
+  }
   while (a.level < MAX_LEVEL && a.xp >= xpNeed(a.level)) { a.xp -= xpNeed(a.level); a.level++; a.picks++; }
   save.adv = a;
   return a;
@@ -98,6 +135,8 @@ function buildPlaces(world) {
   const tx = gp.x - gi.x, tz = gp.z - gi.z, tl = Math.hypot(tx, tz) || 1;
   const lair = findClear(world, gi.x - (tz / tl) * 13, gi.z + (tx / tl) * 13, 3, 12);
   const gate = [Math.cos(GAP_A) * 90.5, Math.sin(GAP_A) * 90.5];
+  const hermitAt = findClear(world, 20, -10, 2.6, 14, 3.5, 0.9);
+  const vaultDoor = findClear(world, -56, 6, 2.5, 18, 3.5, 0.85);
   const cl = world.clearing || { x: -40, z: 60 };
   // the falls: the river drops from the rim along its first stretch. The stone stands on one bank, the cache on the other.
   const bank = (i, side) => {
@@ -122,6 +161,11 @@ function buildPlaces(world) {
     { id: 'cascade', name: 'THE CASCADE STONE', kind: 'lore', at: cascade, reach: 3.6, discover: 30, lore: 'cascade', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
     { id: 'watch', name: "THE WATCHERS' STONE", kind: 'lore', at: watchStone, reach: 3.6, discover: 30, lore: 'sentinels', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
     { id: 'overlook', name: 'THE OVERLOOK', kind: 'lore', at: findClear(world, overlook[0], overlook[1], 1.6, 8), reach: 3.6, discover: 34, lore: 'overlook', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
+    { id: 'vaultDoor', name: 'THE SEALED DOOR', kind: 'door', at: vaultDoor, reach: 4.6, req: false, discover: 34, color: 0x9ff4ff, ring: 3.0, xp: 0, glyph: 'door', needs: 'altar', needsWhy: 'THE STONES MUST WAKE FIRST' },
+    { id: 'vaultUp', name: 'THE ASCENT', kind: 'door', zone: 'vault', at: [0, 37.4], reach: 3.6, discover: 0, color: 0xffd9a0, ring: 2.2, xp: 0, glyph: 'door', up: true },
+    { id: 'vaultLore', name: 'THE VAULT INSCRIPTION', kind: 'lore', zone: 'vault', at: [0, 28.5], reach: 3.6, discover: 14, lore: 'vault', color: 0xb8d8ff, ring: 1.3, xp: 30, glyph: 'lore' },
+    { id: 'vaultChest', name: "THE WARDEN'S CACHE", kind: 'cache', zone: 'vault', at: [0, -79], reach: 3.6, discover: 22, needs: 'vaultBoss', needsWhy: 'THE WARDEN STILL STANDS', relic: 'heart', color: 0xffd060, ring: 1.6, xp: 150, glyph: 'cache', text: 'The last of the wardens\' keys, and a stone that beats.' },
+    { id: 'hermit', name: "THE HERMIT'S FIRE", kind: 'talk', at: hermitAt, reach: 4.4, discover: 30, color: 0xffc070, ring: 2.2, xp: 0, glyph: 'talk' },
     { id: 'gate', name: 'THE PASS GATE', kind: 'gate', at: gate, reach: 9, req: true, discover: 48, relic: 'cloak', color: 0xffe08a, ring: 3.4, xp: 400, glyph: 'gate' },
   ];
 }
@@ -135,9 +179,15 @@ export class Adventure {
     this.adv = loadAdv(this.save, this.places.map((p) => p.id), ctx.perkIds || null);
     this.byId = {};
     for (const p of this.places) {
+      p.zone = p.zone || 'valley';
       this.byId[p.id] = p;
-      p.y = terrainHeight(p.at[0], p.at[1]);
+      p.y = p.zone === 'vault' ? FLOOR_Y : terrainHeight(p.at[0], p.at[1]);
     }
+    this.vault = ctx.vault || null;
+    this.inVault = false;
+    this.zonePlaces = this.places.filter((p) => p.zone === 'valley');
+    // way-points that are not places: where a vault objective points before a place does
+    this.wp = { hall: { id: 'wpHall', at: [0, -10], glyph: 'rune', name: 'THE HALL', zone: 'vault' }, throne: { id: 'wpThrone', at: [0, -64], glyph: 'rune', name: 'THE THRONE', zone: 'vault' } };
     this.near = null;
     this.guardSeq = 0;
     this.warden = null;
@@ -200,7 +250,7 @@ export class Adventure {
       const rg = new THREE.RingGeometry(p.ring * 0.84, p.ring, Math.max(40, Math.round(p.ring * 7)), 1);
       rg.rotateX(-Math.PI / 2);
       const rp = rg.attributes.position;
-      for (let i = 0; i < rp.count; i++) rp.setY(i, terrainHeight(x + rp.getX(i), z + rp.getZ(i)) + 0.16);
+      for (let i = 0; i < rp.count; i++) rp.setY(i, (p.zone === 'vault' ? FLOOR_Y : terrainHeight(x + rp.getX(i), z + rp.getZ(i))) + 0.16);
       const ring = new THREE.Mesh(rg, ringMat);
       ring.position.set(x, 0, z);
       this.scene.add(ring);
@@ -219,6 +269,8 @@ export class Adventure {
       if (p.kind === 'lore') this.buildLoreStone(p, stone, glyphTex);
       if (p.id === 'lair') this.buildDen(p, stone);
       if (p.kind === 'gate') this.buildGate(p, stone);
+      if (p.id === 'vaultDoor') this.buildDoorway(p, stone);
+      if (p.kind === 'talk') this.buildHermit(p, stone);
     }
     this.syncVisuals();
   }
@@ -240,7 +292,7 @@ export class Adventure {
     g.rotation.y = Math.atan2(-p.at[0], -p.at[1]);       // faces the shrine
     this.scene.add(g);
     p.chest = { group: g, hinge };
-    this.world.obstacles.push({ x: p.at[0], z: p.at[1], r: 0.7, h: 0.8 });
+    (p.zone === 'vault' && this.vault ? this.vault.obstacles : this.world.obstacles).push({ x: p.at[0], z: p.at[1], r: 0.7, h: 0.8 });
   }
 
   buildLoreStone(p, mat, glyphTex) {
@@ -256,7 +308,7 @@ export class Adventure {
     g.rotation.y = Math.atan2(-p.at[0], -p.at[1]);
     this.scene.add(g);
     p.stone = { group: g, face };
-    this.world.obstacles.push({ x: p.at[0], z: p.at[1], r: 0.75, h: 2.1 });
+    (p.zone === 'vault' && this.vault ? this.vault.obstacles : this.world.obstacles).push({ x: p.at[0], z: p.at[1], r: 0.75, h: 2.1 });
   }
 
   /** the pass gate: two weathered pillars and a lintel, with a film of rune light across the opening until the Warden falls */
@@ -288,6 +340,57 @@ export class Adventure {
     this.scene.add(this.barrier);
   }
 
+  /** the door in the hillside: two worn pillars, a lintel, and a dark doorway that wakes when the altar does */
+  buildDoorway(p, mat) {
+    const [x, z] = p.at, l = Math.hypot(x, z) || 1, ux = -x / l, uz = -z / l;     // faces the valley's centre
+    const tx = -uz, tz = ux, yaw = Math.atan2(ux, uz), y0 = terrainHeight(x, z);
+    const b = new Builder();
+    for (const s of [-1, 1]) {
+      const px = x + tx * 2.3 * s, pz = z + tz * 2.3 * s;
+      b.add(new THREE.BoxGeometry(1.1, 5.6, 1.1), 0x7d8284, { pos: [px, y0 + 2.6, pz], rot: [0, yaw, 0], jitter: 0.05 });
+      b.add(new THREE.BoxGeometry(1.5, 0.6, 1.5), 0x5f6769, { pos: [px, y0 + 0.2, pz], rot: [0, yaw, 0] });
+    }
+    b.add(new THREE.BoxGeometry(6.0, 0.9, 1.4), 0x6d7476, { pos: [x, y0 + 5.7, z], rot: [0, yaw + Math.PI / 2, 0], jitter: 0.04 });
+    b.add(new THREE.BoxGeometry(5.4, 5.4, 0.6), 0x3a3f42, { pos: [x - ux * 0.6, y0 + 2.7, z - uz * 0.6], rot: [0, yaw + Math.PI / 2, 0] });   // the slab the doorway is cut into
+    const m = new THREE.Mesh(b.build(), mat); m.castShadow = true; m.receiveShadow = true; this.scene.add(m);
+    this.world.obstacles.push({ x: x + tx * 2.3, z: z + tz * 2.3, r: 0.8, h: 5.6 }, { x: x - tx * 2.3, z: z - tz * 2.3, r: 0.8, h: 5.6 }, { x: x - ux * 0.8, z: z - uz * 0.8, r: 1.6, h: 5 });
+    this.doorway = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 4.6), new THREE.MeshBasicMaterial({ color: 0x02030a, transparent: true, opacity: 0.96, side: THREE.DoubleSide }));
+    this.doorway.position.set(x - ux * 0.25, y0 + 2.4, z - uz * 0.25); this.doorway.rotation.y = yaw;
+    this.scene.add(this.doorway);
+  }
+
+  /** a campfire among stones, and an old man leaning on a staff beside it */
+  buildHermit(p, mat) {
+    const [x, z] = p.at, y0 = p.y, face = Math.atan2(-x, -z);
+    const b = new Builder();
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU;
+      b.add(new THREE.SphereGeometry(0.2, 6, 5), 0x6f7478, { pos: [x + Math.cos(a) * 0.9, terrainHeight(x + Math.cos(a) * 0.9, z + Math.sin(a) * 0.9) + 0.1, z + Math.sin(a) * 0.9], scale: [1, 0.7, 1], jitter: 0.06 });
+    }
+    for (const r of [0.4, 1.3, 2.2]) b.add(new THREE.CylinderGeometry(0.09, 0.1, 1.2, 6), 0x5a4330, { pos: [x, y0 + 0.14, z], rot: [Math.PI / 2, r, 0.1] });   // logs
+    b.add(new THREE.CylinderGeometry(0.9, 1.0, 0.04, 14), 0x2a221c, { pos: [x, y0 + 0.02, z] });
+    const hx = x + Math.cos(face + 1.4) * 2.3, hz = z + Math.sin(face + 1.4) * 2.3, hy = terrainHeight(hx, hz);
+    const man = new Builder({ smooth: true });
+    man.add(new THREE.CylinderGeometry(0.26, 0.52, 1.35, 12), 0x5b4a36, { pos: [0, 0.72, 0] });                                  // robe
+    man.add(new THREE.SphereGeometry(0.3, 10, 8), 0x6a5740, { pos: [0, 1.38, 0], scale: [1.15, 0.7, 0.9] });                     // shoulders
+    man.add(new THREE.SphereGeometry(0.17, 10, 8), 0xc9a27a, { pos: [0, 1.62, 0.03] });                                           // face
+    man.add(new THREE.SphereGeometry(0.22, 10, 8), 0x3f3a30, { pos: [0, 1.68, -0.04], scale: [1, 1.05, 1] });                    // hood
+    man.add(new THREE.ConeGeometry(0.11, 0.38, 8), 0xb9b2a4, { pos: [0, 1.42, 0.14], rot: [Math.PI + 0.3, 0, 0] });               // beard
+    man.add(new THREE.CylinderGeometry(0.03, 0.035, 2.2, 6), 0x5a4330, { pos: [0.4, 1.1, 0.12] });                                // staff
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), new THREE.MeshBasicMaterial({ color: 0x7ff3ff, toneMapped: false }));
+    glow.position.set(0.4, 2.25, 0.12);
+    const g = new THREE.Group();
+    g.add(new THREE.Mesh(man.build(), new THREE.MeshLambertMaterial({ vertexColors: true })), glow);
+    g.position.set(hx, hy, hz); g.rotation.y = Math.atan2(x - hx, z - hz);
+    this.scene.add(g);
+    const m = new THREE.Mesh(b.build(), mat); m.receiveShadow = true; this.scene.add(m);
+    const fl = new THREE.Sprite(new THREE.SpriteMaterial({ map: canvasTex(64, 64, (c, w, h) => { const gr = c.createRadialGradient(w / 2, h * 0.6, 2, w / 2, h * 0.6, w / 2); gr.addColorStop(0, 'rgba(255,230,140,1)'); gr.addColorStop(0.5, 'rgba(255,130,30,0.7)'); gr.addColorStop(1, 'rgba(255,60,0,0)'); c.fillStyle = gr; c.fillRect(0, 0, w, h); }), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    fl.position.set(x, y0 + 0.85, z); fl.scale.set(1.3, 1.9, 1);
+    this.scene.add(fl);
+    this.hermitFire = { sp: fl, base: y0 + 0.85, man: g, glow };
+    this.world.obstacles.push({ x, z, r: 1.0, h: 0.5 }, { x: hx, z: hz, r: 0.5, h: 2 });
+  }
+
   buildDen(p, mat) {
     const b = new Builder();
     for (let i = 0; i < 9; i++) {
@@ -309,6 +412,36 @@ export class Adventure {
       if (p.chest) p.chest.hinge.rotation.x = done ? -1.9 : 0;
       if (p.stone) p.stone.face.material.opacity = this.adv.read[p.lore] ? 0.9 : 0.35;
     }
+  }
+
+  setZone(inVault) {
+    this.inVault = inVault;
+    this.zonePlaces = this.places.filter((p) => p.zone === (inVault ? 'vault' : 'valley'));
+    for (const p of this.places) {                      // a place is only drawn in its own zone
+      const show = p.zone === (inVault ? 'vault' : 'valley');
+      if (p.ringMesh) p.ringMesh.visible = show;
+      if (p.chest) p.chest.group.visible = show;
+      if (p.stone) p.stone.group.visible = show;
+    }
+    this.near = null;
+  }
+
+  /** the vault's guards, by group; the seal stands until the hall's group is gone */
+  populateVault() {
+    this.warden = null;
+    for (const gid of Object.keys(VAULT_GROUPS)) {
+      if (this.adv.cleared[gid]) continue;
+      this.guardSeq++;
+      for (const [kind, gx, gz] of VAULT_GROUPS[gid]) {
+        const [x, z] = findClear(this.world, gx, gz, 1.6, 5, 0, 0);
+        const L = this.adv.level - 1;
+        const e = this.ctx.enemies.spawn(kind, x, z, { hpScale: (kind === 'colossus' ? 0.9 : 1) + L * 0.04, dmgScale: (kind === 'colossus' ? 0.9 : 1) + L * 0.02 });
+        e.passive = true; e.aggro = false; e.home = { x, z }; e.homeR = kind === 'colossus' ? 0.5 : 2.5;
+        e.group = 'g' + this.guardSeq; e.guard = gid;
+        if (kind === 'colossus') e.vaultBoss = true;
+      }
+    }
+    if (this.vault) { if (this.adv.cleared.vaultB) this.vault.openSeal(); else this.vault.closeSeal(); }
   }
 
   /* ---------------- guards and encounters ---------------- */
@@ -349,6 +482,7 @@ export class Adventure {
       const p = this.byId[key];
       if (Math.hypot(x - p.at[0], z - p.at[1]) < 46) return pick(REGION_MIX[key]);
     }
+    if (this.world.night > 0.5 && Math.random() < 0.65) return pick(NIGHT_MIX);
     return pick(fallback);
   }
 
@@ -356,15 +490,27 @@ export class Adventure {
     const a = this.adv;
     a.bestiary[e.key] = (a.bestiary[e.key] || 0) + 1;
     this.addXp(Math.max(4, Math.round(e.type.score / 12)), 'kill');
+    if (a.quests.started && (e.key === 'wolf' || e.key === 'stonekin')) a.quests[e.key]++;
     if (this.has('horn') && !e.type.boss) this.ctx.player.heal(2);
     if (e.guard && !this.guardsAlive(e.guard)) {
       a.cleared[e.guard] = true;
-      const p = this.byId[e.guard];
-      this.addXp(p.xp, 'clear');
-      this.ctx.callout(p.id === 'altar' ? 'THE STONEKIN FALL' : 'THE DEN IS EMPTY');
+      const g = GROUPS[e.guard] || { xp: 40, msg: '' };
+      this.addXp(g.xp, 'clear');
+      if (g.msg) this.ctx.callout(g.msg);
+      if (g.onClear === 'seal' && this.vault) { this.vault.openSeal(); setTimeout(() => this.ctx.banner('THE SEAL OPENS', 'THE THRONE LIES BEYOND'), 900); }
+      if (g.onClear === 'warden') { a.done.vaultBoss = true; this.syncVisuals(); if (this.ctx.onVaultBoss) this.ctx.onVaultBoss(); }
       this.ctx.persist();
     }
     if (e.warden) this.wardenDown();
+  }
+
+  /** a parry counts toward the hermit's third bounty */
+  addParry() { if (this.adv.quests.started) this.adv.quests.parry++; }
+  questProgress(q) { return Math.min(q.need, this.adv.quests[q.key] || 0); }
+  questReady(q) { return this.adv.quests.started && !this.adv.quests.claimed[q.id] && this.questProgress(q) >= q.need; }
+  questLines() {
+    const a = this.adv;
+    return QUESTS.map((q) => (a.quests.claimed[q.id] ? '✓ ' : '') + q.name + ' · ' + (a.quests.claimed[q.id] ? 'DONE' : a.quests.started ? this.questProgress(q) + '/' + q.need : q.desc.toUpperCase()));
   }
 
   wardenDown() {
@@ -383,7 +529,7 @@ export class Adventure {
     this.time = time;
     const px = player.pos.x, pz = player.pos.z;
     let best = null, bd = Infinity;
-    for (const p of this.places) {
+    for (const p of this.zonePlaces) {
       const d = Math.hypot(px - p.at[0], pz - p.at[1]);
       if (!this.adv.found[p.id] && !this.adv.done[p.id] && p.discover > 0 && d < p.discover) {
         this.adv.found[p.id] = true;
@@ -400,9 +546,14 @@ export class Adventure {
     for (const p of this.places) {
       if (p.ringMesh) {
         const b = p.ringMesh.userData.base || 0;
-        p.ringMesh.material.opacity = b * (0.75 + 0.25 * Math.sin(time * 2.2 + p.at[0]));
+        p.ringMesh.material.opacity = b * (0.75 + 0.25 * Math.sin(time * 2.2 + p.at[0])) * (1 + 0.6 * this.world.night);
       }
-      if (p.beam && p.beam.visible) p.beam.material.opacity = 0.34 + 0.08 * Math.sin(time * 3 + p.at[0] * 0.1);
+      if (p.beam && p.beam.visible) p.beam.material.opacity = (0.34 + 0.08 * Math.sin(time * 3 + p.at[0] * 0.1)) * (1 + 0.8 * this.world.night);
+    }
+    if (this.hermitFire) {
+      const f = this.hermitFire, w = Math.sin(time * 9) * 0.5 + Math.sin(time * 23.7) * 0.25;
+      f.sp.scale.set(1.25 + w * 0.2, 1.85 + w * 0.45, 1); f.sp.position.y = f.base + w * 0.05;
+      f.glow.material.color.setScalar(0.8 + 0.2 * Math.sin(time * 2.1)); f.glow.material.color.b = 1;
     }
     if (this.barrier && this.barrier.visible) {
       this.barrier.material.opacity = 0.34 + 0.1 * Math.sin(time * 1.6);
@@ -424,8 +575,15 @@ export class Adventure {
       case 'cache':
         o.label = done ? 'EMPTY' : 'OPEN'; o.enabled = !done;
         if (!done && p.guard && !a.cleared[p.id]) { o.enabled = false; o.why = 'WOLVES HOLD THE DEN'; }
+        if (!done && p.needs && !a.cleared[p.needs] && !a.done[p.needs]) { o.enabled = false; o.why = p.needsWhy || 'NOT YET'; }
         break;
       case 'lore': o.label = 'READ'; break;
+      case 'talk':
+        o.label = QUESTS.some((q) => this.questReady(q)) ? 'CLAIM BOUNTY' : 'TALK TO THE HERMIT';
+        break;
+      case 'door':
+        o.label = p.up ? 'ASCEND TO THE VALE' : 'DESCEND INTO THE VAULT';
+        break;
       case 'gate':
         if (a.passOpen) { o.label = 'THE PASS IS OPEN'; o.enabled = false; }
         else if (this.warden && this.warden.alive) { o.label = 'THE WARDEN WAKES'; o.enabled = false; }
@@ -433,6 +591,7 @@ export class Adventure {
         else o.label = 'BREAK THE SEAL';
         break;
     }
+    if (p.kind === 'door' && p.needs && !a.done[p.needs]) { o.enabled = false; o.label = 'SEALED DOOR'; o.why = p.needsWhy || 'NOT YET'; }
     return o;
   }
 
@@ -451,6 +610,7 @@ export class Adventure {
         this.ctx.fx.ecoBurst(new THREE.Vector3(p.at[0], p.y + 1.2, p.at[1]), p.color, 26, 1.6);
         this.giveRelic(p.relic);
         if (p.kind === 'beacon') this.ambush(p);
+        if (p.id === 'altar') setTimeout(() => this.ctx.banner('A DOOR STIRS', 'BENEATH THE COLOSSI'), 1600);
         this.ctx.callout(this.runes + '/' + RUNES_NEEDED + ' LIGHTS');
         this.ctx.toast(p.text);
         break;
@@ -474,6 +634,27 @@ export class Adventure {
       case 'gate': {
         this.spawnWarden(p);
         break;
+      }
+      case 'talk': {
+        const q = a.quests, first = !q.started;
+        q.started = true;
+        const paid = [];
+        for (const b of QUESTS) if (this.questReady(b)) {
+          q.claimed[b.id] = true; this.addXp(b.xp, 'bounty');
+          if (b.relic) this.giveRelic(b.relic);
+          if (b.picks) a.picks += b.picks;
+          paid.push(b.name);
+        }
+        let text;
+        if (first) text = 'Mind the fire. I was a warden once, before the vale forgot its wardens. The bronze walk because they were told to; the wolves come because the stones wake. Do me a service, and I will pay: ' + QUESTS.map((b) => b.desc.toLowerCase()).join('; ') + '. I will count from now.';
+        else if (paid.length) text = 'Well struck. That is ' + paid.join(' and ') + ' settled, and what I promised is yours. ' + (QUESTS.every((b) => q.claimed[b.id]) ? 'There is nothing more I can give you but my thanks. Keep the fire in mind when the vale gets dark.' : 'The rest still stands: ' + this.questLines().filter((l) => !l.startsWith('✓')).join(', ') + '.');
+        else text = QUESTS.every((b) => q.claimed[b.id]) ? 'You have cleared every debt I knew of. Sit if you like. The nights are long and the fire is warm.' : 'Still counting. ' + this.questLines().join(', ') + '.';
+        this.ctx.lore("THE HERMIT'S FIRE", text);
+        break;
+      }
+      case 'door': {
+        if (p.up) this.ctx.leaveVault(); else this.ctx.enterVault();
+        return true;
       }
     }
     this.syncVisuals();
@@ -501,6 +682,13 @@ export class Adventure {
       for (const p of list) { const d = Math.hypot(player.pos.x - p.at[0], player.pos.z - p.at[1]); if (d < bd) { bd = d; best = p; } }
       return best;
     };
+    if (this.inVault) {
+      if (!a.cleared.vaultA) return { text: 'CLEAR THE ANTECHAMBER', poi: this.wp.hall };
+      if (!a.cleared.vaultB) return { text: 'BREAK THE GUARDIANS OF THE HALL', poi: this.wp.hall };
+      if (!a.cleared.vaultBoss) return { text: 'DEFEAT THE STONE WARDEN', poi: this.wp.throne };
+      if (!a.done.vaultChest) return { text: "OPEN THE WARDEN'S CACHE", poi: B.vaultChest };
+      return { text: 'RETURN TO THE VALE', poi: B.vaultUp };
+    }
     if (!a.done.shrine) return { text: 'LIGHT THE SHRINE RUNE', poi: B.shrine };
     const towers = ['tower1', 'tower2', 'tower3'].filter((id) => !a.done[id]).map((id) => B[id]);
     if (towers.length) return { text: 'KINDLE THE WATCHTOWER BEACONS · ' + (3 - towers.length) + '/3', poi: nearest(towers) };
@@ -508,13 +696,14 @@ export class Adventure {
       return a.cleared.altar ? { text: 'WAKE THE ALTAR AT THE STANDING STONES', poi: B.altar } : { text: 'CLEAR THE STANDING STONES', poi: B.altar };
     }
     if (!a.passOpen) return { text: this.warden && this.warden.alive ? 'DEFEAT THE PASS WARDEN' : 'BREAK THE SEAL AT THE PASS GATE', poi: B.gate };
-    return { text: 'THE PASS IS OPEN · WANDER AS YOU LIKE', poi: null };
+    if (!a.done.vaultBoss) return { text: 'THE SEALED DOOR BENEATH THE COLOSSI', poi: B.vaultDoor };
+    return { text: 'THE VALE IS YOURS · WANDER AS YOU LIKE', poi: null };
   }
 
   /** compass entries for the current heading: relative bearing (+ is to the player's left) */
   compass(player, objPoi, out) {
     out.length = 0;
-    for (const p of this.places) {
+    for (const p of this.zonePlaces.concat(objPoi && !this.byId[objPoi.id] ? [objPoi] : [])) {
       const found = this.adv.found[p.id] || this.adv.done[p.id];
       const isObj = p === objPoi;
       if (!found && !isObj) continue;

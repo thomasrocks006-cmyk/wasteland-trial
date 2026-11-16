@@ -480,3 +480,13 @@ body.wander .card{min-height:76px;padding:9px 9px 9px;}
 body.wander .card b{margin:4px 0 3px;font-size:13px;}
 body.wander .card span{font-size:9px;}
 body.wander .draftHead{margin-bottom:6px;}
+
+/* the map */
+#mapCard{position:absolute;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;background:rgba(6,4,2,.88);padding:10px;}
+.mapInner{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:100%;}
+#mapCanvas{width:min(76vh,92vw);height:min(76vh,92vw);border:1px solid var(--line);background:#0b0806;touch-action:none;}
+.mapKey{font-size:7.5px;letter-spacing:.14em;font-weight:800;color:rgba(244,231,210,.5);text-align:center;}
+#mapCard .ghostWide{margin-top:0;max-width:260px;padding:9px;}
+
+#fade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .35s ease;z-index:55;}
+#fade.on{opacity:1;}

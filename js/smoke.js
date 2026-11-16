@@ -617,6 +617,40 @@ export async function runSmoke() {
     return 'level ' + d.adv.level + ', ' + d.player.maxHp + ' hp';
   });
 
+
+  // ---- b29: the day, the vault, the hermit
+  await check('the day turns: time advances in Wander, night brings stars, dusk wolves and the lantern', async () => {
+    d.GAME.state = 'playing'; d.setTod(0.07, true);
+    const t0 = d.GAME.tod; d.tickDay(30);
+    assert(d.GAME.tod > t0, 'the day did not advance');
+    d.setTod(0.75, true);
+    assert(d.world.night > 0.9, 'not night at 0.75: ' + d.world.night);
+    assert(d.world.sky.material.uniforms.uStars.value > 0.9, 'no stars');
+    d.setTod(0.07, true);
+    assert(d.world.night === 0, 'day did not return');
+    return 'night ' + 1 + ', day restored';
+  });
+
+  await check('the Under-Vault: a door, a floor, walls, a seal, and the way back', async () => {
+    const adv = d.adv; adv.adv.done.altar = true;
+    const door = adv.byId.vaultDoor;
+    d.player.pos.set(door.at[0] + 1, d.terrainHeight(door.at[0] + 1, door.at[1]), door.at[1]);
+    adv.update(0.1, d.GAME.time, d.player);
+    assert(adv.near && adv.near.poi.id === 'vaultDoor' && adv.near.enabled, 'door not usable');
+    d.enterVault();
+    for (let i = 0; i < 80 && !adv.inVault; i++) await wait(50, 1);
+    assert(adv.inVault, 'did not descend');
+    assert(Math.abs(d.player.pos.y - d.vault.floorY) < 0.6 && d.terrainHeight(3, 3) === d.vault.floorY, 'not on the vault floor');
+    assert(!d.vault.sealOpen || adv.adv.cleared.vaultB, 'seal is open on a fresh vault');
+    const [x] = d.world.resolveCollisions(50, 30, 0.5);
+    assert(x <= 12, 'walked through the wall');
+    assert(d.enemies.list.some((e) => e.vaultBoss), 'no Stone Warden');
+    d.leaveVault();
+    for (let i = 0; i < 80 && adv.inVault; i++) await wait(50, 1);
+    assert(!adv.inVault && d.terrainHeight(d.player.pos.x, d.player.pos.z) > -50, 'did not return to the vale');
+    return 'down and up';
+  });
+
   // ---- report
   await check('no uncaught exceptions (whole run)', async () => {
     assert(!window.__smokeErrors || window.__smokeErrors.length === 0,

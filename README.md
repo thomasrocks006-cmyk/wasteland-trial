@@ -174,6 +174,38 @@ needs a bigger terrain grid); the gate opens onto the parapet and the ending car
 
 **Keyboard:** F guard (hold), E use, T lock.
 
+## b29: red team, then depth
+
+**Red team (all fixed):** a corrupt or old save no longer produces NaN health or crashes the
+journal (saves are sanitised on load, journal text is never markup); enemies past a type's draw
+cap no longer go invisible; tapping GUARD is no longer a shield (a parry needs a fresh raise
+after the guard has been down for half a second; parry XP is throttled); a deliberate swipe
+breaks lock-on; place rings follow the terrain; the HUD only touches the DOM when something
+changed; the skill draft sits under the compass; a second performance guard drops shadows if the
+game is still slow at the lowest resolution. Measured on this box: ~700k triangles and 120-250
+draw calls a frame, so older phones will lean on that guard.
+
+**Day and night.** A day is nine minutes of Wander (dawn, noon, evening, dusk, night, predawn),
+with the sun on an arc, a moon and twinkling stars at night, fog, sky, water, haze and light
+colours following the time, fireflies and a lantern that follows the hero after dark. At dusk
+a banner announces the wolves, and night patrols are mostly wolves and stonekin. Time stands
+still underground and in the Trial (which keeps the old morning).
+
+**The Under-Vault.** Once the standing-stones altar is awake, a sealed door beneath the
+colossi opens onto a crypt: an antechamber, a pillared hall of guardians behind a rune seal,
+and the throne of the **Stone Warden** (new boss: a long tell, then a ground slam you jump or
+parry, bolts when enraged, stone that shatters when it dies). It lies far below the valley and
+is lit by baked torchlight, with the game's terrain and collision swapped for the vault's own
+floor and walls while you are in it. The Warden's cache holds the **Vault Heartstone**
+(+25 health, heavier heavy strikes). Progress is saved; the vault empties for good.
+
+**The hermit.** An old warden at a campfire east of the shrine gives three bounties (wolves,
+stonekin, parries) that pay XP, a skill pick and two relics (Wolf-Fang Charm, Hermit's Talisman).
+
+**Also:** a full-screen map (pause, MAP) drawn from the real terrain with every place you have
+found; relics show on the hero (bronze pauldron, Heartstone gem, hunting horn, wolf fang);
+stonekin and the Warden break into rock and light when slain.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

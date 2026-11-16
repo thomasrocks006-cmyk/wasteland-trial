@@ -334,8 +334,15 @@ function carve(x, z, h) {
   return lerp(bank, h, smoothstep(W + 5, W + 14, d));
 }
 
+/* Underground: while the hero is in the Under-Vault every terrain question is answered by the vault's own
+   floor, so the whole game (physics, enemies, pickups, shots) works there unchanged. */
+let UNDER = null;
+export function setUnderground(floorFn) { UNDER = floorFn || null; }
+export const isUnderground = () => UNDER !== null;
+
 /** distance from a point to the nearest water edge (negative inside the water), from the cached grid */
 export function waterDist(x, z) {
+  if (UNDER) return 99;
   heightTable();
   const n = GRID_SEG + 1;
   const i = clamp(Math.round((x + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
@@ -345,6 +352,7 @@ export function waterDist(x, z) {
 
 /** distance from a point to the forest trail's centre line, from the cached grid */
 export function trailDist(x, z) {
+  if (UNDER) return 99;
   heightTable();
   const n = GRID_SEG + 1;
   const i = clamp(Math.round((x + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
@@ -354,6 +362,7 @@ export function trailDist(x, z) {
 
 /** water surface height at a point, or -Infinity on dry land */
 export function waterLevel(x, z) {
+  if (UNDER) return -Infinity;
   if (Math.hypot(x - LAKE.x, z - LAKE.z) < LAKE.r + 1.2) return LAKE_Y;
   const rn = riverNearest(x, z);
   return rn.d < RIVER_W + 1.2 ? rn.wy : -Infinity;
@@ -388,6 +397,7 @@ export function gridHeight(i, j) {
 
 /** Height of the wasteland floor, exact to the rendered triangles. */
 export function terrainHeight(x, z) {
+  if (UNDER) return UNDER(x, z);
   const gx = (x + GRID_EXT) / GRID_STEP;
   const gz = (z + GRID_EXT) / GRID_STEP;
   let i = Math.floor(gx), j = Math.floor(gz);
@@ -403,6 +413,7 @@ export function terrainHeight(x, z) {
 }
 
 export function terrainNormal(x, z, out = new THREE.Vector3()) {
+  if (UNDER) return out.set(0, 1, 0);
   const e = 0.9;
   const hL = terrainHeight(x - e, z), hR = terrainHeight(x + e, z);
   const hD = terrainHeight(x, z - e), hU = terrainHeight(x, z + e);

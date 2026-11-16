@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   clamp, lerp, damp, rnd, rng, pick, terrainHeight, TAU, radialSprite, Builder, waterLevel, RIVER,
-  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R, trailDist, TRAIL, angleTo
+  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R, trailDist, TRAIL, angleTo, setUnderground
 } from './core.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -10,6 +10,9 @@ import { Audio } from './audio.js';
 import { WeaponSystem, WEAPONS } from './weapons.js';
 import { Enemies, ENEMY_TYPES } from './enemies.js';
 import { Wildlife } from './wildlife.js';
+import { drawMap } from './map.js';
+import { buildVault } from './vault.js';
+import { DAY_LEN, START_TOD, phaseName } from './daynight.js';
 import { Adventure, RUNES_NEEDED, RELICS, LORE, xpNeed, MAX_LEVEL } from './adventure.js';
 
 /* ================================================================ setup */
@@ -612,7 +615,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Digit4') weapons.switchTo(3);
   if (e.code === 'KeyL') tryMode('light');
   if (e.code === 'KeyK') tryMode('dark');
-  if (e.code === 'Escape') { if (GAME.reading) closeReading(); else togglePause(); }
+  if (e.code === 'Escape') { if (closeMap()) return; if (GAME.reading) closeReading(); else togglePause(); }
   if (e.code === 'KeyF') input.guard = true;
   if (e.code === 'KeyE') useNear();
   if (e.code === 'KeyT') toggleLock();
@@ -751,7 +754,7 @@ function addKillScore(e) {
   ui.combo.textContent = 'x' + GAME.combo.toFixed(1);
   ui.combo.classList.add('pop');
   setTimeout(() => ui.combo.classList.remove('pop'), 110);
-  if (e.type.boss) showCallout(e.warden ? 'THE PASS WARDEN FALLS' : 'IRONCOIL DOWN');
+  if (e.type.boss || e.vaultBoss) showCallout(e.warden ? 'THE PASS WARDEN FALLS' : e.vaultBoss ? 'THE STONE WARDEN FALLS' : 'IRONCOIL DOWN');
 }
 
 /* time warp: a tiny freeze on every kill (hit-stop), slow motion for the boss */
@@ -765,7 +768,13 @@ let streak = 0, lastKillT = -9;
 enemies.onKill = (e) => {
   addKillScore(e);
   if (GAME.mode === 'wander') adv.onKill(e);
-  if (e.type.boss) timeWarp(0.22, 1.6);
+  if (e.key === 'stonekin' || e.key === 'colossus') {      // stone does not fall, it breaks
+    const big = e.key === 'colossus', at = new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z);
+    fx.debris(at, big ? 40 : 14, big ? 2.2 : 1.2, [0x8a9088, 0x5f6760, 0x727a72, 0x4a524c]);
+    fx.ecoBurst(at, 0x7ff3ff, big ? 40 : 12, big ? 2 : 1);
+    if (big) audio.explosion(0.1);
+  }
+  if (e.type.boss || e.vaultBoss) timeWarp(0.22, 1.6);
   else timeWarp(0.06, 0.05);
   streak = GAME.time - lastKillT < 1.4 ? streak + 1 : 1;
   lastKillT = GAME.time;
@@ -899,8 +908,10 @@ function showBanner(kicker, name) {
   b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
 }
 
+const vault = buildVault(scene);
+vault.group.visible = false;      // far below the valley; only drawn while you are in it
 const adv = new Adventure(scene, world, {
-  save, persist, enemies, fx, audio, player, perkIds: PERKS.map((pk) => pk.id),
+  save, persist, vault, enemies, fx, audio, player, perkIds: PERKS.map((pk) => pk.id),
   toast: (t) => showToast(t),
   callout: (t) => showCallout(t),
   banner: showBanner,
@@ -909,21 +920,92 @@ const adv = new Adventure(scene, world, {
   onLevelUp: (lvl) => { showCallout('LEVEL ' + lvl); audio.streak(5); applyProgress(true); persist(); },
   onRelic: (id, r) => { setTimeout(() => showBanner('RELIC FOUND', r.name), 700); applyProgress(false); },
   onXp: () => { },
+  enterVault: () => enterVault(),
+  leaveVault: () => leaveVault(),
+  onVaultBoss: () => { setTimeout(() => showBanner('THE VAULT IS YOURS', "OPEN THE WARDEN'S CACHE"), 1400); },
 });
+
+/* ---- the Under-Vault: a door in the hillside, a fade, and a different floor under everything */
+let transitioning = false;
+function fadeThen(fn) {
+  if (transitioning) return;
+  transitioning = true;
+  const f = $('fade'); f.classList.add('on'); player.iframe = Math.max(player.iframe, 2);
+  setTimeout(() => {
+    try { if (GAME.state === 'playing') fn(); } finally { setTimeout(() => { f.classList.remove('on'); transitioning = false; }, 140); }
+  }, 380);
+}
+function exitVaultState() {
+  if (!adv.inVault) return;
+  clearField();
+  setUnderground(null); world.leaveUnderground(); adv.setZone(false); vault.group.visible = false;
+  setTod(GAME.tod, true);
+}
+function enterVault() {
+  if (GAME.mode !== 'wander' || adv.inVault) return;
+  fadeThen(() => {
+    persist(); clearField();
+    setUnderground(vault.height); world.enterUnderground(vault); adv.setZone(true); vault.group.visible = true;
+    player.pos.set(vault.spawn.x, vault.floorY, vault.spawn.z);
+    player.camYaw = vault.spawn.yaw; player.yaw = vault.spawn.yaw; player.vel.set(0, 0, 0); player.vy = 0; player.knock.set(0, 0, 0);
+    adv.populateVault();
+    lantern.intensity = 2.4;
+    for (const [mat, base] of heroMats) mat.envMapIntensity = base * 0.25;
+    calmT = 10; audio.setMood('explore');
+    showBanner('THE UNDER-VAULT', 'BENEATH THE COLOSSI');
+  });
+}
+function leaveVault() {
+  if (!adv.inVault) return;
+  fadeThen(() => {
+    persist(); exitVaultState();
+    const d = adv.byId.vaultDoor, l = Math.hypot(d.at[0], d.at[1]) || 1;
+    const x = d.at[0] - (d.at[0] / l) * 5.5, z = d.at[1] - (d.at[1] / l) * 5.5;
+    player.pos.set(x, terrainHeight(x, z), z); player.camYaw = Math.atan2(-d.at[0], -d.at[1]); player.yaw = player.camYaw;
+    player.vel.set(0, 0, 0); player.vy = 0;
+    adv.populate(); for (let i = 0; i < 3; i++) spawnPatrol();
+    patrolTimer = 20; calmT = 10;
+    showBanner('THE VALE', 'THE WIND AND THE LIGHT');
+  });
+}
+
+/* relics you can see on the hero: a bronze pauldron, the Heartstone on the chest, a horn at the hip, a fang at the throat */
+const gear = {};
+function heroGear() {
+  const torso = player.model.torso;
+  if (!torso) return;
+  if (!gear.clasp) {
+    const brass = new THREE.MeshStandardMaterial({ color: 0xb98a3c, metalness: 0.75, roughness: 0.35 }), bone = new THREE.MeshStandardMaterial({ color: 0xe0d6c2, roughness: 0.6 });
+    gear.clasp = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 8), brass); gear.clasp.position.set(0.22, 0.555, 0); gear.clasp.scale.set(1.2, 0.5, 1.1);
+    gear.heart = new THREE.Mesh(new THREE.OctahedronGeometry(0.034), new THREE.MeshBasicMaterial({ color: 0x7ff3ff, toneMapped: false })); gear.heart.position.set(0, 0.43, 0.168);
+    gear.horn = new THREE.Group();
+    const hb = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.05, 0.24, 8), bone); hb.rotation.z = 1.2; gear.horn.add(hb);
+    const hr = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.008, 6, 12), brass); hr.position.set(0.04, 0.012, 0); hr.rotation.y = 1.2; gear.horn.add(hr);
+    gear.horn.position.set(-0.16, -0.02, 0.12);
+    gear.fang = new THREE.Mesh(new THREE.ConeGeometry(0.014, 0.07, 6), bone); gear.fang.position.set(0.05, 0.56, 0.12); gear.fang.rotation.x = Math.PI + 0.4;
+    for (const k of ['clasp', 'heart', 'horn', 'fang']) { gear[k].visible = false; torso.add(gear[k]); }
+  }
+  const w = GAME.mode === 'wander';
+  gear.clasp.visible = w && adv.has('clasp'); gear.heart.visible = w && adv.has('heart');
+  gear.horn.visible = w && adv.has('horn'); gear.fang.visible = w && adv.has('fang');
+}
 
 /** baseline plus everything earned: level, relics and chosen skills. Called at each life and on each gain. */
 function applyProgress(heal) {
+  heroGear();
   if (GAME.mode !== 'wander') return;
   const a = adv.adv, L = a.level - 1;
-  player.maxHp = 100 + L * 6 + (adv.has('clasp') ? 15 : 0);
+  player.maxHp = 100 + L * 6 + (adv.has('clasp') ? 15 : 0) + (adv.has('heart') ? 25 : 0);
   player.maxStam = 100 + L * 3 + (adv.has('ring') ? 25 : 0);
   player.speed = 5.5 * (adv.has('boots') ? 1.08 : 1);
   player.armorMul = adv.has('cloak') ? 0.9 : 1;
-  player.parryWindow = 0.32 + (adv.has('sigil') ? 0.12 : 0);
+  player.parryWindow = 0.32 + (adv.has('sigil') ? 0.12 : 0) + (adv.has('talisman') ? 0.08 : 0);
+  player.parryRefund = adv.has('talisman') ? 22 : 14; player.sprintCostMul = adv.has('fang') ? 0.75 : 1;
   player.guardDmgTaken = 0.2; player.guardCostMul = 1;
   weapons.mods = { dmg: (1 + 0.03 * L) * (adv.has('whet') ? 1.12 : 1), reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0, reach: 1, heavy: 1 };
   player.regen = 0; RUN.scav = 1; RUN.leech = 0; RUN.charge = 1;
   player.model.cloak.material.color.setHex(adv.has('cloak') ? 0x8a2f2f : 0x35503d);
+  if (adv.has('heart')) weapons.mods.heavy *= 1.2;
   for (const id of a.perks) { const pk = PERKS.find((x) => x.id === id); if (pk) pk.apply(); }
   if (heal) { player.hp = player.maxHp; player.stam = player.maxStam; }
   else { player.hp = Math.min(player.hp, player.maxHp); }
@@ -959,6 +1041,7 @@ player.onParry = (x, z) => {
   timeWarp(0.12, 0.14);
   showCallout('PARRY');
   GAME.parries = (GAME.parries || 0) + 1;
+  adv.addParry();
   if (performance.now() - lastParryXp > 2000) { lastParryXp = performance.now(); adv.addXp(4, 'parry'); }
 };
 player.onBlock = () => { audio.clang(1, false); fx.ring(new THREE.Vector3(player.pos.x, player.pos.y + 1.1, player.pos.z), 0x7fd8ff, 1.8, 0.25); };
@@ -1010,7 +1093,7 @@ function updateWander(dt) {
     if (e.aggro && Math.hypot(e.pos.x - player.pos.x, e.pos.z - player.pos.z) < 45) hunting = true;
   }
   patrolTimer -= dt;
-  if (groups.size < PATROL_TARGET && patrolTimer <= 0) { spawnPatrol(); patrolTimer = 24; }
+  if (!adv.inVault && groups.size < PATROL_TARGET && patrolTimer <= 0) { spawnPatrol(); patrolTimer = 24; }
   calmT = hunting ? 0 : calmT + dt;
   audio.setMood(hunting ? 'combat' : calmT > 4 ? 'explore' : audio.nextMood);
   if (calmT > 5 && player.alive) player.heal(5 * dt);
@@ -1053,6 +1136,7 @@ function updateAmbience(dt) {
 }
 
 function resetRun(mode = GAME.mode || 'wander') {
+  exitVaultState();
   GAME.mode = mode;
   GAME.state = 'playing';
   GAME.wave = 0; GAME.score = 0; GAME.kills = 0; GAME.headshots = 0;
@@ -1069,8 +1153,9 @@ function resetRun(mode = GAME.mode || 'wander') {
   // Wander has a body to tire and a guard to raise; the Trial keeps its arcade rules
   const wander = mode === 'wander';
   document.body.classList.toggle('wander', wander);
+  setTod(wander ? adv.adv.tod : START_TOD, true); lastPhase = '';
   player.staminaOn = wander; player.maxStam = 100; player.stam = 100; player.exhausted = false; player.stamDelay = 0;
-  player.speed = 5.5; player.armorMul = 1; player.parryWindow = 0.32; player.guardDmgTaken = 0.2; player.guardCostMul = 1; player.lockTarget = null;
+  player.speed = 5.5; player.armorMul = 1; player.parryWindow = 0.32; player.guardDmgTaken = 0.2; player.guardCostMul = 1; player.parryRefund = 14; player.sprintCostMul = 1; player.lockTarget = null;
   player.model.cloak.material.color.setHex(0x35503d);
   enemies.windupMul = wander ? 1.8 : 1;
 
@@ -1141,6 +1226,7 @@ function endRun() {
 
 function togglePause() {
   if (GAME.reading) return;
+  if (!$('mapCard').classList.contains('hidden')) return;
   if (GAME.state === 'playing') {
     GAME.state = 'paused';
     $('pause').classList.remove('hidden');
@@ -1156,10 +1242,26 @@ function togglePause() {
   }
 }
 
+let mapTimer = 0;
+function openMap() {
+  if (GAME.mode !== 'wander') return;
+  $('pause').classList.add('hidden'); $('mapCard').classList.remove('hidden');
+  const draw = () => drawMap($('mapCanvas'), adv, player, objectivePoi);
+  draw(); clearInterval(mapTimer); mapTimer = setInterval(draw, 400);
+}
+function closeMap() {
+  clearInterval(mapTimer);
+  if ($('mapCard').classList.contains('hidden')) return false;
+  $('mapCard').classList.add('hidden'); if (GAME.state === 'paused') $('pause').classList.remove('hidden');
+  return true;
+}
+$('btnMap').addEventListener('click', openMap);
+$('mapClose').addEventListener('click', closeMap);
+
 function fillJournal() {
   const j = $('journal'), wander = GAME.mode === 'wander';
   j.classList.toggle('hidden', !wander);
-  $('pauseStats').classList.toggle('hidden', wander);
+  $('pauseStats').classList.toggle('hidden', wander); $('btnMap').classList.toggle('hidden', !wander || adv.inVault);
   if (!wander) return;
   $('jKills').textContent = GAME.kills + ' · ' + (GAME.parries || 0);
   const a = adv.adv;
@@ -1173,6 +1275,7 @@ function fillJournal() {
     const h = document.createElement('b'); h.textContent = head; el.appendChild(h);
     for (const r of rows) { const s = document.createElement('span'); s.className = 'rd'; s.textContent = r.text; if (r.click) s.addEventListener('click', r.click); el.appendChild(s); }
   };
+  fill($('jBounty'), 'BOUNTIES', adv.questLines().map((t) => ({ text: t })));
   fill($('jRelics'), 'RELICS ' + a.relics.length + ' / ' + Object.keys(RELICS).length, a.relics.map((id) => ({ text: RELICS[id].name + ' · ' + RELICS[id].desc })));
   const read = Object.keys(a.read).filter((k) => LORE[k]);
   fill($('jLore'), 'INSCRIPTIONS ' + read.length + ' / ' + Object.keys(LORE).length, read.map((k) => ({
@@ -1197,7 +1300,7 @@ $('btnStart').addEventListener('click', () => startMode('wander'));
 $('btnTrial').addEventListener('click', () => startMode('trial'));
 $('btnResume').addEventListener('click', togglePause);
 $('btnQuit').addEventListener('click', () => {
-  persist();
+  persist(); exitVaultState();
   document.body.classList.remove('wander');
   GAME.state = 'title';
   $('pause').classList.add('hidden');
@@ -1231,7 +1334,7 @@ function refreshTitleStats() {
 refreshTitleStats();
 
 let invX = 1, invY = 1;
-const BUILD = 'b28';
+const BUILD = 'b29';
 $('build').textContent = 'BUILD ' + BUILD;
 /* settings are kept on the phone; they used to reset on every launch */
 const SET_KEY = 'wasteland-trial-settings';
@@ -1347,7 +1450,7 @@ weapons.ctx.spawnProjectile = (pos, vel, ex, dmg) => {
 /* ================================================================ loop */
 let last = performance.now();
 let kbMoving = false;
-let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, adapted = false;
+let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, adapted = false, lowFps2 = 0, shadowsCut = false;
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -1365,7 +1468,14 @@ function frame(now) {
       if (fps < 42 && !adapted && QUALITY !== 'fast') {
         lowFpsTime += 1.5;
         if (lowFpsTime > 3) { adapted = true; renderer.setPixelRatio(pixelRatioFor('fast')); resize(); }
-      } else lowFpsTime = 0;
+      } else {
+        lowFpsTime = 0;
+        // already at the lowest resolution and still slow: the shadow pass is the next biggest cost, so drop it
+        if (adapted && !shadowsCut && fps < 30 && !navigator.webdriver) {
+          lowFps2 += 1.5;
+          if (lowFps2 > 4.5) { shadowsCut = true; world.shadowsOff = true; world.sun.castShadow = false; showToast('SHADOWS OFF FOR SPEED'); }
+        } else lowFps2 = 0;
+      }
     }
   }
 
@@ -1408,7 +1518,7 @@ function frame(now) {
     else if (heldFire) weapons.fire(camera);
 
     // ---------- waves
-    if (GAME.mode === 'trial') updateWaves(dt); else updateWander(dt);
+    if (GAME.mode === 'trial') updateWaves(dt); else { updateWander(dt); tickDay(dt); }
 
     // ---------- enemies
     enemies.update(dt, GAME.time);
@@ -1443,15 +1553,16 @@ function frame(now) {
 
   if (GAME.state === 'playing' || GAME.state === 'dying' || GAME.state === 'dead') {
     player.applyToCamera(camera);
-    if (freeCam) { camera.position.copy(freeCam.pos); camera.lookAt(freeCam.look); }   // dev: photograph a place
     const sprinting = input.sprint && Math.hypot(player.vel.x, player.vel.z) > 6;
     camera.fov = damp(camera.fov, player.aim ? 46 : (window.innerHeight > window.innerWidth ? 78 : 62) + (sprinting ? 7 : 0), 9, dt);
     camera.updateProjectionMatrix();
   }
 
+  if (adv.inVault) { vault.clampCamera(camera.position); vault.update(GAME.time); }
+  if (freeCam) { camera.position.copy(freeCam.pos); camera.lookAt(freeCam.look); }   // dev: photograph a place, in any state
   world.update(dt, GAME.time, player.pos, camera);
-  wildlife.update(dt, GAME.time, player);
-  updateAmbience(dt);
+  if (adv.inVault) { if (audio.ctx) audio.setAmbience({ river: 0, riverPan: 0, roar: 0, roarPan: 0, wind: 0.12, birds: 0 }, dt); }
+  else { wildlife.update(dt, GAME.time, player); updateAmbience(dt); }
   fx.update(dt);
   renderer.render(scene, camera);
 
@@ -1555,10 +1666,10 @@ function updateHud() {
 
   // boss health
   let boss = null;
-  for (const e of enemies.list) if (e.alive && e.type.boss) { boss = e; break; }
+  for (const e of enemies.list) if (e.alive && (e.type.boss || e.vaultBoss) && (e.type.boss || !e.passive || e.aggro)) { boss = e; break; }
   ui.bossBar.classList.toggle('hidden', !boss);
   if (boss) {
-    ui.bossName.textContent = boss.warden ? 'THE PASS WARDEN' : 'IRONCOIL';
+    ui.bossName.textContent = boss.warden ? 'THE PASS WARDEN' : boss.vaultBoss ? 'THE STONE WARDEN' : 'IRONCOIL';
     ui.bossFill.style.transform = `scaleX(${clamp(boss.hp / boss.maxHp, 0, 1)})`;
     ui.bossBar.classList.toggle('enraged', !!boss.enraged);
   }
@@ -1573,9 +1684,43 @@ function updateHud() {
 }
 
 
+/* ================================================================ the day
+   One day is DAY_LEN seconds of Wander; it only runs while you are playing. The Trial keeps
+   the old morning. After dark a lantern follows the hero and the wolves come out. */
+const lantern = new THREE.PointLight(0xffc878, 0, 20, 1.6);
+scene.add(lantern);
+const heroMats = [];
+player.model.root.traverse((o) => { if (o.material && 'envMapIntensity' in o.material) heroMats.push([o.material, o.material.envMapIntensity]); });
+let todApplied = -1, lastPhase = '';
+function setTod(t, force = false) {
+  GAME.tod = ((t % 1) + 1) % 1;
+  if (!force && Math.abs(GAME.tod - todApplied) < 0.0004) return;
+  todApplied = GAME.tod;
+  world.applyTime(GAME.tod);
+  renderer.toneMappingExposure = world.exposure;
+  const k = 0.3 + 0.7 * (1 - world.night);            // the sky the hero reflects dims with the day
+  for (const [mat, base] of heroMats) mat.envMapIntensity = base * k;
+  lantern.intensity = Math.min(1, world.night * 1.5) * 2.6;
+}
+function tickDay(dt) {
+  if (GAME.mode !== 'wander' || adv.inVault) return;
+  setTod(GAME.tod + dt / DAY_LEN);
+  adv.adv.tod = GAME.tod;
+  lantern.position.set(player.pos.x, player.pos.y + 2.3, player.pos.z);
+  const ph = phaseName(GAME.tod);
+  if (ph !== lastPhase) {
+    if (lastPhase) {
+      if (ph === 'DUSK') showBanner('DUSK FALLS', 'THE WOLVES RUN');
+      else if (ph === 'DAWN') showBanner('DAWN', 'THE VALE STIRS');
+    }
+    lastPhase = ph;
+  }
+}
+GAME.tod = START_TOD;
+
 /* ================================================================ wander HUD */
 const compassEl = $('compassMarks'), cmk = new Map(), cmTicks = [];
-const GLYPH = { rune: '◆', beacon: '▲', altar: '◈', cache: '■', lore: '✦', gate: '▣' };
+const GLYPH = { rune: '◆', beacon: '▲', altar: '◈', cache: '■', lore: '✦', gate: '▣', door: '◖', talk: '●' };
 for (let k = 0; k < 12; k++) { const t = document.createElement('div'); t.className = 'cmk tick'; t.textContent = '|'; compassEl.appendChild(t); cmTicks.push(t); }
 const cmList = [];
 const COMPASS_SPAN = 1.2217;      // 70 degrees either side of the heading
@@ -1656,7 +1801,7 @@ for (let i = 0; i < RADAR_N; i++) {
 }
 let radarShown = false;
 const _rv = new THREE.Vector3(), _rv2 = new THREE.Vector3();
-const RADAR_CLASS = { grunt: 'g', shooter: 's', brute: 'b', wasp: 'w', boss: 'x', wolf: 'f', stonekin: 'k' };
+const RADAR_CLASS = { grunt: 'g', shooter: 's', brute: 'b', wasp: 'w', boss: 'x', wolf: 'f', stonekin: 'k', colossus: 'x' };
 function hideRadar() { radarEls.forEach((el) => { el.style.opacity = '0'; }); radarShown = false; }
 function updateRadar() {
   const W = window.innerWidth, H = window.innerHeight;
@@ -1733,7 +1878,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
-window.__dbg = { setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
+window.__dbg = { gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {
