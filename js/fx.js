@@ -344,6 +344,7 @@ export class FX {
 
   /** a thrown spear: a copy of the hand's spear flies the path and sticks where it lands */
   spearFlight(from, end, dur, model, hitEnemy) {
+    window.__perfTag && window.__perfTag('spear');
     let s = this.spears.find((q) => q.life <= 0);
     if (!s) {
       if (this.spears.length >= 4) s = this.spears.reduce((a, b) => (a.life < b.life ? a : b));

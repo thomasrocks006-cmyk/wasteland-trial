@@ -378,11 +378,13 @@ const TIPS_SEEN = (() => { try { return new Set(JSON.parse(localStorage.getItem(
 let tipBusyUntil = 0;
 function tip(id, text) {
   if (TIPS_SEEN.has(id) || performance.now() < tipBusyUntil) return;
+  perfTag('tip ' + id);
   TIPS_SEEN.add(id); try { localStorage.setItem('wt-tips', JSON.stringify([...TIPS_SEEN])); } catch {}
   const el = $('tip'); el.textContent = text; el.classList.remove('hidden', 'show'); void el.offsetWidth; el.classList.add('show');
   tipBusyUntil = performance.now() + 5200;
 }
 function showCallout(text) {
+  perfTag('callout ' + text);
   const el = ui.callout;
   el.textContent = text;
   el.classList.remove('show');
@@ -824,6 +826,7 @@ function addKillScore(e) {
 /* time warp: a tiny freeze on every kill (hit-stop), slow motion for the boss */
 const warp = { t: 0, scale: 1 };
 function timeWarp(scale, dur) {
+  perfTag('hit/special');
   if (warp.t <= 0 || scale <= warp.scale) { warp.scale = scale; warp.t = Math.max(warp.t, dur); }
 }
 const STREAKS = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 5: 'RAMPAGE', 8: 'UNSTOPPABLE', 12: 'UNTOUCHABLE' };
@@ -1538,6 +1541,7 @@ weapons.ctx.spawnProjectile = (pos, vel, ex, dmg) => {
   spawnGrenade(pos, vel, ex, dmg);       // the weapon already played its own cast sound
 };
 
+const perfOn = location.search.includes('perf=1');
 /* ================================================================ loop */
 let last = performance.now();
 let kbMoving = false;
@@ -1991,6 +1995,23 @@ function updateRadar() {
 $('loader').classList.add('hidden');
 $('title').classList.remove('hidden');
 checkOrientation();
+
+/* ?perf=1: worst frame of the last 4 s, and the action that came just before it (swing/hit, special, spear, tip), for finding a lag on a phone */
+const perfTags = [];
+function perfTag(what) { if (perfOn) { perfTags.push([performance.now(), what]); if (perfTags.length > 12) perfTags.shift(); } }
+window.__perfTag = perfTag;
+if (perfOn) {
+  const box = document.body.appendChild(document.createElement('div'));
+  box.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:99;font:11px monospace;color:#7f7;background:#000a;padding:2px 6px;pointer-events:none';
+  let prev = performance.now(), t0 = prev, worst = 0, cause = '', n = 0;
+  const tick = (t) => {
+    const d = t - prev; prev = t; n++;
+    if (d > worst) { worst = d; const hit = perfTags.filter((g) => t - g[0] < 400).map((g) => g[1]); cause = hit.length ? hit.pop() : 'nothing logged'; }
+    if (t - t0 > 4000) { box.textContent = `${Math.round(n * 1000 / (t - t0))} fps · worst ${worst.toFixed(0)} ms · ${cause}`; worst = 0; n = 0; t0 = t; }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
 
 // keep the background scene alive on the title screen
 requestAnimationFrame((t) => { last = t; frame(t); });

@@ -208,7 +208,7 @@ export class World {
     sun.castShadow = true;
     const size = this.quality === 'high' ? 2048 : 1024;
     sun.shadow.mapSize.set(size, size);
-    const d = 42;
+    const d = 34;   // 68 m box: the shadow pass draws every caster inside it, so a smaller box is a cheaper frame (was 42)
     sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
     sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
     sun.shadow.camera.near = 1; sun.shadow.camera.far = 240;
@@ -650,9 +650,9 @@ export class World {
    */
   buildScans() {
     const fast = this.quality === 'fast';
-    const scatter = (id, count, place, solid = null) => {
+    const scatter = (id, count, place, solid = null, shadow = !fast) => {
       const parts = envParts(id, { merge: true }); if (!parts.length) return;
-      const meshes = parts.map((pt) => { const m = new THREE.InstancedMesh(pt.geo, pt.mat, count); m.castShadow = !fast; m.receiveShadow = true; this.scene.add(m); return m; });
+      const meshes = parts.map((pt) => { const m = new THREE.InstancedMesh(pt.geo, pt.mat, count); m.castShadow = shadow; m.receiveShadow = true; this.scene.add(m); return m; });
       const d = new THREE.Object3D();
       let n = 0, guard = 0;
       while (n < count && guard++ < count * 60) {
@@ -684,15 +684,15 @@ export class World {
       p.y = Math.min(p.y, terrainHeight(p.x + ex, p.z + ez), terrainHeight(p.x - ex, p.z - ez)) - 0.05;
       return p;
     }, (p) => { for (const k of [-1, 0, 1]) this.obstacles.push({ x: p.x + Math.cos(p.ry) * k * 1.1 * p.s, z: p.z - Math.sin(p.ry) * k * 1.1 * p.s, r: 0.35 * p.s, h: 0.4 * p.s }); });
-    scatter('pine_roots', fast ? 10 : 22, () => { const p = woods(3, 20)(); if (p) { p.s = rnd(0.9, 1.4); p.y -= 0.04; } return p; });
+    scatter('pine_roots', fast ? 10 : 22, () => { const p = woods(3, 20)(); if (p) { p.s = rnd(0.9, 1.4); p.y -= 0.04; } return p; }, null, false);
     const FERN = ENV.fern_lo ? 'fern_lo' : 'fern_02';
-    scatter(FERN, fast ? 50 : 110, () => { const p = woods(2.2, 22)(); if (p) { p.s = rnd(0.6, 1.1); } return p; });
+    scatter(FERN, fast ? 50 : 110, () => { const p = woods(2.2, 22)(); if (p) { p.s = rnd(0.6, 1.1); } return p; }, null, false);
     // and in the open valley, where the old blob shrubs stood
     scatter(FERN, fast ? 40 : 90, () => {
       const a = rnd(0, TAU), r = Math.sqrt(rng()) * (ARENA_R - 6) + 4, x = Math.cos(a) * r, z = Math.sin(a) * r;
       if (Math.hypot(x, z) < 15 || waterDist(x, z) < 1.5 || trailDist(x, z) < 2.5 || terrainNormal(x, z, _v).y < 0.82) return null;
       return { x, z, y: terrainHeight(x, z) - 0.03, ry: rnd(0, TAU), s: rnd(0.7, 1.3) };
-    });
+    }, null, false);
   }
 
   /* -------------------------------------------------- ruins */
