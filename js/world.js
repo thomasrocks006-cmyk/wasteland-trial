@@ -1467,7 +1467,8 @@ export class World {
     };
     const mossStone = (x, y0, z, sz) => stones.add(new THREE.DodecahedronGeometry(sz, 0), pick([0x6f7a5c, 0x5e6a50, 0x7d8270]), { pos: [x, y0 + sz * 0.3, z], rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.05 });
 
-    const ok = (x, z, pad) => Math.hypot(x, z) < ARENA_R - 3 && Math.hypot(x, z) > 16 && waterDist(x, z) > 2 && this.isClear(x, z, pad) && terrainNormal(x, z, _v).y > 0.72;
+    const ok = (x, z, pad) => Math.hypot(x, z) < ARENA_R - 3 && Math.hypot(x, z) > 16 && waterDist(x, z) > 2 && this.isClear(x, z, pad) && terrainNormal(x, z, _v).y > 0.72
+      && (!clearing || Math.hypot(x - clearing.x, z - clearing.z) > 7.6);   // the altar's ring stays open
 
     /* the sections, by distance along the trail (fraction of its length) */
     const L = TRAIL_LEN;
@@ -1483,6 +1484,14 @@ export class World {
     };
     // the clearing's centre, off to one side of the path
     let clearing = null;
+    // found up front, so no tree is planted on it before the loop reaches it
+    for (let i = 2; i < TRAIL.length - 1; i++) {
+      if (section(TRAIL[i].s) !== 'clearing') continue;
+      const a = TRAIL[i - 1], c = TRAIL[i + 1], q = TRAIL[i];
+      let tx = c.x - a.x, tz = c.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+      clearing = { x: q.x - tz * 12, z: q.z + tx * 12 };
+      break;
+    }
 
     for (let i = 2; i < TRAIL.length - 1; i++) {
       const q = TRAIL[i], a = TRAIL[i - 1], c = TRAIL[i + 1], sec = section(q.s);
@@ -1555,6 +1564,7 @@ export class World {
       const y0 = terrainHeight(q.x, q.z);
       stones.add(new THREE.CylinderGeometry(0.42, 0.5, 0.5, 7), pick([0x7d8284, 0x6c7274]), { pos: [q.x + rnd(-0.3, 0.3), y0 + 0.12, q.z + rnd(-0.3, 0.3)], rot: [0, rnd(0, TAU), 0], scale: [1, 0.7, 1], jitter: 0.05 });
     }
+    this.clearing = clearing;                 // the adventure puts its altar here
     // the clearing: a ring of standing stones round a low rune-lit altar, and a broken arch
     if (clearing) {
       const { x: cx, z: cz } = clearing, y0 = terrainHeight(cx, cz);

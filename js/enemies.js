@@ -146,6 +146,50 @@ function bruteParts() {
   return { body: body.build(), legL: leg(true), legR: leg(true), legL2: leg(false), legR2: leg(false) };
 }
 
+/* stonekin: the grunt's body, carved in moss-streaked stone instead of bronze. The grunt's colours are
+   remapped by lightness onto a cool grey-green ramp, so every plate, band and joint keeps its shading. */
+function stonekinParts() {
+  const parts = gruntParts();
+  for (const g of Object.values(parts)) {
+    const a = g.attributes.color.array;
+    for (let i = 0; i < a.length; i += 3) {
+      const l = Math.min(1, (a[i] * 0.3 + a[i + 1] * 0.59 + a[i + 2] * 0.11) * 1.5);
+      a[i] = 0.17 + l * 0.25; a[i + 1] = 0.22 + l * 0.29; a[i + 2] = 0.19 + l * 0.2;
+    }
+    g.attributes.color.needsUpdate = true;
+  }
+  return parts;
+}
+
+/* wolves of the vale: lean grey fur, a long muzzle, a tail held low. Four legs on the
+   same pivots the brute uses, so the existing stride animation runs them. */
+const FUR = { coat: 0x8a8984, coatDark: 0x5a5953, belly: 0xc8c2b2, ear: 0x403f3b };
+function wolfParts() {
+  const body = sB();
+  body.add(sCap(0.24, 0.62), FUR.coat, { pos: [0, 0.74, -0.02], rot: [Math.PI / 2, 0, 0], scale: [0.95, 1, 1.05] });       // barrel
+  body.add(sS(0.22), FUR.belly, { pos: [0, 0.62, 0.04], scale: [0.85, 0.6, 1.9] });                                          // pale belly
+  body.add(sS(0.3), FUR.coatDark, { pos: [0, 0.9, 0.34], scale: [0.95, 0.9, 1.0] });                                         // shoulder ruff
+  body.add(sCap(0.11, 0.3), FUR.coat, { pos: [0, 0.96, 0.62], rot: [0.9, 0, 0] });                                           // neck
+  body.add(sS(0.19), FUR.coat, { pos: [0, 1.02, 0.78], scale: [0.95, 0.9, 1.15] });                                          // head
+  body.add(sCap(0.085, 0.18), FUR.coatDark, { pos: [0, 0.97, 0.98], rot: [Math.PI / 2 - 0.15, 0, 0] });                      // muzzle
+  body.add(sS(0.04), 0x15110e, { pos: [0, 0.99, 1.1] });                                                                       // nose
+  for (const sx of [-1, 1]) {
+    body.add(new THREE.ConeGeometry(0.06, 0.17, 6), FUR.ear, { pos: [sx * 0.1, 1.2, 0.72], rot: [-0.15, 0, -sx * 0.18] });     // ears
+    body.add(new THREE.ConeGeometry(0.014, 0.05, 5), SKIN.bone, { pos: [sx * 0.045, 0.9, 1.05], rot: [Math.PI, 0, 0] });          // fangs
+  }
+  body.add(new THREE.BoxGeometry(0.2, 0.025, 0.03), SLIT, { pos: [0, 1.06, 0.93] });                                            // eye slit
+  body.add(sCap(0.07, 0.5), FUR.coatDark, { pos: [0, 0.74, -0.62], rot: [-1.15, 0, 0] });                                      // tail
+  for (let i = 0; i < 4; i++) body.add(new THREE.ConeGeometry(0.06 - i * 0.008, 0.2, 5), FUR.coatDark, { pos: [0, 1.06 - i * 0.035, 0.52 - i * 0.2], rot: [-0.25, 0, 0] }); // hackles
+  const leg = (front) => {
+    const b = sB();
+    b.add(sS(0.13), FUR.coat, { pos: [0, -0.06, 0], scale: [0.9, 1.15, 1.1] });
+    b.add(sCap(0.06, 0.26), FUR.coatDark, { pos: [0, -0.28, front ? 0.03 : -0.04] });
+    b.add(sS(0.065), FUR.coatDark, { pos: [0, -0.5, 0.05], scale: [1, 0.7, 1.4] });
+    return b.build();
+  };
+  return { body: body.build(), legL: leg(true), legR: leg(true), legL2: leg(false), legR2: leg(false) };
+}
+
 function waspParts() {
   const body = sB();
   body.add(sS(0.16), SKIN.plate, { pos: [0, 0, 0.05], scale: [0.9, 0.85, 1.2] });                // thorax
@@ -229,6 +273,20 @@ export const ENEMY_TYPES = {
     dmg: 7, attackRange: 2.2, attackCd: 1.2, score: 120, hudName: 'STINGER', flying: true, flyH: 3.1,
     parts: waspParts, partList: ['body', 'wingL', 'wingR'],
   },
+  wolf: {
+    key: 'wolf', hp: 58, speed: 6.6, radius: 0.5, height: 1.0, headY: 1.0, headR: 0.2, eye: [0.05, 1.06, 0.94],
+    dmg: 9, attackRange: 1.7, attackCd: 1.25, score: 110, hudName: 'WOLF', windup: 0.3, matte: true,
+    parts: wolfParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
+    legPivots: { legL: [-0.15, 0.66, 0.42], legR: [0.15, 0.66, 0.42], legL2: [-0.15, 0.66, -0.4], legR2: [0.15, 0.66, -0.4] },
+  },
+  stonekin: {
+    key: 'stonekin', hp: 230, speed: 2.8, radius: 0.78, height: 2.55, headY: 1.83, headR: 0.44, eye: [0.094, 1.84, 0.48],
+    dmg: 19, attackRange: 2.5, attackCd: 2.1, score: 260, hudName: 'STONEKIN', heavy: true, windup: 0.5,
+    size: 1.45, matte: true,
+    parts: stonekinParts, partList: ['body', 'legL', 'legR', 'armL', 'armR'],
+    legPivots: { legL: [-0.16, 0.98, 0], legR: [0.16, 0.98, 0] },
+    armPivots: { armL: [-0.34, 1.28, 0], armR: [0.34, 1.28, 0] },
+  },
   boss: {
     key: 'boss', hp: 1500, speed: 2.2, radius: 1.9, height: 2.4, headY: 1.7, headR: 0.75, eye: [0.24, 1.72, 1.52],
     dmg: 26, attackRange: 4.2, attackCd: 1.9, score: 2500, hudName: 'IRONCOIL', boss: true, heavy: true,
@@ -238,7 +296,7 @@ export const ENEMY_TYPES = {
 };
 
 /* ------------------------------------------------------------------ instancers */
-const MAX_PER_TYPE = { grunt: 26, shooter: 14, brute: 8, wasp: 12, boss: 2 };
+const MAX_PER_TYPE = { grunt: 26, shooter: 14, brute: 8, wasp: 12, boss: 2, wolf: 16, stonekin: 10 };
 
 class TypeRender {
   constructor(scene, type) {
@@ -247,7 +305,7 @@ class TypeRender {
     this.parts = [];
     // cool violet rim: hostiles read as a silhouette even against bright ground
     // polished bronze: a specular sheen, plus the warm rim that separates them from the forest
-    const mat = addRim(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 42, specular: 0x7a5a28 }), type.boss ? 0xff7a40 : 0xffd9a0, 0.35, 2.6);
+    const mat = addRim(new THREE.MeshPhongMaterial({ vertexColors: true, shininess: type.matte ? 8 : 42, specular: type.matte ? 0x2a2a28 : 0x7a5a28 }), type.boss ? 0xff7a40 : (type.matte ? 0xdfe8dc : 0xffd9a0), 0.35, 2.6);
     for (const name of type.partList) {
       const geo = this.geos[name];
       if (!geo) continue;
@@ -311,6 +369,7 @@ export class Enemies {
     this.segMesh.count = 0;
     scene.add(this.segMesh);
 
+    this.windupMul = 1;        // wander lengthens every melee tell so a parry is catchable on a phone
     this.onKill = null;
     this.onHit = null;         // (enemy, head, killed) for hit markers
     this.onEnrage = null;
@@ -388,6 +447,22 @@ export class Enemies {
       e.vel.addScaledVector(new THREE.Vector3(dir.x, 0, dir.z).normalize(), amount * 0.05 * kb);
     }
     if (e.hp <= 0) this.kill(e);
+  }
+
+  /** a parry: whoever struck from (x, z) is thrown off balance and left open */
+  parried(x, z) {
+    let best = null, bd = 7;
+    for (const e of this.list) {
+      if (!e.alive) continue;
+      const d = Math.hypot(e.pos.x - x, e.pos.z - z);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (!best) return null;
+    best.pendingHit = 0;
+    best.state = 'stagger'; best.stateT = 0; best.staggerDur = best.type.boss ? 0.7 : 1.3;
+    best.flash = 1; best.attackCd = Math.max(best.attackCd, 1.0);
+    if (this.fx) this.fx.ring(new THREE.Vector3(best.pos.x, best.pos.y + 1.1, best.pos.z), 0x9ff4ff, 2.2, 0.4);
+    return best;
   }
 
   /** a patrol has seen you: it and its group turn to fight */
@@ -571,7 +646,7 @@ export class Enemies {
     if (e.passive && !e.aggro) {
       // on patrol: amble between points near home, watching for the hero
       if (!e.wp || Math.hypot(e.wp.x - e.pos.x, e.wp.z - e.pos.z) < 1.2 || e.stateT > 10) {
-        e.wp = { x: e.home.x + rnd(-10, 10), z: e.home.z + rnd(-10, 10) }; e.stateT = 0;
+        const hr = e.homeR || 10; e.wp = { x: e.home.x + rnd(-hr, hr), z: e.home.z + rnd(-hr, hr) }; e.stateT = 0;
       }
       const wx = e.wp.x - e.pos.x, wz = e.wp.z - e.pos.z, wl = Math.hypot(wx, wz) || 1;
       e.yaw = dampAngle(e.yaw, Math.atan2(wx, wz), 3, dt);
@@ -579,6 +654,33 @@ export class Enemies {
       if (dist < (t.key === 'shooter' ? 24 : 16)) this.alert(e);
     } else if (e.state === 'stagger') {
       if (e.stateT > (e.staggerDur || 0.22)) { e.state = 'chase'; e.stateT = 0; e.staggerDur = 0; }
+    } else if (t.key === 'wolf') {
+      // circle at the edge of reach, crouch (red flash), then one lunge in a straight line: sidestep it
+      if (e.state === 'windup') {
+        if (e.stateT > 0.4) { e.state = 'charge'; e.stateT = 0; e.lungeHit = false; e.chargeX = dirX; e.chargeZ = dirZ; }
+      } else if (e.state === 'charge') {
+        moveX = e.chargeX; moveZ = e.chargeZ; speed = e.speed * 2.7;
+        if (!e.lungeHit && dist < t.radius + 0.95 && this.player.alive) {
+          e.lungeHit = true;
+          this.player.damage(e.dmg * 1.2, e.pos.x, e.pos.z);
+          if (this.player.onHurt) this.player.onHurt();
+          this.player.knock.add(new THREE.Vector3(e.chargeX, 0, e.chargeZ).multiplyScalar(6));
+        }
+        if (e.stateT > 0.5) { e.state = 'chase'; e.stateT = 0; e.lungeCd = rnd(1.8, 3.2); }
+      } else {
+        e.lungeCd -= dt;
+        if (dist > 11) { moveX = dirX; moveZ = dirZ; }
+        else {
+          const orbit = Math.atan2(dz, dx) + Math.PI / 2 * e.strafeDir;
+          moveX = Math.cos(orbit) * 0.8 + dirX * 0.3; moveZ = Math.sin(orbit) * 0.8 + dirZ * 0.3;
+        }
+        if (e.lungeCd <= 0 && dist < 10.5 && dist > 2.2 && !this.world.blocked(e.pos.x, e.pos.z, pp.x, pp.z)) {
+          e.state = 'windup'; e.stateT = 0;
+          if (this.audio) this.audio.roar(dist);
+        } else if (dist < t.attackRange && e.attackCd <= 0) {
+          e.attackCd = t.attackCd; this.dealMelee(e, dist);
+        }
+      }
     } else if (t.key === 'brute' && (e.state === 'windup' || e.state === 'charge' ||
       (e.chargeCd <= 0 && dist > 7 && dist < 20 && !this.world.blocked(e.pos.x, e.pos.z, pp.x, pp.z)))) {
       // charge: rear up (tracking you), then commit to a straight line. Dodge through it.
@@ -788,7 +890,7 @@ export class Enemies {
     if (!p.alive) return;
     if (dist > e.type.attackRange * 1.15) return;
     // telegraph, then the hit resolves 0.18 s of game time later (see updateOne)
-    e.pendingHit = 0.18;
+    e.pendingHit = (e.type.windup || 0.18) * (this.windupMul || 1);
     if (this.fx) {
       this.fx.spark(new THREE.Vector3(
         e.pos.x + Math.sin(e.yaw) * 0.8, e.pos.y + 1.2, e.pos.z + Math.cos(e.yaw) * 0.8
@@ -950,6 +1052,7 @@ export class Enemies {
           if (e.state === 'spawn') { const s = e.scale; cr *= s; cg *= s; cb *= s * 1.2; }
           if (e.state === 'windup') { const w = 0.5 + 0.5 * Math.sin(e.stateT * 30); cr += 0.9 * w; cg += 0.15 * w; }
           if (e.enraged) { cr *= 1.25; cg *= 0.85; cb *= 0.8; }
+          if (e.type.tint) { cr *= e.type.tint[0]; cg *= e.type.tint[1]; cb *= e.type.tint[2]; }
           if (!e.alive) { const fader = clamp(1 - (e.dying - DEATH_HOLD) / (DEATH_T - DEATH_HOLD), 0, 1); cr *= fader; cg *= fader; cb *= fader; }
           _col.setRGB(cr, cg, cb);
           part.mesh.setColorAt(n, _col);
@@ -988,11 +1091,12 @@ export class Enemies {
     const t = e.type;
     const yaw = e.yaw;
     const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
-    const sc = e.scale * (t.boss ? 1.0 : 1.0);
+    const sc = e.scale * (t.size || 1);
 
     // helper: local offset -> world
+    const Z = t.size || 1;
     const toWorld = (ox, oy, oz) => [_d.position.x, _d.position.y, _d.position.z] =
-      [e.pos.x + ox * cosY + oz * sinY, e.pos.y + oy, e.pos.z - ox * sinY + oz * cosY];
+      [e.pos.x + ox * Z * cosY + oz * Z * sinY, e.pos.y + oy * Z, e.pos.z - ox * Z * sinY + oz * Z * cosY];
 
     const bob = t.flying ? Math.sin(time * 6 + e.phase) * 0.06 : 0;
     const stride = Math.sin(e.phase) * 0.55;

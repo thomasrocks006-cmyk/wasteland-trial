@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  TAU, clamp, lerp, damp, dampAngle, smoothstep, deg,
+  TAU, clamp, lerp, damp, dampAngle, smoothstep, deg, angleTo,
   terrainHeight, Builder, ARENA_R, addRim, fabricTexture, leatherTexture, waterLevel
 } from './core.js';
 
@@ -530,6 +530,21 @@ export class Player {
     this._swingTwist = 0;
     this.inWater = 0;          // wading depth in metres
 
+    // ---- stamina, guard and lock-on (Wander only: staminaOn is set by the game)
+    this.staminaOn = false;
+    this.stam = 100; this.maxStam = 100;
+    this.stamDelay = 0;        // seconds before it refills after being spent
+    this.exhausted = false;    // emptied: no sprint, guard or swing until it recovers
+    this.guard = false;        // guard held
+    this.guardT = 0;           // seconds since the guard went up: the opening window is a parry
+    this.parryWindow = 0.32;
+    this.guardDmgTaken = 0.2;  // share of a blocked hit that still lands
+    this.guardCostMul = 1;     // perks: blocked blows cost less stamina
+    this.lockTarget = null;
+    this.onParry = null; this.onBlock = null; this.onGuardBreak = null;
+    this.sprinting = false;
+    this.armorMul = 1;         // relics: a share of every blow absorbed (separate from the forms' own multiplier)
+
     const auraMat = new THREE.MeshBasicMaterial({
       color: 0x66f0ff, transparent: true, opacity: 0.26,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide
@@ -551,6 +566,14 @@ export class Player {
     this.auraLight = new THREE.PointLight(0x66f0ff, 0, 14, 2);
     this.auraLight.position.y = 1.3;
     this.model.root.add(this.auraLight);
+    // the guard: a pale dome of light held in front, flaring white when a blow is turned
+    this.shieldMat = new THREE.MeshBasicMaterial({
+      color: 0x8fe9ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    });
+    this.shield = new THREE.Mesh(new THREE.SphereGeometry(1.2, 18, 10, -1.0, 2.0, 0.55, 1.5), this.shieldMat);
+    this.shield.position.set(0, 1.0, 0.25);
+    this.shield.visible = false;
+    this.model.root.add(this.shield);
     this.lookVelX = 0;
     this.lookVelY = 0;
     this.dodging = 0;
@@ -587,9 +610,46 @@ export class Player {
     this.faceLock = 0.9;
   }
 
+  /** spend stamina on an action; false (and nothing spent) if winded */
+  spend(n) {
+    if (!this.staminaOn) return true;
+    if (this.exhausted || this.stam <= 0) return false;
+    this.stam = Math.max(0, this.stam - n);
+    this.stamDelay = 0.75;
+    if (this.stam <= 0) this.exhausted = true;
+    return true;
+  }
+
   damage(amount, fromX, fromZ) {
     if (!this.alive) return;
     if (this.iframe > 0) return;
+    amount *= this.armorMul;
+    // the guard turns blows from the front: the first instant turns them completely (a parry)
+    if (this.guard && fromX !== undefined && Math.abs(angleTo(this.camYaw, Math.atan2(fromX - this.pos.x, fromZ - this.pos.z))) < 1.9) {
+      this.iframe = 0.25;
+      if (this.guardT <= this.parryWindow) {
+        this.stam = Math.min(this.maxStam, this.stam + 14);
+        this.shieldMat.opacity = 1;
+        if (this.onParry) this.onParry(fromX, fromZ);
+        return;
+      }
+      const cost = amount * 1.1 * this.guardCostMul;
+      if (this.stam < cost) {                       // guard broken: it holds, but costs you
+        this.stam = 0; this.exhausted = true; this.guard = false; this.stamDelay = 1.2;
+        this.hp = Math.max(0, this.hp - amount * 0.6 * this.dmgTakenMul);
+        this.hurtFlash = 1; this.shake = Math.min(2.0, this.shake + 0.6);
+        if (this.onGuardBreak) this.onGuardBreak();
+        if (this.hp <= 0) this.alive = false;
+        return;
+      }
+      this.stam -= cost; this.stamDelay = 0.9;
+      this.hp = Math.max(0, this.hp - amount * this.guardDmgTaken * this.dmgTakenMul);
+      this.shieldMat.opacity = 0.9;
+      this.shake = Math.min(2.0, this.shake + 0.25);
+      if (this.onBlock) this.onBlock(fromX, fromZ);
+      if (this.hp <= 0) this.alive = false;
+      return;
+    }
     this.iframe = 0.40;
     this.hp = Math.max(0, this.hp - amount * this.dmgTakenMul);
     this.hurtFlash = 1;
@@ -673,6 +733,23 @@ export class Player {
     this.hurtFlash = Math.max(0, this.hurtFlash - dt * 1.8);
     this.iframe = Math.max(0, this.iframe - dt);
 
+    // ---- stamina: guard up, sprint drain, refill
+    if (this.staminaOn) {
+      this.guard = !!input.guard && !this.exhausted && this.dodging <= 0 && this.grounded;
+      this.guardT = this.guard ? this.guardT + dt : 0;
+      this.stamDelay = Math.max(0, this.stamDelay - dt);
+      if (this.stamDelay <= 0 && !this.guard) this.stam = Math.min(this.maxStam, this.stam + (this.exhausted ? 20 : 34) * dt);
+      if (this.exhausted && this.stam >= 25) this.exhausted = false;
+      if (this.lockTarget) {
+        const lt = this.lockTarget, dx = lt.pos.x - this.pos.x, dz = lt.pos.z - this.pos.z;
+        if (!lt.alive || Math.hypot(dx, dz) > 34) this.lockTarget = null;
+        else this.camYaw = dampAngle(this.camYaw, Math.atan2(dx, dz), 6, dt);
+      }
+    } else { this.guard = false; this.guardT = 0; this.lockTarget = null; }
+    this.shieldMat.opacity = this.guard ? Math.max(0.28 + Math.sin(performance.now() * 0.01) * 0.05, this.shieldMat.opacity - dt * 3) : Math.max(0, this.shieldMat.opacity - dt * 4);
+    this.shield.visible = this.shieldMat.opacity > 0.02;
+    if (this.guard) this.faceLock = Math.max(this.faceLock, 0.2);
+
     if (this.regen > 0) this.heal(this.regen * dt);
 
     // ---- form timer and aura
@@ -691,7 +768,10 @@ export class Player {
     // ---- movement in camera space
     const mx = input.mx, my = input.my;
     const mag = Math.min(1, Math.hypot(mx, my));
-    const spd = this.speed * (input.sprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1)
+    const canSprint = input.sprint && (!this.staminaOn || (this.stam > 0 && !this.exhausted));
+    this.sprinting = canSprint && mag > 0.5;
+    if (this.staminaOn && this.sprinting) { this.stam = Math.max(0, this.stam - 11 * dt); this.stamDelay = 0.8; if (this.stam <= 0) this.exhausted = true; }
+    const spd = this.speed * (canSprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1) * (this.guard ? 0.55 : 1)
       * (1 - Math.min(0.4, this.inWater * 0.45));      // wading through the river is slower
     let wishX = 0, wishZ = 0;
     if (mag > 0.06) {
@@ -709,7 +789,7 @@ export class Player {
 
     // ---- dodge roll: a burst of speed with brief invulnerability
     this.dodgeCd = Math.max(0, this.dodgeCd - dt);
-    if (input.dodge && this.grounded && this.dodgeCd <= 0 && this.dodging <= 0) {
+    if (input.dodge && this.grounded && this.dodgeCd <= 0 && this.dodging <= 0 && (!this.staminaOn || (this.stam >= 14 && this.spend(14)))) {
       let dx = wishX, dz = wishZ;
       if (Math.hypot(dx, dz) < 0.2) { dx = -Math.sin(this.camYaw); dz = -Math.cos(this.camYaw); }
       const l = Math.hypot(dx, dz) || 1;

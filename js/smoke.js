@@ -12,8 +12,8 @@ const results = [];
 function check(name, fn) {
   return Promise.resolve()
     .then(fn)
-    .then((detail) => results.push({ name, pass: true, detail: detail || '' }))
-    .catch((err) => results.push({ name, pass: false, detail: String(err && err.message || err) }));
+    .then((detail) => { results.push({ name, pass: true, detail: detail || '' }); console.log('SMOKECHK PASS ' + name); })
+    .catch((err) => { results.push({ name, pass: false, detail: String(err && err.message || err) }); console.log('SMOKECHK FAIL ' + name + ' :: ' + String(err && err.message || err)); });
 }
 
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
@@ -102,6 +102,9 @@ export async function runSmoke() {
   const stickZone = document.getElementById('stickZone');
   for (const [label, dx, dy] of [['up', 0, -50], ['down', 0, 50], ['left', -50, 0], ['right', 50, 0]]) {
     await check(`stick ${label}`, async () => {
+      // from open ground each time: the previous push can leave the hero against a trunk or stone
+      const sp = d.world.pickSpawn();
+      d.player.pos.set(sp[0], d.terrainHeight(sp[0], sp[1]), sp[1]);
       d.player.vel.set(0, 0, 0);
       const before = [d.player.pos.x, d.player.pos.z];
       const f = camDir(), r = rightOf(f);
@@ -517,6 +520,101 @@ export async function runSmoke() {
     await wait(300, 5);
     assert(deer.state === 'flee', 'deer ' + deer.state);
     return 'fled';
+  });
+
+
+  // ---- the adventure (b28): places, guard, heavy strike, wolves, save
+  await check('every place stands on real ground and the quest chain points somewhere', async () => {
+    const ps = d.adv.places;
+    assert(ps.length >= 12, 'only ' + ps.length + ' places');
+    for (const q of ps) {
+      assert(Number.isFinite(q.at[0]) && Number.isFinite(q.y), q.id + ' has no position');
+      assert(Math.hypot(q.at[0], q.at[1]) < 100, q.id + ' is outside the vale');
+    }
+    d.adv.adv.done = {}; d.adv.adv.cleared = {};
+    const o = d.adv.objective(d.player);
+    assert(o.poi && o.poi.id === 'shrine', 'first objective is ' + (o.poi && o.poi.id));
+    return ps.length + ' places';
+  });
+
+  await check('the shrine rune lights with USE, saves, and the gate stays sealed', async () => {
+    const q = d.adv.byId.shrine;
+    d.player.pos.set(11, d.terrainHeight(11, 0), 0);
+    d.adv.update(0.1, d.GAME.time, d.player);
+    assert(d.adv.near && d.adv.near.poi.id === 'shrine' && d.adv.near.enabled, 'rune not usable');
+    d.useNear();
+    assert(d.adv.isDone('shrine'), 'rune did not light');
+    assert(JSON.parse(localStorage.getItem('wasteland-trial-v1')).adv.done.shrine, 'not saved');
+    d.player.pos.set(d.adv.byId.gate.at[0] + 0.5, d.terrainHeight(d.adv.byId.gate.at[0] + 0.5, d.adv.byId.gate.at[1]), d.adv.byId.gate.at[1]);
+    d.adv.update(0.1, d.GAME.time, d.player);
+    assert(d.adv.near && !d.adv.near.enabled && /SEALED/.test(d.adv.near.label), 'gate is not sealed: ' + (d.adv.near && d.adv.near.label));
+    return d.adv.near.label;
+  });
+
+  await check('a parry turns a blow and staggers the attacker; a block chips; from behind is not blocked', async () => {
+    const pl = d.player;
+    d.enemies.list.forEach((e) => { e.alive = false; e.dying = 9; });
+    pl.iframe = 0; pl.hp = pl.maxHp; pl.stam = pl.maxStam; pl.exhausted = false;
+    const e = d.enemies.spawn('grunt', pl.pos.x + Math.sin(pl.camYaw) * 2, pl.pos.z + Math.cos(pl.camYaw) * 2);
+    e.spawnT = 1; e.state = 'chase';
+    pl.guard = true; pl.guardT = 0.1;
+    const hp0 = pl.hp; pl.damage(30, e.pos.x, e.pos.z);
+    assert(pl.hp === hp0 && e.state === 'stagger', 'parry failed: hp ' + pl.hp + ' state ' + e.state);
+    pl.iframe = 0; pl.guardT = 1; pl.damage(30, e.pos.x, e.pos.z);
+    assert(Math.abs(pl.hp - (hp0 - 6 * pl.armorMul)) < 0.01, 'block let through ' + (hp0 - pl.hp));
+    pl.iframe = 0; const h1 = pl.hp;
+    pl.damage(10, pl.pos.x - Math.sin(pl.camYaw) * 3, pl.pos.z - Math.cos(pl.camYaw) * 3);
+    assert(pl.hp < h1, 'a blow from behind was blocked');
+    pl.guard = false; e.alive = false; e.dying = 9;
+    return 'parry, block, rear';
+  });
+
+  await check('a held blade strike lands the heavy hit and costs stamina; winded blocks it', async () => {
+    const w = d.weapons, pl = d.player;
+    d.enemies.list.forEach((x) => { x.alive = false; x.dying = 9; });
+    pl.stam = pl.maxStam; pl.exhausted = false; pl.guard = false; w.switchT = 1; w.ready(); w.cooldown = 0; w.swingT = 0;
+    const e = d.enemies.spawn('stonekin', pl.pos.x + Math.sin(pl.camYaw) * 1.8, pl.pos.z + Math.cos(pl.camYaw) * 1.8);
+    e.spawnT = 1; e.state = 'chase'; e.passive = true; e.aggro = false; e.home = { x: e.pos.x, z: e.pos.z }; e.attackCd = 99;
+    const hp0 = e.hp, s0 = pl.stam;
+    w.meleeInput(true, 0.03, d.camera);
+    for (let i = 0; i < 24; i++) w.meleeInput(true, 0.03, d.camera);
+    w.cooldown = 0; w.swingT = 0;
+    w.meleeInput(false, 0.03, d.camera);
+    assert(w.swingCur && w.swingCur.heavy, 'heavy strike did not start');
+    for (let i = 0; i < 40; i++) w.update(0.03);
+    assert(hp0 - e.hp > 90, 'heavy hit only did ' + (hp0 - e.hp));
+    assert(s0 - pl.stam >= 26, 'cost ' + (s0 - pl.stam));
+    pl.stam = 0; pl.exhausted = true; w.cooldown = 0; w.swingT = 0; w.comboIdx = 0;
+    const cur = w.swingCur; w.swing();
+    assert(w.swingCur === cur, 'swung while winded');
+    e.alive = false; e.dying = 9; pl.exhausted = false; pl.stam = pl.maxStam;
+    return 'dmg ' + Math.round(hp0 - e.hp);
+  });
+
+  await check('a wolf crouches, then lunges in a straight line', async () => {
+    const pl = d.player;
+    d.enemies.list.forEach((x) => { x.alive = false; x.dying = 9; });
+    pl.iframe = 99; pl.guard = false;
+    const w = d.enemies.spawn('wolf', pl.pos.x + 6, pl.pos.z);
+    w.spawnT = 1; w.state = 'chase'; w.lungeCd = 0;
+    const seen = new Set();
+    for (let i = 0; i < 160 && !w.lungeHit; i++) { await wait(33, 1); seen.add(w.state); }
+    assert(seen.has('windup') && seen.has('charge'), 'states ' + [...seen].join(','));
+    w.alive = false; w.dying = 9; pl.iframe = 0;
+    return [...seen].join(' > ');
+  });
+
+  await check('death in the vale keeps what you earned', async () => {
+    const a = d.adv.adv; a.relics.includes('clasp') || a.relics.push('clasp');
+    const lvl = a.level;
+    d.player.iframe = 0; d.player.guard = false; d.player.damage(9999, 0, 0);
+    await wait(900, 20);
+    assert(document.getElementById('dTitle').textContent === 'YOU FELL', 'title ' + document.getElementById('dTitle').textContent);
+    document.getElementById('btnRetry').click();
+    await wait(400, 6);
+    assert(d.adv.level === lvl && d.adv.isDone('shrine'), 'progress lost');
+    assert(d.player.maxHp >= 115, 'relic not reapplied: ' + d.player.maxHp);
+    return 'level ' + d.adv.level + ', ' + d.player.maxHp + ' hp';
   });
 
   // ---- report

@@ -251,7 +251,7 @@ h1 span{display:block;color:transparent;-webkit-text-stroke:1.5px rgba(255,170,9
   color:rgba(244,231,210,.5);border:1px solid rgba(255,190,120,.16);font-family:inherit;
   font-weight:800;font-size:9.5px;letter-spacing:.22em;cursor:pointer;}
 
-.titleMeta{display:flex;gap:22px;margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,190,120,.14);}
+.titleMeta{display:flex;flex-wrap:wrap;row-gap:10px;gap:22px;margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,190,120,.14);}
 .titleMeta .k{display:block;font-size:7.5px;letter-spacing:.2em;color:rgba(244,231,210,.32);font-weight:800;}
 .titleMeta b{font-size:19px;font-weight:800;font-stretch:78%;color:var(--sand);letter-spacing:-.01em;}
 
@@ -386,3 +386,90 @@ h1 span{display:block;color:transparent;-webkit-text-stroke:1.5px rgba(255,170,9
 
 /* blades carry no ammunition */
 #ammoRow.melee{visibility:hidden;}
+
+/* ---------------- adventure pass (b28): Wander's HUD ---------------- */
+/* the guns' controls and the arcade score are not part of wandering */
+body:not(.wander) #btnLock,body:not(.wander) #btnGuard,body:not(.wander) #stamWrap,body:not(.wander) #lvlRow,body:not(.wander) #compass,body:not(.wander) #btnUse,body:not(.wander) #lockMark{display:none !important;}
+body.wander #topRight,body.wander #ecoWrap,body.wander #btnLight,body.wander #btnDark,body.wander #btnReload,body.wander #comboTrack{display:none !important;}
+body.wander #btnLock{grid-column:1;grid-row:1;}
+body.wander #btnGuard{grid-column:2;grid-row:1;}
+.tbtn.guard{border-color:rgba(130,230,255,.5);color:#c6f3ff;background:radial-gradient(circle at 50% 35%,rgba(60,170,220,.32),rgba(8,24,32,.6) 70%);}
+.tbtn.lock{border-color:rgba(255,215,120,.45);color:#ffe9b0;}
+.tbtn.lock.on{background:rgba(255,200,90,.3);border-color:#ffd060;}
+#btnLock,#btnGuard{display:none;}
+body.wander #btnLock,body.wander #btnGuard{display:flex;}
+
+#stamWrap{position:relative;height:4px;margin-top:5px;background:rgba(0,0,0,.5);border:1px solid rgba(255,190,120,.2);overflow:hidden;}
+#stamFill{position:absolute;inset:0;width:100%;background:linear-gradient(90deg,#d9a840,#f4d070);box-shadow:0 0 8px rgba(240,200,100,.5);transition:width .08s linear;}
+#stamWrap.winded #stamFill{background:linear-gradient(90deg,#8a5a34,#b47a3c);animation:pulseLow .5s infinite;}
+#lvlRow{display:flex;align-items:center;gap:7px;margin-top:5px;}
+#lvlNum{font-size:8.5px;letter-spacing:.16em;font-weight:900;color:var(--sand);}
+#xpTrack{flex:1;height:2px;background:rgba(255,190,120,.16);overflow:hidden;}
+#xpFill{height:100%;width:0%;background:linear-gradient(90deg,var(--ochre),var(--amber));transition:width .3s;}
+
+/* compass: heading strip with the places you have found and the next objective */
+#compass{position:absolute;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 42px);
+  width:min(44vw,380px);height:26px;overflow:hidden;
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);
+  background:linear-gradient(180deg,rgba(14,9,5,.45),rgba(14,9,5,.15));border-top:1px solid var(--line);border-bottom:1px solid var(--line);}
+#compassNotch{position:absolute;left:50%;top:0;width:1px;height:6px;background:var(--amber);box-shadow:0 0 6px var(--amber);}
+.cmk{position:absolute;top:2px;transform:translateX(-50%);text-align:center;font-size:7px;font-weight:900;letter-spacing:.06em;
+  color:rgba(244,231,210,.7);white-space:nowrap;will-change:left;}
+.cmk i{display:block;font-style:normal;font-size:12px;line-height:12px;}
+.cmk.done{color:rgba(244,231,210,.35);}
+.cmk.obj{color:#ffe08a;text-shadow:0 0 8px rgba(255,200,80,.8);}
+.cmk.tick{top:15px;color:rgba(244,231,210,.2);font-size:6px;}
+body.wander #bossBar{top:calc(env(safe-area-inset-top,0px) + 76px);}
+
+/* discovery banner */
+#banner{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 82px);transform:translateX(-50%);text-align:center;opacity:0;pointer-events:none;}
+#banner i{display:block;font-style:normal;font-size:8px;letter-spacing:.5em;color:var(--ochre);font-weight:900;}
+#banner b{display:block;margin-top:3px;font-size:19px;font-weight:900;font-stretch:72%;letter-spacing:.06em;color:#fff;text-shadow:0 0 22px rgba(255,150,40,.6),0 2px 8px rgba(0,0,0,.8);}
+#banner.show{animation:bannerAnim 3.2s ease-out forwards;}
+@keyframes bannerAnim{0%{opacity:0;transform:translate(-50%,-8px)}12%{opacity:1;transform:translate(-50%,0)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-6px)}}
+
+/* context button */
+#btnUse{position:absolute;right:calc(env(safe-area-inset-right,0px) + 60px);
+  bottom:calc(env(safe-area-inset-bottom,0px) + 200px);pointer-events:auto;min-width:132px;padding:9px 14px 8px;
+  background:linear-gradient(100deg,rgba(226,118,44,.88),rgba(240,161,60,.88));color:#160a03;border:none;font-family:inherit;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%);box-shadow:0 8px 26px rgba(226,118,44,.35);text-align:center;}
+#btnUse i{display:block;font-style:normal;font-size:10px;font-weight:900;letter-spacing:.2em;}
+#btnUse span{display:block;font-size:7.5px;font-weight:800;letter-spacing:.14em;margin-top:2px;opacity:.8;}
+#btnUse span:empty{display:none;}
+#btnUse.off{background:rgba(24,15,9,.72);color:rgba(244,231,210,.55);box-shadow:none;border:1px solid var(--line);}
+#btnUse:active:not(.off){transform:translateY(2px);filter:brightness(1.1);}
+
+/* lock-on mark */
+#lockMark{position:absolute;left:0;top:0;width:26px;height:26px;margin:-13px 0 0 -13px;border:2px solid #ffd060;transform:rotate(45deg);
+  box-shadow:0 0 10px rgba(255,208,96,.8),inset 0 0 8px rgba(255,208,96,.4);will-change:transform;pointer-events:none;}
+
+/* heavy strike charge reads on the strike button */
+.tbtn.fire.charging{box-shadow:0 0 calc(18px + var(--c,0) * 30px) rgba(255,190,90,calc(.25 + var(--c,0) * .6));}
+.tbtn.fire.charged{border-color:#ffe08a;animation:ecoReady .5s infinite;}
+.tbtn.fire.winded{opacity:.5;}
+
+/* lore card + victory */
+#loreCard{position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;background:rgba(6,4,2,.74);padding:18px;}
+.loreInner{max-width:440px;width:100%;text-align:center;padding:22px 20px;border:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(28,18,10,.92),rgba(12,8,5,.9));}
+.loreInner h3{margin:4px 0 12px;font-size:24px;font-weight:900;font-stretch:72%;letter-spacing:.04em;color:#fff;}
+.loreInner p{margin:0 0 18px;font-size:12.5px;line-height:1.6;color:rgba(244,231,210,.78);letter-spacing:.02em;}
+.loreInner .cta{margin:0 auto;}
+
+/* journal (pause) */
+#journal{margin:0 0 10px;text-align:left;border:1px solid rgba(255,190,120,.12);padding:10px 12px;max-height:46vh;overflow-y:auto;touch-action:pan-y;}
+.jHead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
+.jHead b{font-size:17px;font-weight:900;font-stretch:76%;color:var(--sand);}
+.jHead span{font-size:8px;letter-spacing:.16em;color:rgba(244,231,210,.5);font-weight:800;}
+.jRow{display:flex;justify-content:space-between;font-size:8px;letter-spacing:.16em;font-weight:800;color:rgba(244,231,210,.42);padding:3px 0;}
+.jRow b{color:var(--paper);font-weight:900;}
+.jList{margin-top:8px;font-size:8.5px;line-height:1.65;letter-spacing:.08em;font-weight:700;color:rgba(244,231,210,.66);}
+.jList b{color:var(--amber);font-weight:900;letter-spacing:.1em;}
+.jList .rd{display:block;color:rgba(244,231,210,.5);cursor:pointer;}
+.jList.dim{color:rgba(244,231,210,.34);}
+
+/* hit feedback on a parry, via the callout */
+
+.thr.f{color:#d9d4c8}.thr.k{color:#7fd6a8}
+
+.draftLater{margin-top:8px;background:transparent;border:1px solid rgba(255,190,120,.2);color:rgba(244,231,210,.55);font-family:inherit;font-weight:800;font-size:8px;letter-spacing:.2em;padding:7px 14px;cursor:pointer;}

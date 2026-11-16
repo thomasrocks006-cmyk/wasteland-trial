@@ -134,6 +134,46 @@ shoulders with pleats and a ragged hem instead of hanging as a flat board, and
 the scarf, fur collar and hips are slimmer. Materials are physically based, lit
 by a sky environment. Building the hero takes about 0.3 s once at load.
 
+## b28: the adventure
+
+Wander now has a spine, a body to tire, a guard to raise and a character that grows.
+
+**The vale's story.** Thirteen places, each with a reason to go: a shrine rune, three
+watchtower beacons, the standing stones (guarded by stonekin), a wolf den, two caches,
+four inscriptions, and the pass gate at the end of the forest trail. Five lights (shrine,
+three beacons, altar) answer the gate; breaking the seal wakes the Pass Warden. Beacons
+draw an ambush. Lit places throw a beam you can see across the valley. A compass shows
+the places you have found and the next objective with its distance. Everything is saved:
+lights stay lit, relics stay yours, levels stay, and dying drops you back at the shrine
+with all of it (the Trial keeps its arcade rules, untouched).
+
+**Combat.** Stamina (sprint, dodge, every swing and block spend it; empty means winded).
+**GUARD** (hold) turns blows from the front: raise it just before a hit lands for a PARRY
+(no damage, the attacker staggers, a little stamina back); later it blocks for 20% and
+costs stamina; empty it breaks. Wander lengthens every melee tell so a parry can be
+caught on a phone. **Heavy strike:** tap to swing, hold about 0.6 s and release for a slow
+overhead that hits hard (the button glows as it charges). **LOCK** pulls the view to the
+nearest threat; tap again to let go.
+
+**Growth.** XP from kills, discoveries, lights, caches and parries; 20 levels (+6 health,
++3 stamina, +3% damage each) and a banked skill pick per level, offered when it is calm
+(DECIDE LATER banks it). Seven relics from caches and fights: Warden's Clasp, Wayfarer's
+Boots, Whetstone of Ash, Parry Sigil, Ring of Second Breath, Hunter's Horn and the
+Warden's Cloak (the hero's cloak turns crimson). The journal is on the pause screen.
+
+**Creatures by region.** Wolves (a pack that circles, crouches, then lunges in a straight
+line you can sidestep) hold the den and the old giants' wood; stonekin (big, slow, moss-grey
+stone) guard the standing stones; brutes, stingers and sharpshooters hold the pass.
+
+**Wander HUD.** The score, combo, charge, forms and reload are gone from Wander. What is
+left: health, stamina, level, lights, the compass, the sword/axe/spear/rune strip and
+JUMP, DODGE, AIM, LOCK, GUARD and a context USE button that appears at a place.
+
+**Not in b28:** the lowland below the pass is still a view, not a walkable zone (that
+needs a bigger terrain grid); the gate opens onto the parapet and the ending card says so.
+
+**Keyboard:** F guard (hold), E use, T lock.
+
 ## Music and sound
 
 An original score, synthesised live in `audio.js` (no files). One key (D minor),

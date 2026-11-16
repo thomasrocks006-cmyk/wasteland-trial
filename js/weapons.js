@@ -111,6 +111,12 @@ export function buildGunModel(id) {
 }
 
 /* ============================================================ system */
+/* the held strike: a slow, wide overhead that lands hard and shakes the ground */
+const HEAVY = {
+  sword: { dmg: 104, dur: 0.76, hit: 0.34, style: 'O', finisher: true, slam: true, stam: 26, heavy: true },
+  axe: { dmg: 160, dur: 0.98, hit: 0.44, style: 'O', finisher: true, slam: true, stam: 30, heavy: true },
+};
+
 export class WeaponSystem {
   constructor(scene, player, fx, audio, ctx) {
     this.scene = scene;
@@ -145,7 +151,7 @@ export class WeaponSystem {
     this.shotsFired = 0;
     this.shotsHit = 0;
     // run upgrades (perks) scale these; reset at the start of every run
-    this.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0, reach: 1 };
+    this.mods = { dmg: 1, reload: 1, mag: 1, spread: 1, blast: 1, pierce: 0, reach: 1, heavy: 1 };
     // melee state
     this.swingT = 0; this.swingCur = null; this.swingDone = true; this.comboIdx = 0; this.lastSwingEnd = 0;
     this._aim = new THREE.Vector3();
@@ -153,6 +159,8 @@ export class WeaponSystem {
     this._muzzlePos = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
     this.onFired = null;
+    this.onWinded = null;
+    this._mHeld = false; this.holdT = 0;
     this.visible = true;
     this.syncModel();
   }
@@ -199,6 +207,7 @@ export class WeaponSystem {
   switchTo(i, instant = false) {
     if (i === this.index || i < 0 || i >= WEAPONS.length) return;
     this.idleT = 0; this.throwPending = 0; this.handHidden = 0;
+    this._mHeld = false; this.holdT = 0;
     this.index = i;
     this.swingT = 0; this.swingDone = true; this.comboIdx = 0;
     this.reloading = false;
@@ -407,13 +416,36 @@ export class WeaponSystem {
     return best;
   }
 
-  swing() {
+  /** Wander's blade input: a tap swings at once; a press held ~0.6 s and released is the heavy strike */
+  meleeInput(held, dt, camera) {
+    if (held && !this._mHeld) {
+      this._mHeld = true; this.holdT = 0;
+      if (!this.player.guard) this.fire(camera);
+    } else if (held) {
+      this.holdT += dt;
+    } else if (this._mHeld) {
+      this._mHeld = false;
+      if (this.holdT >= 0.6 && this.drawn && this.drawT <= 0 && !this.player.guard) this.heavy();
+      this.holdT = 0;
+    }
+  }
+  /** 0..1 while a press is being held toward the heavy strike (drives the button glow) */
+  get heavyCharge() { return this._mHeld && this.def.melee ? clamp((this.holdT - 0.25) / 0.35, 0, 1) : 0; }
+
+  heavy() {
+    const h = HEAVY[this.def.id];
+    if (h) this.swing(h);
+  }
+
+  swing(override) {
     this.idleT = 0;
     const d = this.def, M = d.melee;
     if (this.cooldown > 0 || this.switchT < 0.98 || this.swingT > 0) return;
     if (performance.now() - this.lastSwingEnd > 550) this.comboIdx = 0;
-    const c = M.combo[this.comboIdx % M.combo.length];
-    this.comboIdx++;
+    const c = override || M.combo[this.comboIdx % M.combo.length];
+    // a swing costs breath (Wander): winded, you cannot strike until it comes back
+    if (!this.player.spend(c.stam ?? (c.finisher ? 13 : 7))) { if (this.onWinded) this.onWinded(); return; }
+    if (!override) this.comboIdx++;
     this.swingCur = c; this.swingT = c.dur; this.swingDone = false;
     this.cooldown = c.dur;
     this.shotsFired++;
@@ -436,7 +468,7 @@ export class WeaponSystem {
     const d = this.def, M = d.melee, c = this.swingCur, pl = this.player;
     const p = pl.pos, yaw = pl.camYaw;
     const reach = M.range * this.mods.reach, arc = M.arc * Math.min(1.5, this.mods.reach);
-    const dmg = c.dmg * this.mods.dmg * (pl.dmgMul || 1);
+    const dmg = c.dmg * this.mods.dmg * (c.heavy ? this.mods.heavy : 1) * (pl.dmgMul || 1);
     let hits = 0;
     for (const e of (this.ctx.enemies() || [])) {
       if (!e.alive) continue;
@@ -452,6 +484,7 @@ export class WeaponSystem {
       const dir = new THREE.Vector3(dx / dist, 0, dz / dist);
       const point = new THREE.Vector3(ex - dir.x * e.type.radius * 0.6, ey + e.type.height * 0.55, ez - dir.z * e.type.radius * 0.6);
       this.ctx.applyDamage(e, dmg, point, dir, !!c.finisher, d);
+      if (c.heavy && !e.type.boss) e.vel.addScaledVector(dir, e.type.heavy ? 3.5 : 9);
       hits++;
     }
     if (c.slam && this.fx.slash) this.fx.slash(new THREE.Vector3(p.x, p.y + 1.3, p.z), yaw, c.style, d.color, reach);
