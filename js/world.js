@@ -9,6 +9,9 @@ import {
 import { sampleTime, sunVector, makeState, START_TOD } from './daynight.js';
 import { pbr } from './textures.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { ENV, envParts, envPiece } from './envassets.js';
+import { TreeField, treesReady } from './trees.js';
+import { GrassField } from './grass.js';
 
 const _v = new THREE.Vector3();
 let STONE_MAT = null;
@@ -86,9 +89,11 @@ export class World {
     this.buildWater();
     this.buildVegetation();
     this.buildForest();
+    this.buildScans();
     this.buildIvy();
     this.buildGroundDetail();
     this.buildDust();
+    try { this.grass = new GrassField(this.scene, this, this.quality); } catch (e) { console.warn('grass field off:', e && e.message); }
   }
 
   /* -------------------------------------------------- sky */
@@ -367,15 +372,9 @@ export class World {
     this.scene.add(low);
 
     const b = new Builder(), far = new Builder(), glow = new Builder();
-    // ---- mountains ringing the world, snow on the tops
-    for (let i = 0; i < 46; i++) {
-      const a = (i / 46) * TAU + rnd(-0.06, 0.06), dist = 520 + rnd(0, 420);
-      const x = Math.cos(a) * dist, z = Math.sin(a) * dist;
-      const r0 = rnd(110, 240), h = rnd(240, 540), seg = 6 + Math.floor(rng() * 3), rot = rnd(0, TAU);
-      b.add(new THREE.ConeGeometry(r0, h, seg, 1), pick([0x5d666c, 0x6b7378, 0x535b62]), { pos: [x, LOWLAND_Y - 10 + h / 2, z], rot: [0, rot, 0], jitter: 0.05 });
-      const cap = rnd(0.3, 0.45);
-      b.add(new THREE.ConeGeometry(r0 * cap * 1.04, h * cap, seg, 1), PAL.snow, { pos: [x, LOWLAND_Y - 10 + h - (h * cap) / 2 + 0.6, z], rot: [0, rot, 0], jitter: 0.03 });
-    }
+    // ---- mountains ringing the world: a ring of terrain shaped by ridged noise (sharp crests, cut valleys), coloured by
+    //      slope and height: dark rock on the steep faces, snow only where it can lie (high and flatter), scree, then forest
+    this.buildRange();
     // ---- forest across the lowland, in stands
     for (let k = 0; k < 2600 && far.pos.length < 0.55e6; k++) {     // capped: far trees are cheap only in number
       const a = rnd(0, TAU), rr = rnd(125, 760);
@@ -459,8 +458,67 @@ export class World {
     }
   }
 
+  buildRange() {
+    const RS = 64, AS = 420, R0 = 520, R1 = 1250;
+    const ridged = (x, z) => {
+      let sum = 0, amp = 1, f = 0.0016, norm = 0, prev = 1;
+      for (let o = 0; o < 6; o++) {
+        const nv = fbm(x * f + 31.7 * o, z * f - 17.3 * o, 1) * 2;          // one octave of fbm is 0..0.5
+        let r = 1 - Math.abs(nv * 2 - 1); r *= r; r *= 0.5 + prev * 0.5; prev = r;     // ridges sharpen where the coarser ridge is high
+        sum += r * amp; norm += amp; amp *= 0.5; f *= 2.05;
+      }
+      return sum / norm;
+    };
+    const H = (x, z) => {
+      const rr = Math.hypot(x, z), a = Math.atan2(z, x);
+      const env = smoothstep(R0, R0 + 160, rr) * (1 - smoothstep(R1 - 220, R1, rr) * 0.35);
+      let da = Math.abs(((a - GAP_A + Math.PI) % TAU + TAU) % TAU - Math.PI);
+      const gap = 1 - (1 - smoothstep(0.18, 0.55, da)) * 0.72;          // lower through the pass: the view out stays open
+      const base = fbm(x * 0.0007 + 3, z * 0.0007, 2);
+      return LOWLAND_Y - 12 + env * gap * (70 + base * 170 + ridged(x, z) * 320);
+    };
+    const pos = new Float32Array((RS + 1) * AS * 3), col = new Float32Array((RS + 1) * AS * 3), idx = [];
+    for (let i = 0; i <= RS; i++) {
+      const rr = R0 * Math.pow(R1 / R0, i / RS);
+      for (let j = 0; j < AS; j++) {
+        const a = (j / AS) * TAU + (i % 2) * (Math.PI / AS), x = Math.cos(a) * rr, z = Math.sin(a) * rr, k = (i * AS + j) * 3;
+        pos[k] = x; pos[k + 1] = H(x, z); pos[k + 2] = z;
+      }
+    }
+    for (let i = 0; i < RS; i++) for (let j = 0; j < AS; j++) {
+      const a = i * AS + j, b2 = i * AS + (j + 1) % AS, c = (i + 1) * AS + j, d = (i + 1) * AS + (j + 1) % AS;
+      idx.push(a, b2, c, b2, d, c);                                   // counter-clockwise from above: the faces look up
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+    const nrm = g.attributes.normal, c1 = new THREE.Color(), c2 = new THREE.Color();
+    for (let v = 0; v < pos.length / 3; v++) {
+      const y = pos[v * 3 + 1] - LOWLAND_Y, up = nrm.getY(v), jitter = fbm(pos[v * 3] * 0.02, pos[v * 3 + 2] * 0.02, 2);
+      // rock by slope, warmer scree low, forest at the feet, snow where it can lie
+      c1.setHex(0x59606a).lerp(c2.setHex(0x7a776e), clamp((up - 0.55) * 2.5, 0, 1) * 0.6);
+      if (y < 150) c1.lerp(c2.setHex(0x2d4626), clamp((150 - y) / 120, 0, 1) * clamp((up - 0.6) * 3, 0, 1));
+      const snow = clamp((y - 250 - jitter * 80) / 50, 0, 1) * clamp((up - 0.45) * 3.5, 0, 1);
+      c1.lerp(c2.setHex(0xf2f5f8), snow);
+      c1.offsetHSL(0, 0, (jitter - 0.5) * 0.06);
+      col[v * 3] = c1.r; col[v * 3 + 1] = c1.g; col[v * 3 + 2] = c1.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    const rock = pbr('rock', { repeat: 1, anisotropy: 4 });
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+    if (rock && rock.userData.normal) {
+      // planar rock detail for the near faces (uv from x/z, scaled): the photo grain reads as stone at a distance
+      const uv = new Float32Array((pos.length / 3) * 2); for (let v = 0; v < pos.length / 3; v++) { uv[v * 2] = pos[v * 3] / 40; uv[v * 2 + 1] = (pos[v * 3 + 2] + pos[v * 3 + 1]) / 40; }
+      g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+      mat.normalMap = rock.userData.normal; mat.normalScale = new THREE.Vector2(0.35, 0.35);
+    }
+    const m = new THREE.Mesh(g, mat); m.frustumCulled = false; m.receiveShadow = false;
+    this.scene.add(m);
+    this.range = m;
+  }
+
   /* -------------------------------------------------- rocks */
   buildRocks() {
+    if (this.buildScannedRocks()) return;
     const variants = [];
     for (let v = 0; v < 3; v++) {
       // a finer sphere, shaped by layered noise (broad lumps, then fractures), shaded smooth: a boulder, not a gem
@@ -528,6 +586,113 @@ export class World {
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       this.scene.add(mesh);
     }
+  }
+
+  /** scanned stones at a list of spots [{x, y, z, s, ry}] (pebbles, rock clusters); false if the scans did not load */
+  scannedStones(spots, { shadow = false, lo = false } = {}) {
+    const parts = (lo && ENV.pebbles_lo ? envParts('pebbles_lo', { norm: true }) : [...envParts('rock_moss_set_02', { norm: true }), ...envParts('rock_moss_set_01', { norm: true })]).filter((p) => p.geo.attributes.position.count > 20);
+    if (!parts.length || !spots.length) return false;
+    const per = Math.ceil(spots.length / parts.length), d = new THREE.Object3D(), col = new THREE.Color();
+    parts.forEach((pt, k) => {
+      const mine = spots.filter((_, i) => i % parts.length === k);
+      const m = new THREE.InstancedMesh(pt.geo, pt.mat, Math.max(1, mine.length));
+      m.castShadow = shadow; m.receiveShadow = true;
+      m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, mine.length) * 3), 3);
+      mine.forEach((p, i) => {
+        d.position.set(p.x, p.y, p.z); d.rotation.set(rnd(-0.15, 0.15), p.ry, rnd(-0.15, 0.15)); d.scale.set(p.s, p.s * rnd(0.7, 1.1), p.s * rnd(0.85, 1.15)); d.updateMatrix();
+        m.setMatrixAt(i, d.matrix); const g = rnd(0.8, 1.0); m.setColorAt(i, col.setRGB(g, g, g));
+      });
+      m.count = mine.length; m.instanceMatrix.needsUpdate = true; m.instanceColor.needsUpdate = true;
+      this.scene.add(m);
+    });
+    return true;
+  }
+
+  /** the boulders as photo-scanned rocks (two mossy sets of six and a big boulder), when they loaded */
+  buildScannedRocks() {
+    const parts = [...envParts('rock_moss_set_01', { norm: true }), ...envParts('rock_moss_set_02', { norm: true }), ...envParts('namaqualand_boulder_02', { norm: true })]
+      .filter((p) => p.geo.attributes.position.count > 60);
+    if (parts.length < 3) return false;
+    const COUNT = this.quality === 'fast' ? 60 : 110, per = Math.ceil(COUNT / parts.length);
+    const dummy = new THREE.Object3D(), col = new THREE.Color();
+    for (const pt of parts) {
+      const mesh = new THREE.InstancedMesh(pt.geo, pt.mat, per);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(per * 3), 3);
+      const hgt = pt.geo.userData.height || 1;
+      let n = 0, guard = 0;
+      while (n < per && guard++ < per * 40) {
+        const a = rnd(0, TAU), r = Math.sqrt(rng()) * (ARENA_R - 8) + 6;
+        const x = Math.cos(a) * r, z = Math.sin(a) * r;
+        if (Math.hypot(x, z) < 14) continue;
+        const s = rnd(0.7, 3.2) * (1 + smoothstep(40, 90, r) * 0.8);
+        if (terrainNormal(x, z, _v).y < 0.82 || waterDist(x, z) < s || trailDist(x, z) < s * 0.9 + 2.4) continue;
+        let ground = terrainHeight(x, z);
+        for (let k = 0; k < 6; k++) { const ang = (k / 6) * TAU; ground = Math.min(ground, terrainHeight(x + Math.cos(ang) * s * 0.55, z + Math.sin(ang) * s * 0.55)); }
+        const sy = s * rnd(0.85, 1.15);
+        dummy.position.set(x, ground - sy * hgt * 0.12, z);
+        dummy.rotation.set(rnd(-0.08, 0.08), rnd(0, TAU), rnd(-0.08, 0.08));
+        dummy.scale.set(s, sy, s * rnd(0.9, 1.1));
+        dummy.updateMatrix(); mesh.setMatrixAt(n, dummy.matrix);
+        const g = rnd(0.82, 1.02); mesh.setColorAt(n, col.setRGB(g, g, g * rnd(0.97, 1.02)));
+        if (s > 1.4) this.obstacles.push({ x, z, r: s * 0.8, h: sy * hgt * 0.85 });
+        n++;
+      }
+      mesh.count = n; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true;
+      this.scene.add(mesh);
+    }
+    return true;
+  }
+
+  /**
+   * Scanned forest litter along the trail and the valley's edges: old stumps, fallen trunks, pine roots, ferns.
+   * Each model's meshes become instanced meshes that share one set of placements.
+   */
+  buildScans() {
+    const fast = this.quality === 'fast';
+    const scatter = (id, count, place, solid = null) => {
+      const parts = envParts(id, { merge: true }); if (!parts.length) return;
+      const meshes = parts.map((pt) => { const m = new THREE.InstancedMesh(pt.geo, pt.mat, count); m.castShadow = !fast; m.receiveShadow = true; this.scene.add(m); return m; });
+      const d = new THREE.Object3D();
+      let n = 0, guard = 0;
+      while (n < count && guard++ < count * 60) {
+        const p = place(); if (!p) continue;
+        d.position.set(p.x, p.y, p.z); d.rotation.set(0, p.ry, 0); d.scale.setScalar(p.s); d.updateMatrix();
+        for (const m of meshes) m.setMatrixAt(n, d.matrix);
+        if (solid) solid(p);
+        n++;
+      }
+      for (const m of meshes) { m.count = n; m.instanceMatrix.needsUpdate = true; }
+    };
+    // somewhere in the woods by the trail (not on it, not in the water, not on a cliff)
+    const woods = (near, far, edge = false) => () => {
+      const a = rnd(0, TAU), r = Math.sqrt(rng()) * (ARENA_R - 6);
+      const x = Math.cos(a) * r, z = Math.sin(a) * r, td = trailDist(x, z);
+      if (!edge && (td < near || td > far)) return null;
+      if (edge && r < ARENA_R - 30) return null;
+      if (Math.hypot(x, z) < 16 || waterDist(x, z) < 2.5 || terrainNormal(x, z, _v).y < 0.85) return null;
+      return { x, z, y: terrainHeight(x, z), ry: rnd(0, TAU), s: 1 };
+    };
+    scatter('tree_stump_01', fast ? 12 : 26, () => { const p = woods(3, 16)(); if (p) { p.s = rnd(0.8, 1.3); p.y -= 0.05; } return p; },
+      (p) => this.obstacles.push({ x: p.x, z: p.z, r: 0.5 * p.s, h: 0.7 * p.s }));
+    scatter('dead_tree_trunk', fast ? 8 : 16, () => {
+      const p = woods(4, 18)(); if (!p) return null;
+      p.s = rnd(1.1, 1.8); p.y -= 0.08;
+      // the trunk lies along its local x: it must lie on ground that is level enough from end to end
+      const ex = Math.cos(p.ry) * 1.5 * p.s, ez = -Math.sin(p.ry) * 1.5 * p.s;
+      if (Math.abs(terrainHeight(p.x + ex, p.z + ez) - terrainHeight(p.x - ex, p.z - ez)) > 0.5 || trailDist(p.x + ex, p.z + ez) < 3 || trailDist(p.x - ex, p.z - ez) < 3) return null;
+      p.y = Math.min(p.y, terrainHeight(p.x + ex, p.z + ez), terrainHeight(p.x - ex, p.z - ez)) - 0.05;
+      return p;
+    }, (p) => { for (const k of [-1, 0, 1]) this.obstacles.push({ x: p.x + Math.cos(p.ry) * k * 1.1 * p.s, z: p.z - Math.sin(p.ry) * k * 1.1 * p.s, r: 0.35 * p.s, h: 0.4 * p.s }); });
+    scatter('pine_roots', fast ? 10 : 22, () => { const p = woods(3, 20)(); if (p) { p.s = rnd(0.9, 1.4); p.y -= 0.04; } return p; });
+    const FERN = ENV.fern_lo ? 'fern_lo' : 'fern_02';
+    scatter(FERN, fast ? 50 : 110, () => { const p = woods(2.2, 22)(); if (p) { p.s = rnd(0.6, 1.1); } return p; });
+    // and in the open valley, where the old blob shrubs stood
+    scatter(FERN, fast ? 40 : 90, () => {
+      const a = rnd(0, TAU), r = Math.sqrt(rng()) * (ARENA_R - 6) + 4, x = Math.cos(a) * r, z = Math.sin(a) * r;
+      if (Math.hypot(x, z) < 15 || waterDist(x, z) < 1.5 || trailDist(x, z) < 2.5 || terrainNormal(x, z, _v).y < 0.82) return null;
+      return { x, z, y: terrainHeight(x, z) - 0.03, ry: rnd(0, TAU), s: rnd(0.7, 1.3) };
+    });
   }
 
   /* -------------------------------------------------- ruins */
@@ -737,7 +902,8 @@ export class World {
       }
     }
 
-    // ---- rock clusters
+    // ---- rock clusters (scanned stones when they loaded)
+    const clusterSpots = [];
     for (let i = 0; i < 14; i++) {
       const s = spot(11, 50, 2.2);
       if (!s) continue;
@@ -745,12 +911,12 @@ export class World {
       for (let k = 0; k < n; k++) {
         const a = rnd(0, TAU), d = rnd(0, 1.9), sz = rnd(0.3, 0.95);
         const wx = s[0] + Math.cos(a) * d, wz = s[1] + Math.sin(a) * d;
-        b.add(new THREE.DodecahedronGeometry(sz, 0), pick([PAL.rock, PAL.rockDark, 0x8a5a3a]), {
-          pos: [wx, terrainHeight(wx, wz) + sz * 0.32, wz],
-          rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.06
-        });
+        clusterSpots.push({ x: wx, y: terrainHeight(wx, wz) - sz * 0.15, z: wz, s: sz * 1.1, ry: rnd(0, TAU), sz });
       }
       this.obstacles.push({ x: s[0], z: s[1], r: 1.0 });
+    }
+    if (!this.scannedStones(clusterSpots, { shadow: true })) for (const c of clusterSpots) {
+      b.add(new THREE.DodecahedronGeometry(c.sz, 0), pick([PAL.rock, PAL.rockDark, 0x8a5a3a]), { pos: [c.x, c.y + c.sz * 0.47, c.z], rot: [rnd(0, TAU), rnd(0, TAU), rnd(0, TAU)], jitter: 0.06 });
     }
 
     // ---- near-field debris: small stones are how the eye judges distance
@@ -798,20 +964,26 @@ export class World {
     this.flames = [];
     this.banners = [];
 
-    const brazier = (x, z, withLight) => {
+    const brazier = (x, z, withLight, pit = false) => {
       const y0 = terrainHeight(x, z);
-      b.add(new THREE.CylinderGeometry(0.26, 0.44, 1.0, 6), PAL.ruinDark, { pos: [x, y0 + 0.5, z], jitter: 0.05 });
-      b.add(new THREE.CylinderGeometry(0.64, 0.32, 0.32, 8), PAL.metalRust, { pos: [x, y0 + 1.16, z], jitter: 0.05 });
-      b.add(new THREE.CylinderGeometry(0.52, 0.52, 0.06, 8), 0x241710, { pos: [x, y0 + 1.31, z] });
+      // a fire pit on the ground (the scanned stone ring), or a bowl on a stand
+      const piece = pit ? envPiece('stone_fire_pit') : null;
+      if (piece) { piece.position.set(x, y0 - 0.04, z); piece.rotation.y = rnd(0, TAU); this.scene.add(piece); }
+      else {
+        b.add(new THREE.CylinderGeometry(0.26, 0.44, 1.0, 6), PAL.ruinDark, { pos: [x, y0 + 0.5, z], jitter: 0.05 });
+        b.add(new THREE.CylinderGeometry(0.64, 0.32, 0.32, 8), PAL.metalRust, { pos: [x, y0 + 1.16, z], jitter: 0.05 });
+        b.add(new THREE.CylinderGeometry(0.52, 0.52, 0.06, 8), 0x241710, { pos: [x, y0 + 1.31, z] });
+      }
+      const fy = piece ? 0.55 : 1.6;
       const mat = new THREE.SpriteMaterial({
         map: radialSprite('rgba(255,226,150,1)', 'rgba(255,80,10,0)', 64),
         blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.95
       });
       const sp = new THREE.Sprite(mat);
-      sp.position.set(x, y0 + 1.6, z);
-      sp.scale.set(1.5, 2.2, 1);
+      sp.position.set(x, y0 + fy, z);
+      sp.scale.set(piece ? 1.7 : 1.5, piece ? 2.0 : 2.2, 1);
       this.scene.add(sp);
-      const f = { sp, base: y0 + 1.6, seed: rng() * 10 };
+      const f = { sp, base: y0 + fy, seed: rng() * 10 };
       if (withLight) {
         const L = new THREE.PointLight(0xff8b3a, 2.6, 18, 2);
         L.position.set(x, y0 + 1.8, z);
@@ -827,8 +999,8 @@ export class World {
       const a = (i / 4) * TAU + 0.4;
       brazier(Math.cos(a) * 11.5, Math.sin(a) * 11.5, i < 2);
     }
-    brazier(-36.9 + 4.5, -59.2 - 3.2, true);
-    brazier(-71.1 - 3.5, -34.8 + 2.5, false);
+    brazier(-36.9 + 4.5, -59.2 - 3.2, true, true);
+    brazier(-71.1 - 3.5, -34.8 + 2.5, false, true);
 
     // ---- banners hanging from the inner arch
     const cloth = new THREE.MeshLambertMaterial({ map: clothTexture(), side: THREE.DoubleSide });
@@ -1041,7 +1213,7 @@ export class World {
       g.computeVertexNormals();
       return g;
     })();
-    const SHRUBS = this.quality === 'fast' ? 70 : 150;
+    const SHRUBS = ENV.fern_02 ? 0 : this.quality === 'fast' ? 70 : 150;     // the scanned ferns take their place (buildScans)
     const shrubs = new THREE.InstancedMesh(shrubGeo,
       new THREE.MeshLambertMaterial({ flatShading: true }), SHRUBS);
     shrubs.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(SHRUBS * 3), 3);
@@ -1097,6 +1269,15 @@ export class World {
   /* -------------------------------------------------- ground scatter */
   buildGroundDetail() {
     const COUNT = this.quality === 'fast' ? 260 : 620;
+    if (ENV.pebbles_lo || ENV.rock_moss_set_02) {
+      const spots = []; let guard = 0;
+      while (spots.length < COUNT && guard++ < COUNT * 6) {
+        const a = rnd(0, TAU), r = Math.sqrt(rng()) * (ARENA_R - 2), x = Math.cos(a) * r, z = Math.sin(a) * r;
+        if (terrainNormal(x, z, _v).y < 0.9) continue;
+        const s = rnd(0.06, 0.3); spots.push({ x, y: terrainHeight(x, z) - s * 0.2, z, s, ry: rnd(0, TAU) });
+      }
+      if (this.scannedStones(spots, { lo: true })) return;
+    }
     const geo = new THREE.IcosahedronGeometry(1, 0);
     const mat = new THREE.MeshLambertMaterial({ flatShading: true });
     const mesh = new THREE.InstancedMesh(geo, mat, COUNT);
@@ -1396,6 +1577,8 @@ export class World {
     const LEAF_TINTS = [0xffffff, 0xe6f5d6, 0xd2e8bc, 0xf2f0c8, 0xdfeeb4];
     const BIRCH_TINTS = [0xf4ffc0, 0xe8ffb0, 0xfff4b0, 0xe0f8b8];
     this.forestCount = { broadleaf: 0, fir: 0, birch: 0, giant: 0 };
+    // the EZ-Tree models (near) and their cards (far) take every tree below, when they loaded
+    const TF = treesReady() ? (this.treeField = new TreeField(this.scene, this.quality, this.time)) : null;
 
     // chunks along the trail: each holds its own builders, so whole chunks cull
     const CHUNK = 40;
@@ -1426,6 +1609,7 @@ export class World {
 
     const broadleaf = (x, y, z, s, tx, tz, mossy = false) => {
       const H = rnd(9, 13) * s;
+      if (TF) { TF.add(s > 1.5 ? 'giant' : 'broad', x, y, z, H * 1.05); this.obstacles.push({ x, z, r: 0.6 * s, h: H }); this.forestCount[s > 1.5 ? 'giant' : 'broadleaf']++; return; }
       const top = new THREE.Vector3(x + tx * 0.07 * H, y + H, z + tz * 0.07 * H);
       const col = pick([0x6b5a48, 0x5e5040, 0x77654f]);
       cyl(C.bark, new THREE.Vector3(x, y - 0.3, z), top, 0.48 * s, 0.2 * s, col, 10);
@@ -1447,6 +1631,7 @@ export class World {
 
     const birch = (x, y, z, s) => {
       const H = rnd(9, 13) * s, lean = rnd(-0.06, 0.06), lz = rnd(-0.06, 0.06);
+      if (TF) { TF.add('birch', x, y, z, H); this.obstacles.push({ x, z, r: 0.3 * s, h: H }); this.forestCount.birch++; return; }
       const top = new THREE.Vector3(x + lean * H, y + H, z + lz * H);
       cyl(C.birch, new THREE.Vector3(x, y - 0.2, z), top, 0.2 * s, 0.08 * s, 0xffffff, 9);
       const crown = new THREE.Vector3(top.x, y + H * 0.8, top.z);
@@ -1464,6 +1649,7 @@ export class World {
 
     const fir = (x, y, z, s) => {
       const H = rnd(10, 16) * s;
+      if (TF) { TF.add('fir', x, y, z, H * 1.1); this.obstacles.push({ x, z, r: 0.45 * s, h: H }); this.forestCount.fir++; return; }
       cyl(C.bark, new THREE.Vector3(x, y - 0.2, z), new THREE.Vector3(x, y + H, z), 0.32 * s, 0.05 * s, 0x4e3c2c, 7);
       const axisNormal = (v, out) => out.set(v.x - x, 0.35, v.z - z).normalize();
       for (let h = 1.7 * s; h < H - 0.4; h += 0.75 * s) {
@@ -1656,6 +1842,7 @@ export class World {
     };
     for (const ch of chunks) if (ch) emit(ch, true);
     emit(valley, false);
+    if (TF) TF.build();
     const st = new THREE.Mesh(stones.buildUV(0.6), stoneMat()); st.castShadow = true; st.receiveShadow = true; this.scene.add(st);
     this.scene.add(new THREE.Mesh(shrooms.build(), new THREE.MeshLambertMaterial({ vertexColors: true })));
     if (glow.pos.length) this.scene.add(new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: true })));
@@ -1731,6 +1918,8 @@ export class World {
 
   /* -------------------------------------------------- per frame */
   update(dt, t, playerPos, camera) {
+    if (this.treeField && playerPos) this.treeField.update(dt, playerPos);
+    if (this.grass && playerPos) this.grass.update(playerPos, !!this.cave);
     this.time.value = t;
     if (this.runes) this.runes.material.color.setScalar(0.75 + Math.sin(t * 1.3) * 0.25);
     if (this.mist) for (const m of this.mist) {

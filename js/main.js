@@ -13,6 +13,8 @@ import { Wildlife } from './wildlife.js';
 import { loadHeroAsset } from './hero.js';
 import { SoldierFactory, SOLDIER_MATS } from './soldiers.js';
 import { preloadTextures } from './textures.js';
+import { preloadEnv } from './envassets.js';
+import { preloadTrees } from './trees.js';
 import { drawMap } from './map.js';
 import { buildVault } from './vault.js';
 import { DAY_LEN, START_TOD, phaseName } from './daynight.js';
@@ -81,8 +83,9 @@ resize();
 
 /* ================================================================ entities */
 const audio = new Audio();
-await preloadTextures();        // photographic surfaces, ready before anything is built
+await Promise.all([preloadTextures(), preloadEnv(), preloadTrees()]);        // photographic surfaces and scanned props, ready before anything is built
 const world = new World(scene, QUALITY);
+if (world.treeField) { try { world.treeField.bake(renderer); } catch (e) { console.warn('tree cards not baked:', e && e.message); } }
 world.setRenderer(renderer);    // reflections from the real sky
 // the armoured Warden is a skinned model with captured motion; if its file cannot be loaded the procedural hero stands in
 let heroAsset = null;
@@ -1538,7 +1541,7 @@ weapons.ctx.spawnProjectile = (pos, vel, ex, dmg) => {
 /* ================================================================ loop */
 let last = performance.now();
 let kbMoving = false;
-let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, adapted = false, lowFps2 = 0, shadowsCut = false;
+let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, adapted = false, lowFps2 = 0, shadowsCut = false, lowFps3 = 0, natureThinned = false;
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -1562,7 +1565,11 @@ function frame(now) {
         if (adapted && !shadowsCut && fps < 30 && !navigator.webdriver) {
           lowFps2 += 1.5;
           if (lowFps2 > 4.5) { shadowsCut = true; world.shadowsOff = true; world.sun.castShadow = false; showToast('SHADOWS OFF FOR SPEED'); }
-        } else lowFps2 = 0;
+        } else if (shadowsCut && !natureThinned && fps < 28 && !navigator.webdriver) {
+          // still slow: half the grass, and the full trees only close by (the cards take the rest)
+          lowFps3 += 1.5;
+          if (lowFps3 > 4.5) { natureThinned = true; if (world.grass) world.grass.mesh.geometry.instanceCount = Math.floor(world.grass.mesh.geometry.instanceCount / 2); if (world.treeField) { world.treeField.R *= 0.6; world.treeField.last = null; } }
+        } else { lowFps2 = 0; lowFps3 = 0; }
       }
     }
   }

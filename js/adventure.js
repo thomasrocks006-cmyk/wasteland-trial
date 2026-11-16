@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { envPiece } from './envassets.js';
 import {
   TAU, rnd, pick, angleTo, terrainHeight, terrainNormal, GAP_A, TRAIL, TRAIL_LEN, RIVER, waterDist, Builder, canvasTex
 } from './core.js';
@@ -338,6 +339,22 @@ export class Adventure {
     this.barrier = new THREE.Mesh(new THREE.PlaneGeometry(9.4, 9.2), new THREE.MeshBasicMaterial({ map: film, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }));
     this.barrier.position.set(x, ly + 5.2, z); this.barrier.rotation.y = yaw;
     this.scene.add(this.barrier);
+    // the scanned iron gate (Poly Haven) fills the opening; its leaves swing outward when the pass is won
+    const gate = envPiece('large_iron_gate');
+    if (gate) {
+      const S = 3.0, hold = new THREE.Group(); hold.position.set(x, ly - 0.1, z); hold.rotation.y = yaw; hold.scale.setScalar(S);
+      const leaves = [];
+      for (const [name, side] of [['large_iron_gate_left_door', -1], ['large_iron_gate_right_door', 1]]) {
+        const leaf = gate.getObjectByName(name); if (!leaf) continue;
+        const pivot = new THREE.Group(); pivot.position.set(side * 1.45, 0, 0); hold.add(pivot);
+        leaf.position.set(-side * 1.45, 0, 0); pivot.add(leaf);
+        leaves.push({ pivot, side });
+      }
+      for (const name of ['large_iron_gate', 'large_iron_gate_bolt']) { const o = gate.getObjectByName(name); if (o) { hold.add(o); o.userData.gateBolt = name.endsWith('bolt'); } }
+      this.scene.add(hold);
+      this.gate = { hold, leaves, open: 0, bolt: hold.children.find((o) => o.userData && o.userData.gateBolt) };
+      this.barrier.visible = false; this.barrier.userData.replaced = true;
+    }
   }
 
   /** the door in the hillside: two worn pillars, a lintel, and a dark doorway that wakes when the altar does */
@@ -357,6 +374,14 @@ export class Adventure {
     this.doorway = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 4.6), new THREE.MeshBasicMaterial({ color: 0x02030a, transparent: true, opacity: 0.96, side: THREE.DoubleSide }));
     this.doorway.position.set(x - ux * 0.25, y0 + 2.4, z - uz * 0.25); this.doorway.rotation.y = yaw;
     this.scene.add(this.doorway);
+    // the scanned castle door (Poly Haven) in front of the dark: its two leaves open when the war camp's banner is raised
+    const door = envPiece('large_castle_door');
+    if (door) {
+      door.position.set(x + ux * 0.05, y0 - 0.05, z + uz * 0.05); door.rotation.y = yaw; door.scale.set(1.62, 1.55, 1.4);
+      this.scene.add(door);
+      this.doorway.position.set(x - ux * 0.9, y0 + 2.4, z - uz * 0.9);
+      this.door = { leaves: [['large_castle_door_left', 1], ['large_castle_door_right', -1]].map(([n, side]) => ({ o: door.getObjectByName(n), side, base: door.getObjectByName(n) ? door.getObjectByName(n).rotation.y : 0 })).filter((l) => l.o), open: 0 };
+    }
   }
 
   /** a campfire among stones, and an old man leaning on a staff beside it */
@@ -407,7 +432,7 @@ export class Adventure {
     for (const p of this.places) {
       const done = !!this.adv.done[p.id], found = !!this.adv.found[p.id] || done;
       if (p.ringMesh) { p.ringMesh.userData.base = done ? 0.55 : found ? 0.22 : 0; p.ringMesh.material.color.setHex(done ? p.color : 0xd8b070); }
-      if (p.id === 'gate' && this.barrier) this.barrier.visible = !this.adv.passOpen;
+      if (p.id === 'gate' && this.barrier) this.barrier.visible = !this.adv.passOpen && !this.barrier.userData.replaced;
       if (p.beam) { p.beam.visible = done && !(p.id === 'gate' && !this.adv.passOpen); p.beam.material.opacity = 0.0; }
       if (p.chest) p.chest.hinge.rotation.x = done ? -1.9 : 0;
       if (p.stone) p.stone.face.material.opacity = this.adv.read[p.lore] ? 0.9 : 0.35;
@@ -557,6 +582,16 @@ export class Adventure {
       const f = this.hermitFire, w = Math.sin(time * 9) * 0.5 + Math.sin(time * 23.7) * 0.25;
       f.sp.scale.set(1.25 + w * 0.2, 1.85 + w * 0.45, 1); f.sp.position.y = f.base + w * 0.05;
       f.glow.material.color.setScalar(0.8 + 0.2 * Math.sin(time * 2.1)); f.glow.material.color.b = 1;
+    }
+    // the gate and the door swing on their hinges
+    if (this.gate) {
+      const want = this.adv.passOpen ? 1 : 0; this.gate.open += (want - this.gate.open) * Math.min(1, dt * 0.8);
+      for (const l of this.gate.leaves) l.pivot.rotation.y = l.side * this.gate.open * 1.75;
+      if (this.gate.bolt) this.gate.bolt.visible = this.gate.open < 0.05;
+    }
+    if (this.door) {
+      const want = this.adv.done.altar ? 1 : 0; this.door.open += (want - this.door.open) * Math.min(1, dt * 0.7);
+      for (const l of this.door.leaves) l.o.rotation.y = l.base + l.side * this.door.open * 1.5;
     }
     if (this.barrier && this.barrier.visible) {
       this.barrier.material.opacity = 0.34 + 0.1 * Math.sin(time * 1.6);

@@ -245,6 +245,28 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b35: open-source nature (scanned rocks, real trees, grass, a mountain range)
+
+Open, permissively licensed work only (no assets pulled from commercial games). Credits in `assets/env/CREDITS.txt` and
+`assets/trees/CREDITS.txt`.
+- **Photo-scanned props** from Poly Haven (CC0): two mossy rock sets and a boulder (the valley's boulders, rock clusters and
+  pebbles, replacing the faceted ones), stumps, fallen trunks, pine roots, ferns (replacing the blob shrubs), a stone fire pit
+  (the arch fires), a castle door (the Undercroft; its leaves open when the war camp's banner goes up) and an iron gate (the
+  pass; re-hinged, it swings open when the pass is won, replacing the old rune film). Cut down with gltf-transform (weld,
+  simplify to a few hundred to a few thousand triangles, 512 px WebP textures, quantized): 2.9 MB for all of them.
+  `js/envassets.js` loads them before the world is built; anything missing leaves the old procedural piece in place.
+- **Trees** from EZ-Tree (Dan Greenheck, MIT): three pines, an oak, an aspen, generated offline with fewer branches and leaf
+  cards, baked to glTF (2.6 MB). `js/trees.js`: every forest and valley tree is a spot; within 35 m (25 fast, 55 high) it
+  is the real tree, instanced and swaying, casting shadows; further out it is a card with a picture of that same tree
+  rendered at start-up (an impostor). The old procedural tree geometry is not built when the trees load.
+- **Grass** after SimonDev's Quick_Grass (MIT): `js/grass.js`, clumps of three blades instanced around the player in a patch
+  that follows him (14k clumps balanced), height and growth read from maps baked from the terrain (none on the trail, in
+  water, on cliffs or under a rock), lit and fogged like the scene, swaying, fading at the patch edge.
+- **A mountain range** in place of the 46 cones: a ring of terrain from ridged noise, coloured by slope and height (rock,
+  scree, forest, snow only where it can lie), lower through the pass so the view out stays open.
+- Cost on the test box: about 1.28 M rendered triangles at balanced (was about 0.74 M); the frame-rate guard now has a third
+  step (after resolution and shadows) that halves the grass and pulls the real trees in closer.
+
 ## b34: captured sword play, Ryse finishers, the Trial's guard, tabards, a heavier cape
 
 **Real sword moves.** Quaternius' Universal Animation Library 2 (CC0) has the sword-and-shield set the first one lacked.

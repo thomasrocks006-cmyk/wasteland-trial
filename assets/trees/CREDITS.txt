@@ -1,0 +1,4 @@
+Trees generated with EZ-Tree by Dan Greenheck (https://github.com/dgreenheck/ez-tree, MIT licence), from its pine, oak and
+aspen presets with fewer branches and leaves for phones; baked to glTF with three.js GLTFExporter, textures resized to 512 px
+(WebP), mesh quantized (gltf-transform). Bark textures as shipped with EZ-Tree: oak from Poly Haven (CC0), pine and birch
+from TextureCan (CC0). Leaf textures from the EZ-Tree repository (MIT).

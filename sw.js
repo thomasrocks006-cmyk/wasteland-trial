@@ -1,4 +1,4 @@
-const CACHE = 'wasteland-trial-v34';
+const CACHE = 'wasteland-trial-v35';
 const ASSETS = [
   './',
   './index.html',
@@ -22,6 +22,9 @@ const ASSETS = [
   './js/soldiers.js',
   './js/soldier_ai.js',
   './js/cloth.js',
+  './js/envassets.js',
+  './js/trees.js',
+  './js/grass.js',
   './js/textures.js',
   './assets/tex/rock_c.jpg', './assets/tex/rock_n.jpg', './assets/tex/slate_c.jpg', './assets/tex/slate_n.jpg', './assets/tex/ground_c.jpg', './assets/tex/ground_n.jpg',
   './assets/tex/bark_c.jpg', './assets/tex/bark_n.jpg', './assets/tex/birch_c.jpg', './assets/tex/birch_n.jpg',
