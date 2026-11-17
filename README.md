@@ -245,6 +245,26 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b39: taps that work, FOCUS, harder fights, Tom's score back
+
+- **Using things on a phone.** Walk up to anything usable (a fire, a door, a stone, the hermit, the horse): a pulsing ring with
+  TAP · <what it does> floats over it and the orange button on the right says the same. Tap either. Both were broken on
+  phones: the touch stream ended a gesture without ever counting it as a tap, and the orange button (and FINISH) sat under
+  the invisible look-drag area. Found by tapping with a real touch in the test, not by calling the code.
+- **FOCUS** (the gold ring button, or X): hits, parries and finishers fill it; spent, the soldiers slow to a third for six
+  seconds while you move at full speed, every blow lands half again as hard and staggers.
+- **New attacks**: attack in mid-air for a plunge that lands with a shockwave; guard + full stick + attack for a shield
+  charge that bowls men over; stick pulled back + attack for a spinning backhand all round you.
+- **Harder**: soldiers 25% tougher, 30% harder hitting, tells 15% quicker, turns come round sooner, three attackers at once
+  from level 4. **Payoff**: the last man of a band falls in slow motion with a banner, XP and spoils.
+- **Sharpness**: the frame-rate guard used to drop the resolution from 1.6x to 1.0x for the rest of the session the first
+  time a fight ran slow (everything went soft). It now steps 1.6 -> 1.3 -> 1.0 and comes back up when there is room. The
+  Storm's own light (which every surface paid for, casting or not) is gone: it borrows the effects' flash light, which now
+  stays in the scene at zero instead of appearing (an appearing light recompiles every material: a first-use stall).
+- **Cape**: the backstop plane follows the shoulders (a twisted chest no longer pushes the cloth through him), sits behind
+  the back plate, and the horse's back is a collider when riding. Terrain cells back to 1.69 m (b38 had coarsened the vale).
+- **Score**: Tom's Suno tracks are back, sixteen of them now (see music/README.md), decoded only when about to play.
+
 ## b38: the low road and the lowland (the world past the gate)
 
 Until now the gate opened onto a view. The land beyond it is real: you can walk it, and the vale is no longer the whole world.

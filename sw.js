@@ -1,4 +1,4 @@
-const CACHE = 'wasteland-trial-v38';
+const CACHE = 'wasteland-trial-v39';
 const ASSETS = [
   './',
   './index.html',

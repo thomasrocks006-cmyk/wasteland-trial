@@ -54,7 +54,7 @@ export const RIM_R = 104;
 /* One terrain grid, shared by the mesh and by everything that walks on it.
    Sampling the analytic function directly made entities float above the drawn
    triangles on slopes, so physics now interpolates the exact same grid. */
-export const GRID_SEG = 200;
+export const GRID_SEG = 220;     // 1.69 m cells, as fine as the vale was before the field grew (b38 had coarsened it to 1.86 m)
 export const GRID_EXT = 186;      // out past the pass, so the lowland below can be walked
 const GRID_STEP = (GRID_EXT * 2) / GRID_SEG;
 

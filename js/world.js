@@ -2327,13 +2327,12 @@ export class World {
         // the camera rides behind (away from the dais): keep trunks out of its way, or the first view is a wall of branches
         const ox = Math.cos(ang), oz = Math.sin(ang);
         if (!this.isClear(x + ox * 4.5, z + oz * 4.5, 2.2) || !this.isClear(x + ox * 8, z + oz * 8, 1.6)) continue;
-        // and the first look at the dais is not blocked by a pillar or a trunk
-        let open = true; for (let k = 2; k < r - 10 && open; k += 1.5) open = this.isClear(x - ox * k, z - oz * k, 0.9);
-        if (!open) continue;
+        // and the first look at the dais is as clear of pillars and trunks as can be found (wide: the camera rides over the shoulder)
+        let blocked = 0; for (let k = 2; k < r - 9.5; k += 1) if (!this.isClear(x - ox * k, z - oz * k, 2.2)) blocked++;
         const n = terrainNormal(x, z, _v);
         if (n.y < 0.93) continue;                       // flat-ish only
         // prefer standing back from the dais, with it in view
-        const score = (r > 14 ? 2 : 0) + n.y * 3 - Math.abs(r - 17) * 0.1;
+        const score = (r > 14 ? 2 : 0) + n.y * 3 - Math.abs(r - 17) * 0.1 - blocked * 1.5;
         if (score > bestScore) { bestScore = score; best = [x, z]; }
       }
     }
