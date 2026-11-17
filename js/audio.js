@@ -98,9 +98,53 @@ export class Audio {
     this.noiseBuf = buf;
 
     this.buildReverb();
+    this.buildStorm();
     this.startWind();
     this.startDrone();
     this.startAmbience();
+  }
+
+  /* ---------------------------------------------------------- the Storm
+     Built at start-up and left running silent, so the first cast never builds audio nodes:
+     a crackle (band-passed noise gated at random every frame), a mains-like hum (two detuned
+     saws through a hard clipper) and sharp zaps when the bolts leap. */
+  buildStorm() {
+    const c = this.ctx, t = this.t;
+    const out = c.createGain(); out.gain.value = 0; out.connect(this.master);
+    const nz = c.createBufferSource(); nz.buffer = this.noiseBuf; nz.loop = true;
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 3400; bp.Q.value = 0.7;
+    const crack = c.createGain(); crack.gain.value = 0;
+    nz.connect(bp); bp.connect(crack); crack.connect(out); nz.start(t);
+    const clip = c.createWaveShaper(); const cv = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { const x = i / 127.5 - 1; cv[i] = Math.max(-0.6, Math.min(0.6, x * 3)); }
+    clip.curve = cv;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+    const hum = c.createGain(); hum.gain.value = 0;
+    for (const f of [58, 117.3, 176]) { const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const og = c.createGain(); og.gain.value = f < 100 ? 0.5 : 0.25; o.connect(og); og.connect(clip); o.start(t); }
+    clip.connect(lp); lp.connect(hum); hum.connect(out);
+    this.stormNodes = { out, crack, hum, bp, level: 0, zapT: 0 };
+  }
+  /** level 0..1, called every frame */
+  storm(level) {
+    const S = this.stormNodes; if (!S || !this.ctx) return;
+    const t = this.t;
+    if (level <= 0.001 && S.level <= 0.001) return;
+    if (level > 0.05 && S.level <= 0.05) this._whoosh(t, 0.9, 900, 4200, 0.32);
+    S.level = level;
+    S.out.gain.setTargetAtTime(level * 0.55, t, 0.02);
+    S.crack.gain.setTargetAtTime(Math.random() < 0.55 ? 0.3 + Math.random() * 0.7 : 0.04, t, 0.006);
+    S.hum.gain.setTargetAtTime(0.12 + Math.random() * 0.1, t, 0.01);
+    S.bp.frequency.setTargetAtTime(2200 + Math.random() * 3200, t, 0.01);
+    S.zapT -= 1 / 60;
+    if (level > 0.3 && S.zapT <= 0) {
+      S.zapT = 0.06 + Math.random() * 0.12;
+      const n = this.ctx.createBufferSource(); n.buffer = this.noiseBuf; n.loop = true;
+      const hp = this.ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800 + Math.random() * 2500;
+      const g = this.ctx.createGain(); n.connect(hp); hp.connect(g); g.connect(this.master);
+      const d = 0.03 + Math.random() * 0.05;
+      g.gain.setValueAtTime(0.5 * level, t); g.gain.exponentialRampToValueAtTime(0.0005, t + d);
+      n.start(t, Math.random()); n.stop(t + d + 0.02);
+    }
   }
 
   /* ---------------------------------------------------------- the valley's sound

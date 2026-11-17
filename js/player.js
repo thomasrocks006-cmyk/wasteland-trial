@@ -550,7 +550,8 @@ export class Player {
     this.lockTarget = null;
     this.onParry = null; this.onBlock = null; this.onGuardBreak = null;
     this.sprinting = false;
-    this.moveMul = 1;          // attacks slow you; eased back by the melee system
+    this.moveMul = 1;
+    this.mana = 100; this.manaWait = 0; this.casting = false;   // the Storm's spirit (js/sorcery.js)          // attacks slow you; eased back by the melee system
     this.riposteT = 0;         // after a parry: the next blow hits much harder
     this.faceOverride = null;  // { yaw, t }: turn the body to a foe for a blow
     this.cancelAttack = null;
@@ -817,7 +818,7 @@ export class Player {
     const canSprint = input.sprint && (!this.staminaOn || (this.stam > 0 && !this.exhausted));
     this.sprinting = canSprint && mag > 0.5;
     if (this.staminaOn && this.sprinting) { this.stam = Math.max(0, this.stam - 11 * this.sprintCostMul * dt); this.stamDelay = 0.8; if (this.stam <= 0) this.exhausted = true; }
-    const spd = this.speed * (canSprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1) * (this.guard ? 0.55 : 1) * this.moveMul
+    const spd = this.speed * (canSprint ? this.sprintMul : 1) * (this.aim ? 0.55 : 1) * (this.guard ? 0.55 : 1) * (this.casting ? 0.5 : 1) * this.moveMul
       * (1 - Math.min(0.4, this.inWater * 0.45));      // wading through the river is slower
     let wishX = 0, wishZ = 0;
     if (mag > 0.06) {

@@ -551,3 +551,11 @@ body:not(.wander) #flow,body:not(.wander) #btnFinish{display:none !important;}
 #usePin.off{opacity:.55;}
 #usePin.off b{animation:none;border-color:#c9b9a0;box-shadow:none;}
 @keyframes pinPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.35)}}
+
+/* the Storm: its button (where RELOAD sits; blades never reload) and the spirit it burns */
+#btnReload{display:none !important;}
+#btnStorm{grid-column:1;grid-row:3;border-color:rgba(150,175,255,.6);color:#dfe6ff;background:radial-gradient(circle at 50% 35%,rgba(110,130,255,.38),rgba(8,10,30,.62) 70%);}
+#btnStorm.casting{background:radial-gradient(circle at 50% 35%,rgba(220,230,255,.95),rgba(110,130,255,.8) 75%);color:#0a0c20;box-shadow:0 0 20px rgba(150,175,255,.85);}
+#btnStorm.low{opacity:.45;}
+#manaWrap{position:relative;height:3px;margin-top:3px;background:rgba(0,0,0,.5);border:1px solid rgba(150,175,255,.22);overflow:hidden;}
+#manaFill{position:absolute;inset:0;width:100%;background:linear-gradient(90deg,#6f7dff,#bfcaff);box-shadow:0 0 8px rgba(150,175,255,.6);}

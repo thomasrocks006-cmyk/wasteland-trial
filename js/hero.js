@@ -532,8 +532,19 @@ export class Hero {
       const hq = this.handR.getWorldQuaternion(new THREE.Quaternion()), pq = this.handR.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
       this.handR.quaternion.slerp(pq.multiply(dq.multiply(hq)), this.ik.pw);
     }
+    // the Storm: the left arm thrown out toward the aim, fingers spread, trembling with it
+    this.castW = damp(this.castW || 0, this.castOn ? 1 : 0, this.castOn ? 18 : 8, dt);
+    if (this.castW > 0.01 && this.castDir) {
+      const sh = this.P(this.upperL), j = 0.025 * this.castW;
+      const T = sh.addScaledVector(this.castDir, 0.62).add(_v3.set((Math.random() - 0.5) * j, 0.06 + (Math.random() - 0.5) * j, (Math.random() - 0.5) * j));
+      this.solveArm(this.upperL, this.foreL, this.handL, T, fwd, this.castW, -1);
+    }
     this.placeShield(fwd, wBlend);
   }
+  /** the Storm's arm: on/off and the direction to throw it */
+  setCast(on, dir) { this.castOn = on; if (dir) (this.castDir || (this.castDir = V())).copy(dir); }
+  /** where the lightning leaves: just past the left palm */
+  castOrigin(out, dir) { this.handL.updateWorldMatrix(true, false); return this.handL.getWorldPosition(out).addScaledVector(dir, 0.14); }
 
   /** the shield rides the left hand: outward at rest, face to the front on guard */
   placeShield(fwd, g) {

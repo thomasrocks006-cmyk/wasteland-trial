@@ -11,6 +11,7 @@ import { WeaponSystem, WEAPONS } from './weapons.js';
 import { Enemies, ENEMY_TYPES } from './enemies.js';
 import { Wildlife } from './wildlife.js';
 import { loadHeroAsset } from './hero.js';
+import { Storm, MANA_MAX } from './sorcery.js';
 import { SoldierFactory, SOLDIER_MATS } from './soldiers.js';
 import { preloadTextures } from './textures.js';
 import { preloadEnv } from './envassets.js';
@@ -251,6 +252,28 @@ function wallDist(from, dir, range, minT = 0) {
   const g = worldHit(from, dir, range);
   const tg = g ? g.distanceTo(from) : Infinity;
   return Math.min(tg, world.rayObstacle(from, dir, Math.min(range, tg), minT));
+}
+
+/* the Storm: hold to throw lightning from the open hand */
+const storm = new Storm(scene, camera, {
+  enemies: () => enemies.list,
+  applyDamage: (e, dmg, point, dir, head, def, info) => enemies.hit(e, dmg, point, dir, head, def, info),
+  stun: (e, d) => enemies.stun(e, d),
+  power: () => player.dmgMul || 1,
+  onTick: (h, lethal) => { if (lethal) { player.shake = Math.min(2, player.shake + 0.5); fx.ring(h.at, 0x9fb4ff, 2.4, 0.3); } else if (Math.random() < 0.5) fx.spark(h.at, null, 0xbfd0ff, 4, 5, 0.06, 0.18); },
+  onGround: (at) => { fx.decal(at, new THREE.Vector3(0, 1, 0), 0.5, 0x101014, 6); fx.spark(at, new THREE.Vector3(0, 1, 0), 0xbfd0ff, 5, 4, 0.06, 0.2); },
+  onStart: () => { window.__perfTag && window.__perfTag('storm'); },
+});
+const _sa = new THREE.Vector3(), _sh = new THREE.Vector3();
+function updateStorm(dt) {
+  const want = GAME.state === 'playing' && (input.storm || keys['KeyV']) && player.alive && !player.execLock && !(player.dodging > 0);
+  camera.getWorldDirection(_sa); _sa.y = Math.max(-0.35, Math.min(0.35, _sa.y)); _sa.normalize();
+  if (player.hero) player.hero.castOrigin(_sh, _sa); else _sh.copy(player.pos).add(_sa).setY(player.pos.y + 1.4);
+  const flowing = storm.update(dt, want, player, _sh, _sa);
+  player.casting = flowing;
+  if (player.hero) player.hero.setCast(flowing, _sa);
+  if (flowing) { player.faceLock = Math.max(player.faceLock, 0.15); player.shake = Math.max(player.shake, 0.1); }
+  audio.storm(storm.on);
 }
 
 const weapons = new WeaponSystem(scene, player, fx, audio, {
@@ -662,6 +685,7 @@ onPress($('btnDark'), () => tryMode('dark'));
 onPress($('btnReload'), () => weapons.tryReload());
 onPress($('btnAim'), () => setAim(!input.aim));
 bindHold($('btnGuard'), () => { input.guard = true; }, () => { input.guard = false; });
+bindHold($('btnStorm'), () => { input.storm = true; }, () => { input.storm = false; });
 onPress($('btnLock'), () => toggleLock());
 onPress($('btnUse'), () => useNear());
 document.querySelectorAll('.wslot').forEach((b) => {
@@ -1267,7 +1291,9 @@ function resetRun(mode = GAME.mode || 'wander') {
   const wander = mode === 'wander';
   document.body.classList.toggle('wander', wander);
   setTod(wander ? adv.adv.tod : START_TOD, true); lastPhase = '';
-  player.staminaOn = true; player.maxStam = 100;      // both modes have a body to tire and a guard to raise (counter, block) player.stam = 100; player.exhausted = false; player.stamDelay = 0;
+  player.staminaOn = true; player.maxStam = 100;      // both modes have a body to tire and a guard to raise (counter, block)
+  player.stam = 100; player.exhausted = false; player.stamDelay = 0;
+  player.mana = MANA_MAX; player.manaWait = 0; player.casting = false; storm.coolDown();
   player.speed = 5.5; player.armorMul = 1; player.parryWindow = 0.32; player.guardDmgTaken = 0.2; player.guardCostMul = 1; player.parryRefund = 14; player.sprintCostMul = 1; player.lockTarget = null;
   player.model.cloak.material.color.setHex(0x35503d);
   enemies.windupMul = wander ? 1.8 : 1;
@@ -1631,7 +1657,8 @@ function frame(now) {
 
     // ---------- weapons
     weapons.update(dt);
-    const heldFire = (input.fireHeld || mouseDown) && GAME.state === 'playing';
+    updateStorm(dt);
+    const heldFire = (input.fireHeld || mouseDown) && GAME.state === 'playing' && !player.casting;
     // a blade in Wander: tap to swing, hold and release for the heavy strike. Everything else fires while held.
     if (weapons.def.melee && (GAME.mode === 'wander' || weapons.melee)) weapons.meleeInput(heldFire, dt, camera);
     else if (heldFire) weapons.fire(camera);
@@ -1752,6 +1779,10 @@ function updateHud() {
   ui.healthNum.textContent = Math.ceil(player.hp);
   ui.bloodEdge.style.opacity = String(clamp(1 - hpPct / 0.55, 0, 0.95) * 0.85);
 
+  // the Storm's spirit and its button
+  { const mf = document.getElementById('manaFill'), mp = Math.round(clamp(player.mana / MANA_MAX, 0, 1) * 100);
+    if (mf._p !== mp) { mf._p = mp; mf.style.width = mp + '%'; }
+    const sb = document.getElementById('btnStorm'); sb.classList.toggle('casting', player.casting); sb.classList.toggle('low', !player.casting && player.mana < 14); }
   // eco meter and form buttons
   const ecoPct = clamp(player.eco / player.maxEco, 0, 1);
   const ecoFill = document.getElementById('ecoFill');
@@ -2079,7 +2110,7 @@ document.getElementById('crashReload').addEventListener('click', () => location.
 
 /* ================================================================ debug hook (harmless in prod) */
 window.__worldTap = worldTap;
-window.__dbg = { startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
+window.__dbg = { storm, updateStorm, startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {

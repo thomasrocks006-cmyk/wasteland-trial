@@ -560,6 +560,8 @@ export class Enemies {
       e.tumbleW = (e.type.heavy ? 3 : 7) * (0.8 + rng() * 0.4);
       e.tumble = 0;
     }
+    // a blast (the Storm, a launching blow) throws a soldier's body too: it flies while the death clip plays
+    if (e.view && e.blast && !e.type.boss) { e.dv = new THREE.Vector3(e.blast.x, e.blast.y || 4.2, e.blast.z); e.tumble = 0; e.tumbleW = 0; e.tumbleAxis = null; }
     if (this.fx && e.view) { this.fx.puff(new THREE.Vector3(e.pos.x, e.pos.y + 0.8, e.pos.z), null, 0x6a5a48, 0.6, 3, 0.9, 1.4); }
     else if (this.fx) {
       const p = new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.5, e.pos.z);
