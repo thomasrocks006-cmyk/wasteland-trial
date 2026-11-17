@@ -50,6 +50,13 @@ const SCORE = {
   },
 };
 
+/* the recorded score: music/<name>.mp3 (Tom's Suno tracks, loudness-matched at -18 LUFS) */
+const MUSIC = {
+  explore: ['explore', 'explore2', 'explore3', 'explore4', 'explore5', 'explore6'],   // Vale at Dawn x2, Ashwood Hollow x2, The Long Road Down x2
+  combat: ['combat', 'combat2', 'combat3', 'combat4', 'combat5', 'combat6'],         // Bronze Sentinels x2, Iron Takes the Field x2, Shieldwall x2
+  boss: ['boss', 'boss2', 'boss3', 'boss4'],                                         // The Coiled Wyrm x2, The Warlord's Due x2
+};
+
 export class Audio {
   constructor() {
     this.ctx = null;
@@ -899,33 +906,38 @@ export class Audio {
     if (this.useTracks && this.musicGain && this.curTrack !== m) this.playTrack(m);
   }
 
-  /* Recorded score. Each mood can hold several tracks: music/explore.mp3, explore2.mp3, explore3.mp3 ...
-     (the same for combat and boss). When one ends the next is another of the same mood, never the one
-     just heard, so a long wander does not loop one piece. If a mood has no track at all, the synth score plays. */
+  /* Recorded score (Tom's Suno tracks). Each mood holds several; when one ends the next is another of the same mood,
+     never the one just heard. Tracks are fetched and decoded only when they are about to play, and only the last two
+     are kept: a decoded three-minute track is ~60 MB of memory, so decoding all sixteen up front would sink a phone.
+     If the first explore track cannot be had, the synthesised score plays instead. */
   async loadTracks() {
     if (this._tracksTried || !this.ctx) return;
     this._tracksTried = true;
-    const names = ['explore', 'combat', 'boss'], bufs = {};
-    const get = async (f) => { try { const r = await fetch(`music/${f}.mp3`); if (!r.ok) return null; return await this.ctx.decodeAudioData(await r.arrayBuffer()); } catch { return null; } };
-    await Promise.all(names.map(async (n) => {
-      const list = (await Promise.all(['', '2', '3', '4', '5'].map((k) => get(n + k)))).filter(Boolean);
-      if (list.length) bufs[n] = list;
-    }));
-    if (names.every((n) => bufs[n])) {
-      this.trackBuf = bufs;
-      this.useTracks = true;
-      if (this.musicGain) this.playTrack(this.nextMood || 'explore');
-    }
+    this.trackList = MUSIC; this.trackCache = new Map();
+    if (await this.trackBuffer('explore')) { this.useTracks = true; if (this.musicGain) this.playTrack(this.nextMood || 'explore'); }
+  }
+  async trackBuffer(name) {
+    const c = this.trackCache;
+    if (c.has(name)) { const b = c.get(name); c.delete(name); c.set(name, b); return b; }
+    try {
+      const r = await fetch(`music/${name}.mp3`); if (!r.ok) return null;
+      const buf = await this.ctx.decodeAudioData(await r.arrayBuffer());
+      c.set(name, buf); while (c.size > 2) c.delete(c.keys().next().value);
+      return buf;
+    } catch { return null; }
   }
 
-  playTrack(m) {
-    const list = this.trackBuf && this.trackBuf[m];
+  async playTrack(m) {
+    const list = this.trackList && this.trackList[m];
     if (!list || !list.length) return;
-    // a different piece from the last one of this mood, when there is a choice
     this.lastIdx = this.lastIdx || {};
     let i = Math.floor(Math.random() * list.length);
     if (list.length > 1 && i === this.lastIdx[m]) i = (i + 1) % list.length;
     this.lastIdx[m] = i;
+    const ticket = this.trackTicket = (this.trackTicket || 0) + 1;
+    this.curTrack = m;
+    const buf = (await this.trackBuffer(list[i])) || (await this.trackBuffer(list[0]));
+    if (!buf || ticket !== this.trackTicket) return;          // a newer mood change won while this one was loading
     const t = this.t;
     if (this.trackNode) {
       const old = this.trackNode;
@@ -934,7 +946,7 @@ export class Audio {
       old.src.stop(t + 3);
     }
     const src = this.ctx.createBufferSource();
-    src.buffer = list[i]; src.loop = list.length === 1;
+    src.buffer = buf; src.loop = list.length === 1;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.setTargetAtTime(1.0, t, 0.8);
@@ -943,7 +955,6 @@ export class Audio {
     const node = { src, g };
     src.onended = () => { if (this.trackNode === node && this.curTrack === m) this.playTrack(m); };
     this.trackNode = node;
-    this.curTrack = m;
   }
 
   scheduleMusic() {

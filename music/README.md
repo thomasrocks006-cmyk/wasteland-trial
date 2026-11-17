@@ -11,9 +11,15 @@ Each track loops, so ones without long fade-outs loop best.
 
 ## What is here now (17 Nov 2026)
 
-Tom's own Suno score is back: `Vale at Dawn` (explore), `Bronze Sentinels` (combat), `The Coiled Wyrm` (boss), the
-15 Nov takes. The ACE-Step tracks b38 put in their place were taken out on Tom's word (they read as arcade racing music);
-copies are kept outside the repo in scratch/wasteland-trial/ace-step-20261117.
+Tom's Suno score, sixteen tracks, all loudness-matched at -18 LUFS (128 kbps):
 
-Each mood can now hold more than one track: add `explore2.mp3`, `explore3.mp3` ... (up to 5, same for combat and boss).
-When a track ends the next is another of the same mood, never the one just played. A mood with a single track loops it.
+| mood | files | songs |
+|---|---|---|
+| explore | explore, explore2 .. explore6 | Vale at Dawn (both takes), Ashwood Hollow (both), The Long Road Down (both) |
+| combat | combat, combat2 .. combat6 | Bronze Sentinels (both), Iron Takes the Field (both), Shieldwall (both) |
+| boss | boss, boss2 .. boss4 | The Coiled Wyrm (both), The Warlord's Due (both) |
+
+The list lives in `js/audio.js` (MUSIC). Tracks are decoded only when about to play and only two are kept in memory
+(a decoded three-minute track is about 60 MB). When one ends the next is another of the same mood, never the one just
+heard. The ACE-Step tracks b38 swapped in were taken out on Tom's word; copies are outside the repo in
+scratch/wasteland-trial/ace-step-20261117. `suno-2026-11-15/` holds the first three as they were.
