@@ -582,11 +582,11 @@ export async function runSmoke() {
     }
     const e = mk('stonekin', 1.8); e.hp = e.maxHp = 5000; const hp0 = e.hp, s0 = pl.stam;
     w.meleeInput(true, 0.016, d.camera); step(2); w.meleeInput(false, 0.016, d.camera);
-    assert(w.melee.atk && pl.hero.layer && pl.hero.layer.name === 'Sword_Attack', 'no swing started');
+    assert(w.melee.atk && pl.hero.layer && /^Sword_(Attack|Regular)/.test(pl.hero.layer.name), 'no swing started');
     step(90); const light = hp0 - e.hp; assert(light > 25, 'the swing did ' + light);
     step(120); w.melee.lastEnd = -9; pl.stam = pl.maxStam;
-    w.meleeInput(true, 0.016, d.camera); for (let i = 0; i < 70; i++) { w.meleeInput(true, 0.016, d.camera); step(1); }
-    assert(pl.hero.A.Sword_Attack.paused && w.heavyCharge >= 0.99, 'the blade did not hold at the top of the wind-up');
+    w.meleeInput(true, 0.016, d.camera); for (let i = 0; i < 110; i++) { w.meleeInput(true, 0.016, d.camera); step(1); }
+    assert(pl.hero.layer && pl.hero.A[pl.hero.layer.name].paused && w.heavyCharge >= 0.99, 'the blade did not hold at the top of the wind-up');
     const hp1 = e.hp; w.meleeInput(false, 0.016, d.camera); step(140); const heavy = hp1 - e.hp;
     assert(heavy > 100, 'the heavy did ' + heavy);
     pl.stam = 0; pl.exhausted = true; step(40, 0.016); w.melee.lastEnd = -9; const before = w.melee.atk;

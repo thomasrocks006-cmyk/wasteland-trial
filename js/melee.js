@@ -83,6 +83,12 @@ const EXEC = {
   ],
 };
 const PROMPT_WINDOW = 0.8;
+/* The charge (b37): hold past a cut and the hero flows into the heavy wind-up, then coils lower with the blade
+   glowing hotter. Two levels: CHARGE_L1 (a harder overhead) and CHARGE_FULL (a leaping slam that lands with a
+   shockwave). */
+const CHARGE_L1 = 0.45, CHARGE_FULL = 1.0, FLOW_INTO_CHARGE = 0.22;
+const SLAM_R = 3.4;
+const HOT = new THREE.Color(1.0, 0.5, 0.16);
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _d = new THREE.Vector3(), _tip = new THREE.Vector3(), _base = new THREE.Vector3();
 const _sc = new THREE.Vector3(), _sn = new THREE.Vector3(), _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _g0 = new THREE.Vector3(), _g1 = new THREE.Vector3(), _sq = new THREE.Quaternion(), _ws = new THREE.Vector3();
@@ -142,7 +148,7 @@ export class Melee {
   get mocap() { return this.specs === MOCAP; }
   get busy() { return !!this.atk; }
   /** 0..1 while holding at the top of the wind-up */
-  get charge() { return this.atk && this.atk.charging ? clamp(this.holdT / 0.6, 0, 1) : 0; }
+  get charge() { return this.atk && this.atk.charging ? clamp((this.atk.chargeT || 0) / CHARGE_FULL, 0, 1) : 0; }
 
   /* ---------------- input */
   press() {
@@ -157,28 +163,51 @@ export class Melee {
     this.holdT = 0;
     // on the run: a lunging thrust
     if (this.specs.thrust && (pl.sprinting || Math.hypot(pl.vel.x, pl.vel.z) > 5.2) && this.clock - this.lastEnd > 0.4) { this.combo = 0; this.begin(this.specs.thrust, false); return; }
-    // the captured set decides on release: a tap is a cut, a hold of a fifth of a second winds up the heavy blow
-    if (this.mocap) { this.pending = true; return; }
+    // the captured set cuts the moment you press (no wait to see if it is a hold); keep holding and the cut flows into the charge
+    if (this.mocap) { if (this.begin(this.nextLight(), false)) this.atk.flowsToCharge = true; return; }
     this.begin(this.nextLight(), true);
   }
   hold(dt) {
     this.holdT += dt;
     if (this.pending && this.holdT >= 0.18) { this.pending = false; this.combo = 0; this.begin(this.specs.heavy, true); }
+    {   // still held once the cut has gone through: rise straight into the heavy wind-up
+      const c = this.atk;
+      if (c && c.flowsToCharge && this.holdT >= FLOW_INTO_CHARGE && (c.inRec || this.hero.layerTime > c.spec.s1)) {
+        this.atk = null; this.combo = 0; this.pl.stam += this.specs.heavy.stam * 0.35;      // the cut already paid part of it
+        if (this.begin(this.specs.heavy, true)) this.atk.fromCut = true;
+      }
+    }
     const a = this.atk;
+    if (a && a.charging) {
+      a.chargeT = (a.chargeT || 0) + dt;
+      const lvl = a.chargeT >= CHARGE_FULL ? 2 : a.chargeT >= CHARGE_L1 ? 1 : 0;
+      if (lvl > (a.level || 0)) {
+        a.level = lvl;
+        const ws = this.ws, p = this.pl.pos;
+        if (ws.audio.impact) ws.audio.impact('steel', lvl === 2 ? 0.7 : 0.4);
+        if (ws.fx.ring) ws.fx.ring(_a.set(p.x, p.y + 0.08, p.z), lvl === 2 ? 0xffc070 : 0xffe0b0, lvl === 2 ? 2.6 : 1.6, 0.35);
+        if (ws.ctx.haptic) ws.ctx.haptic(lvl === 2 ? 30 : 15);
+        this.pl.shake = Math.min(2, this.pl.shake + (lvl === 2 ? 0.25 : 0.1));
+      }
+      // dust lifts round the feet as he coils
+      a.dustT = (a.dustT || 0) - dt;
+      if (a.dustT <= 0 && this.ws.fx.puff) { a.dustT = 0.14; const p = this.pl.pos, r = 0.5 + Math.random() * 0.5, th = Math.random() * 6.283; this.ws.fx.puff(_b.set(p.x + Math.cos(th) * r, p.y + 0.1, p.z + Math.sin(th) * r), _c.set(-Math.cos(th), 0.6, -Math.sin(th)), 0x9a8a70, 0.25 + 0.2 * this.charge, 1, 0.6, 0.9); }
+    }
     if (a && a.holdable && !a.released && !a.pausedOnce && this.hero.layerTime >= this.specs.heavy.chargeAt) {
       a.charging = true; a.pausedOnce = true; this.hero.holdLayer(true);        // the blade stays up: a visible charge
       if (this.ws.audio.impact) this.ws.audio.impact('whoosh', 0.3);
     }
-    if (a && a.charging && !a.cued && this.holdT >= 0.6) { a.cued = true; if (this.ws.audio.impact) this.ws.audio.impact('steel', 0.35); if (this.ws.ctx.haptic) this.ws.ctx.haptic(15); }   // full: a ring of steel
   }
   release() {
     if (this.pending) { this.pending = false; this.begin(this.nextLight(), false); return; }
     const a = this.atk;
     if (!a) return;
     a.released = true;
-    if (a.charging && this.mocap) {             // the heavy was wound from the start: release lets it fall, harder the longer it was held
-      a.charging = false; this.hero.holdLayer(false); a.chargeK = clamp((this.holdT - 0.18) / 0.5, 0, 1);
+    if (a.charging && this.mocap) {             // release lets it fall, harder the longer it was held; full charge leaps
+      a.charging = false; a.chargeK = clamp((a.chargeT || 0) / CHARGE_FULL, 0, 1);
       if (this.ws.audio.roar && a.chargeK > 0.6) this.ws.audio.roar(8);
+      if ((a.level || 0) >= 2) return this.leap(a);
+      this.hero.holdLayer(false);
       return;
     }
     if (a.charging) {
@@ -188,7 +217,7 @@ export class Melee {
   }
   nextLight(chain = false) {
     const L = this.specs.light;
-    if (!chain && this.clock - this.lastEnd > 0.65) this.combo = 0;      // a chained link never resets; a fresh start after a pause does
+    if (!chain && this.clock - this.lastEnd > 0.9) this.combo = 0;      // a chained link never resets; a fresh start after a pause does
     const s = L[this.combo % L.length];
     this.combo++;
     return s;
@@ -218,7 +247,7 @@ export class Melee {
   cancel() {
     if (this.exec) return;
     if (!this.atk) return;
-    this.atk = null; this.hero.holdLayer(false); this.hero.stopLayer(); this.hero.setSwing(null); this.hero.setThrust(0); this.pl.moveMul = 1; this.ws.swingT = 0;
+    this.atk = null; this.hero.holdLayer(false); this.hero.stopLayer(); this.hero.setSwing(null); this.hero.setThrust(0); this.hero.setCoil(0); this.glow(0); this.pl.moveMul = 1; this.ws.swingT = 0;
   }
 
   /**
@@ -257,6 +286,15 @@ export class Melee {
     if (!a) { pl.moveMul = damp1(pl.moveMul, 1, dt); return; }
     const hero = this.hero, S = a.spec;
     hero.root.updateMatrixWorld(true);
+    if (a.leapPhase === 'air') {
+      pl.moveMul = 0; ws.swingT = 0.2; ws.idleT = 0;
+      // the blade stays up until he is coming down onto them, then the cut falls with him
+      if (pl.vy < 0) { a.leapPhase = 'fall'; hero.holdLayer(false); const A = hero.A[hero.layer ? hero.layer.name : S.clip]; if (A) A.timeScale = 1.35; }
+      return;
+    }
+    if (a.leapPhase === 'fall' && pl.grounded) { a.leapPhase = 'landed'; this.slamLand(a); }
+    hero.setCoil(a.charging ? this.charge : 0);
+    this.glow(a.charging ? this.charge : a.leapPhase ? 0.6 : 0);
     const t = hero.layerTime;
     if (S.path) hero.setSwing(S.path, t);
     // thrown back off a shield or a blade: the cut runs backward a moment, then you are open
@@ -274,7 +312,7 @@ export class Melee {
     if (a.inRec) {
       pl.moveMul = clamp(0.5 + t * 1.2, 0.5, 1);
       if (a.buffered) { const next = this.nextLight(true); this.atk = null; this.begin(next, false); return; }
-      if ((pl.wish && pl.wish.mag > 0.5 && t > 0.22) || t >= a.recEnd || !hero.layer) this.finish();
+      if ((pl.wish && pl.wish.mag > 0.5 && t > 0.12) || t >= a.recEnd || !hero.layer) this.finish();
       return;
     }
     if (!a.started && t >= S.s0 - 0.02) this.strikeStart(a);
@@ -292,13 +330,60 @@ export class Melee {
     if (t > S.s1 && a.buffered && !a.charging) { const next = this.nextLight(true); this.atk = null; this.begin(next, false); return; }
     if (a.truncate && t > S.s0 + 0.12) { this.finish(); return; }
     if (t >= S.end || !hero.layer) {
-      if (S.rec && hero.A[S.rec] && hero.layer) { a.inRec = true; hero.playOnce(S.rec, { from: 0, speed: 1.15 }); a.recEnd = hero.A[S.rec].getClip().duration * 0.9; return; }
+      if (S.rec && hero.A[S.rec] && hero.layer) { a.inRec = true; hero.playOnce(S.rec, { from: 0, speed: 1.3 }); a.recEnd = hero.A[S.rec].getClip().duration * 0.9; return; }
       this.finish();
     }
   }
   finish() {
     this.atk = null; this.lastEnd = this.clock; this.pl.moveMul = 1; this.ws.swingT = 0;
-    this.hero.stopLayer(); this.hero.setSwing(null); this.hero.setThrust(0);
+    this.hero.stopLayer(); this.hero.setSwing(null); this.hero.setThrust(0); this.hero.setCoil(0); this.glow(0);
+  }
+
+  /** the blade heats as the charge builds (emissive on the weapon's own materials; no new shader) */
+  glow(k) {
+    const m = this.ws.models[this.ws.index]; if (!m) return;
+    if (!m.userData.glowMats) { m.userData.glowMats = []; m.traverse((o) => { if (o.material && o.material.emissive && !o.userData.isBlood && o !== m.userData.blood) m.userData.glowMats.push({ m: o.material, base: o.material.emissive.clone() }); }); }
+    if (m.userData.glowK === k) return; m.userData.glowK = k;
+    for (const g of m.userData.glowMats) g.m.emissive.copy(g.base).lerp(HOT, clamp(k, 0, 1) * 0.85);
+  }
+
+  /** full charge: he leaps at them with the blade up and comes down with it */
+  leap(a) {
+    const pl = this.pl, ws = this.ws;
+    const tgt = a.target && a.target.alive ? a.target : this.target(9, 1.6);
+    const yaw = tgt ? Math.atan2(tgt.pos.x - pl.pos.x, tgt.pos.z - pl.pos.z) : (pl.faceOverride ? pl.faceOverride.yaw : pl.camYaw);
+    const dist = tgt ? clamp(Math.hypot(tgt.pos.x - pl.pos.x, tgt.pos.z - pl.pos.z) - tgt.type.radius - 0.9, 0.5, 6.5) : 3.5;
+    const air = 0.62;
+    pl.vy = 8.0; pl.grounded = false; pl.leapT = air; pl.dashT = air * 0.85; pl.dashV.set(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(dist / (air * 0.85));
+    pl.faceOverride = { yaw, t: 1 }; pl.faceLock = Math.max(pl.faceLock, 1); pl.iframe = Math.max(pl.iframe, air);
+    a.leapPhase = 'air'; a.target = tgt;
+    if (ws.audio.impact) ws.audio.impact('whoosh', 0.9);
+    if (ws.fx.puff) ws.fx.puff(_a.set(pl.pos.x, pl.pos.y + 0.1, pl.pos.z), null, 0x9a8a70, 0.6, 4, 0.7, 1.6);
+  }
+
+  /** the landing: a shockwave that throws down everyone close, harder at the middle */
+  slamLand(a) {
+    const pl = this.pl, ws = this.ws, at = _a.set(pl.pos.x + Math.sin(pl.yaw) * 1.2, pl.pos.y, pl.pos.z + Math.cos(pl.yaw) * 1.2);
+    at.y = terrainHeight(at.x, at.z);
+    pl.shake = Math.min(2.6, pl.shake + 1.5);
+    if (ws.fx.ring) { ws.fx.ring(_b.set(at.x, at.y + 0.1, at.z), 0xffd8a0, SLAM_R * 1.5, 0.45); ws.fx.ring(_b, 0xfff0d0, SLAM_R * 0.8, 0.25); }
+    if (ws.fx.debris) ws.fx.debris(_b.set(at.x, at.y + 0.2, at.z), 18, 1.5);
+    if (ws.fx.puff) for (let k = 0; k < 8; k++) { const th = k / 8 * 6.283; ws.fx.puff(_c.set(at.x + Math.cos(th) * 1.2, at.y + 0.2, at.z + Math.sin(th) * 1.2), _d.set(Math.cos(th) * 2.4, 0.5, Math.sin(th) * 2.4), 0x8a7a60, 0.7, 1, 1.0, 2.2); }
+    if (ws.audio.explosion) ws.audio.explosion(0);
+    if (ws.ctx.onMeleeHit) ws.ctx.onMeleeHit(1, true, true, 0.14);
+    if (ws.ctx.haptic) ws.ctx.haptic(70);
+    for (const e of (ws.ctx.enemies() || [])) {
+      if (!e.alive || e.state === 'spawn' || a.hit.has(e)) continue;
+      const dx = e.pos.x - at.x, dz = e.pos.z - at.z, d = Math.hypot(dx, dz);
+      if (d > SLAM_R + e.type.radius || Math.abs(e.pos.y - at.y) > 2) continue;
+      const k = 1 - clamp(d / SLAM_R, 0, 1) * 0.55, dir = new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
+      const dmg = 60 * k * ws.mods.dmg * (ws.mods.heavy || 1) * (this.pl.dmgMul || 1);
+      if (e.hp - dmg <= 0) e.blast = new THREE.Vector3(dir.x * 7 * k, 5, dir.z * 7 * k);
+      a.hit.add(e);
+      ws.ctx.applyDamage(e, dmg, new THREE.Vector3(e.pos.x, e.pos.y + 0.8, e.pos.z), dir, false, ws.def, { heavy: true, breaks: true, aoe: true });
+      if (e.alive) { if (ws.ctx.stun) ws.ctx.stun(e, e.type.boss ? 0.4 : 1.4 * k); e.vel.addScaledVector(dir, (e.type.heavy ? 3 : 8) * k); if (e.view) e.view.playReact('Hit_Knockback', 1.2); }
+    }
+    this.addFlow(1);
   }
 
   strikeStart(a) {

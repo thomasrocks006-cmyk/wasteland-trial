@@ -2071,6 +2071,21 @@ if (perfOn) {
 }
 
 // keep the background scene alive on the title screen
+/* First-use stalls: a phone uploads an effect's buffers and textures the first time it is drawn,
+   which froze the game for a beat on the first sweep, spear or blood. Draw each one once now,
+   behind the title, so that cost is paid at load. */
+function warmEffects() {
+  try {
+    const dir = camera.getWorldDirection(new THREE.Vector3()), at = camera.position.clone().addScaledVector(dir, 7);
+    fx.slash(at, 0, 'R', 0xffffff); fx.slash(at, 0, 'O', 0xffffff);
+    fx.bleed(at, dir, 1.0); fx.hitSpark(at, dir, true); fx.spark(at, dir); fx.ring(at); fx.ecoBurst(at, 0xffd060, 4, 0.5);
+    fx.puff(at, null); fx.decal(at, new THREE.Vector3(0, 1, 0), 0.01, 0x101014, 0.05); fx.trailSample(at, at.clone().add(dir), 0xffffff);
+    storm.warm(at);
+    renderer.render(scene, camera);
+    storm.coolDown();
+  } catch (e) { console.warn('effect warm-up skipped:', e && e.message); }
+}
+warmEffects();
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 /* ================================================================ phone behaviour */

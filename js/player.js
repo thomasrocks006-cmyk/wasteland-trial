@@ -885,7 +885,9 @@ export class Player {
     }
     // holding the button carries you up; letting go cuts the arc short. Falling
     // is heavier than rising, which is what stops it feeling floaty.
-    const grav = this.vy > 0 ? (input.jumpHeld ? 27 : 44) : 34;
+    // a leaping blow hangs a moment longer at the top
+    this.leapT = Math.max(0, (this.leapT || 0) - dt);
+    const grav = this.leapT > 0 ? (this.vy > 0 ? 22 : 30) : this.vy > 0 ? (input.jumpHeld ? 27 : 44) : 34;
     this.vy -= grav * dt;
 
     let nx = this.pos.x + this.vel.x * dt;

@@ -493,6 +493,7 @@ export class Hero {
     if (sum < 1) { const base = this.dead ? 'Death01' : s.drawn ? 'Sword_Idle' : 'Idle_Loop'; w[base] += 1 - sum; }
     for (const k in A) A[k].setEffectiveWeight(w[k]);
     this.mixer.update(dt);
+    this.applyCoil(dt);
     this.thrust = damp(this.thrust || 0, this.thrustTarget || 0, 26, dt);
     this.hand.rotation.z = THREE.MathUtils.lerp(Math.PI / 2, Math.PI, this.thrust);
     // ---- over the clips: the shield arm and the parrying blade
@@ -540,6 +541,20 @@ export class Hero {
       this.solveArm(this.upperL, this.foreL, this.handL, T, fwd, this.castW, -1);
     }
     this.placeShield(fwd, wBlend);
+  }
+  /** the charge's coil 0..1: he sinks and winds his chest back over the raised blade, trembling at full */
+  setCoil(k) { this.coilK = k; }
+  applyCoil(dt) {
+    this.coilW = damp(this.coilW || 0, this.coilK || 0, this.coilK ? 6 : 14, dt);
+    const c = this.coilW; if (c < 0.01) return;
+    const up = V(0, 1, 0), tr = c > 0.9 ? (Math.random() - 0.5) * 0.03 : 0;
+    for (const [b, k] of [[this.spine1, -0.18], [this.spine2, -0.22], [this.spine3, -0.12]]) {
+      const pw = b.parent.getWorldQuaternion(new THREE.Quaternion());
+      b.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(up.clone().applyQuaternion(pw.invert()), (k + tr) * c));
+    }
+    // sink: the hips drop (the hips' own z is height, see stripRootMotion)
+    this.hips.position.z -= 0.08 * c * (this.hipScale || 1);
+    this.rig.updateMatrixWorld(true);
   }
   /** the Storm's arm: on/off and the direction to throw it */
   setCast(on, dir) { this.castOn = on; if (dir) (this.castDir || (this.castDir = V())).copy(dir); }
