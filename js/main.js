@@ -321,6 +321,7 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   raycast: (o, d, range, pierce) => enemies.raycast(o, d, range, pierce),
   worldHit,
   wallDist,
+  obstacles: () => world.obstacles,
   applyDamage: (e, dmg, point, dir, head, def, info) => enemies.hit(e, dmg, point, dir, head, def, info),
   blocked: (x0, z0, x1, z1) => world.blocked(x0, z0, x1, z1),
   // one report per trigger pull: a scatter blast to the face is one headshot, not nine
@@ -735,7 +736,13 @@ onPress($('btnDark'), () => tryMode('dark'));
 onPress($('btnReload'), () => weapons.tryReload());
 onPress($('btnAim'), () => setAim(!input.aim));
 bindHold($('btnGuard'), () => { input.guard = true; }, () => { input.guard = false; });
-onPress($('btnCall'), () => whistle());
+// one horse button: CALL HORSE when it is away, RIDE beside it, DISMOUNT on it
+onPress($('btnCall'), () => {
+  if (GAME.state !== 'playing' || !horse) return;
+  if (player.mount) { player.dismount(); return; }
+  if (Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z) < 4) { player.mountHorse(horse); showToast('PUSH THE STICK ALL THE WAY AND HOLD IT TO GALLOP'); }
+  else { whistle(); showToast('YOUR HORSE IS COMING'); }
+});
 onPress($('btnFocus'), () => { if (GAME.state === 'playing' && weapons.melee) weapons.melee.startFocus(); });
 bindHold($('btnStorm'), () => { input.storm = true; }, () => { input.storm = false; });
 onPress($('btnLock'), () => toggleLock());
@@ -1331,8 +1338,11 @@ function updateWander(dt) {
     if (!player.mount) horse.update(dt, null, GAME.time);
     trample(dt);
     if (!player.mount && !adv.inVault && Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z) < 3 && (!adv.near || !adv.near.enabled)) adv.near = horseNear();
-    const far = !player.mount && !adv.inVault && Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z) > 14;
-    document.getElementById('btnCall').classList.toggle('hidden', !far);
+    const hd = Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z), hb = document.getElementById('btnCall');
+    hb.classList.toggle('hidden', !!adv.inVault);
+    wSet(hb.firstChild, 'text', player.mount ? 'DISMOUNT' : hd < 4 ? 'RIDE' : 'CALL HORSE');
+    wSet(hb.lastChild, 'text', player.mount ? '' : hd < 4 ? 'TAP TO MOUNT' : Math.round(hd) + ' M AWAY');
+    hb.classList.toggle('near', !player.mount && hd < 4);
     document.getElementById('btnDodge').textContent = player.mount ? 'DISMOUNT' : 'DODGE';
   }
   // a skill to choose waits for a calm moment
@@ -1768,7 +1778,7 @@ function frame(now) {
     input.dodgeQueued = false;
     input.spur = !!keys['ShiftLeft'];
     if (player.mount && input.dodge) { input.dodge = false; player.dismount(); }
-    player.aim = input.aim || keys['ShiftLeft'] || false;
+    player.aim = input.aim || keys['ShiftLeft'] || weapons.rangedAim || false;      // holding the spear or bow aims
 
     player.model.root.updateMatrixWorld(true);
     player.update(dt, input);
@@ -1780,7 +1790,9 @@ function frame(now) {
     const heldFire = (input.fireHeld || mouseDown) && GAME.state === 'playing' && !player.casting;
     // a blade in Wander: tap to swing, hold and release for the heavy strike. Everything else fires while held.
     if (weapons.def.melee && (GAME.mode === 'wander' || weapons.melee)) weapons.meleeInput(heldFire, dt, camera);
+    else if (weapons.def.ranged) weapons.rangedInput(heldFire, dt, camera);
     else if (heldFire) weapons.fire(camera);
+    weapons.ranged.update(dt, camera);
 
     // ---------- waves
     if (GAME.mode === 'trial') updateWaves(dt); else { updateWander(dt); tickDay(dt); }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Melee } from './melee.js';
+import { Ranged } from './ranged.js';
 import { clamp, lerp, rnd, TAU, Builder, deg, addRim, angleTo } from './core.js';
 
 /* ============================================================ definitions
@@ -36,13 +37,24 @@ export const WEAPONS = [
     color: 0xffb347, desc: 'One slow, wide chop that breaks a pack.'
   },
   {
-    id: 'spear', name: 'SPEAR', mod: 'THROWN',
+    id: 'spear', name: 'SPEAR', mod: 'THROWN', ranged: 'spear',
     dmg: 95, pellets: 1, rpm: 75, spread: 0.15, spreadBloom: 0.4, bloomMax: 2,
     recoilPitch: 1.2, recoilYaw: 0.3, shake: 0.25, kickVis: 0.1, push: 0,
-    mag: 5, reserve: 30, reload: 1.5, range: 150, pierce: 3, anim: 'T',
+    mag: 3, reserve: 21, reload: 1.1, range: 150, pierce: 3, anim: 'T',
     tracer: 0xffd27a, flash: 0xffe0a0, flashSize: 0.5, sound: 'spear',
-    color: 0xffd27a, desc: 'Thrown hard and straight; passes through three.'
+    color: 0xffd27a, desc: 'Tap to throw at the nearest man; hold to aim. It knocks a man down and breaks a guard.'
   },
+  {
+    id: 'bow', name: 'BOW', mod: 'HUNTING BOW', ranged: 'bow',
+    dmg: 60, pellets: 1, rpm: 120, spread: 0, spreadBloom: 0, bloomMax: 0,
+    recoilPitch: 0, recoilYaw: 0, shake: 0, kickVis: 0, push: 0,
+    mag: 1, reserve: 40, reload: 0.45, range: 90,
+    tracer: 0xd8c08a, flash: 0xd8c08a, flashSize: 0, sound: 'draw',
+    color: 0xd8c08a, desc: 'Tap to loose at the nearest man; hold to draw and aim. A full draw flies far and hits hard; heads take more.'
+  },
+];
+/* the fire pot left the wheel in b40 (the bow took its place); kept for anything that still names it */
+export const OLD_WEAPONS = [
   {
     id: 'rune', name: 'FIRE POT', mod: 'LOBBED',
     dmg: 130, pellets: 1, rpm: 52, spread: 0.5, spreadBloom: 0.6, bloomMax: 3,
@@ -85,6 +97,8 @@ export function buildGunModel(id) {
     b.add(box(0.03, 0.12, 0.08), STEEL, { pos: [0, -0.68, -0.22], rot: [0.5, 0, 0] });          // beard
     b.add(new THREE.ConeGeometry(0.035, 0.14, 4), STEELD, { pos: [0, -0.8, 0.1], rot: [Math.PI / 2, 0, 0] }); // back spike
     muzzle.position.set(0, -0.8, -0.26);
+  } else if (id === 'bow') {
+    muzzle.position.set(0, -0.4, 0);            // the bow is drawn in world space by ranged.js: nothing in the right hand
   } else if (id === 'spear') {
     b.add(cyl(0.02, 0.022, 1.95, 8), WOOD, { pos: [0, -0.5, 0] });                        // shaft
     b.add(new THREE.TorusGeometry(0.026, 0.009, 5, 10), BRONZE, { pos: [0, -1.44, 0], rot: [Math.PI / 2, 0, 0] });
@@ -136,6 +150,7 @@ export class WeaponSystem {
     this.backModels = WEAPONS.map(w => buildGunModel(w.id));
     this.backModels.forEach((m) => { m.visible = false; if (player.model.back) player.model.back.add(m); });
     this.melee = player.hero ? new Melee(this) : null;       // real sword play on the skinned hero
+    this.ranged = new Ranged(this, scene);                     // thrown spears and the bow
     if (player.hero) player.cancelAttack = () => this.melee.cancel();
     this.drawn = false;        // sheathed until you attack
     this.drawT = 0;            // >0 while drawing or sheathing
@@ -426,6 +441,9 @@ export class WeaponSystem {
   }
 
   /** Wander's blade input: a tap swings at once; a press held ~0.6 s and released is the heavy strike */
+  rangedInput(held, dt, camera) { this.ranged.input(held, dt, camera); }
+  get rangedAim() { return this.ranged && this.def.ranged ? this.ranged.aiming : false; }
+
   meleeInput(held, dt, camera) {
     if (this.melee) {
       if (held && !this._mHeld) { this._mHeld = true; this.holdT = 0; this.melee.press(); }

@@ -541,7 +541,28 @@ export class Hero {
       const T = sh.addScaledVector(this.castDir, 0.62).add(_v3.set((Math.random() - 0.5) * j, 0.06 + (Math.random() - 0.5) * j, (Math.random() - 0.5) * j));
       this.solveArm(this.upperL, this.foreL, this.handL, T, fwd, this.castW, -1);
     }
+    // arms placed by the ranged weapons (ranged.js): a spear cocked and thrown, a bow held out and drawn
+    for (const [side, ub, fb, hb, sign] of [['L', this.upperL, this.foreL, this.handL, -1], ['R', this.upperR, this.foreR, this.handR, 1]]) {
+      const A = this.arms && this.arms[side]; if (!A) continue;
+      A.w = damp(A.w, A.on ? 1 : 0, A.rate || 14, dt);
+      if (A.w > 0.01) this.solveArm(ub, fb, hb, A.p, fwd, A.w, sign);
+      // the wrist: point the weapon in the right hand (its -y axis) where it should go
+      if (A.w > 0.01 && A.dir && side === 'R') {
+        this.handR.updateWorldMatrix(true, false); this.hand.updateWorldMatrix(true, false);
+        const cur = V(0, -1, 0).applyQuaternion(this.hand.getWorldQuaternion(new THREE.Quaternion()));
+        const dq = new THREE.Quaternion().setFromUnitVectors(cur, A.dir);
+        const hq = this.handR.getWorldQuaternion(new THREE.Quaternion()), pq = this.handR.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+        this.handR.quaternion.slerp(pq.multiply(dq.multiply(hq)), A.w);
+        this.handR.updateMatrixWorld(true);
+      }
+    }
     this.placeShield(fwd, wBlend);
+  }
+  /** an arm reaching for a world point (null lets it go back to the clips) */
+  setArm(side, p, rate = 14, dir = null) {
+    const A = (this.arms || (this.arms = { L: { p: V(), w: 0, on: false }, R: { p: V(), w: 0, on: false } }))[side];
+    A.on = !!p; A.rate = rate; if (p) A.p.copy(p);
+    if (dir) (A.dir || (A.dir = V())).copy(dir).normalize(); else if (p) A.dir = null;
   }
   /* ------------------------------------------------ riding (js/horse.js)
      rig: { horse, lean (forward, 0..1), bank (radians) } or null. Over whatever the clips did: the hips are set on the

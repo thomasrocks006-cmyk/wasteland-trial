@@ -49,6 +49,14 @@ const MOCAP = {
   sweep: SPECS.sword.sweep,
 };
 
+/* the war axe on the same captured cuts: slower, much heavier, and every blow hooks a shield aside */
+const AXE = {
+  light: MOCAP.light.map((sp) => Object.assign({}, sp, { speed: sp.speed * 0.8, dmg: Math.round(sp.dmg * 1.75), stam: Math.round(sp.stam * 1.6), shake: sp.shake * 1.6, kb: sp.kb * 1.4, stag: sp.stag * 1.5, breaks: true })),
+  heavy: Object.assign({}, MOCAP.heavy, { speed: 0.85, dmg: Math.round(MOCAP.heavy.dmg * 1.5), stam: 32 }),
+  thrust: Object.assign({}, MOCAP.thrust, { dmg: 80, speed: 0.95, breaks: true }),
+  sweep: Object.assign({}, MOCAP.sweep, { dmg: 70, speed: 0.9 }),
+};
+
 /* Finishing moves as short staged sequences (Ryse-style). Between stages the action holds for a beat and a prompt
    shows over the man: ATTACK (gold) or GUARD (steel). The right button in time is PERFECT (more health and flow);
    all of them is FLAWLESS. A miss does not stop the kill. Stage keys: clip from..to at speed, standing dist from him;
@@ -146,8 +154,8 @@ export class Melee {
 
   get pl() { return this.ws.player; }
   get hero() { return this.ws.player.hero; }
-  get specs() { return this.ws.def.id === 'sword' && this.hero.A.Sword_Regular_A && this.hero.A.Sword_Heavy_Combo ? MOCAP : SPECS[this.ws.def.id] || SPECS.sword; }
-  get mocap() { return this.specs === MOCAP; }
+  get specs() { const cap = this.hero.A.Sword_Regular_A && this.hero.A.Sword_Heavy_Combo; return cap && this.ws.def.id === 'sword' ? MOCAP : cap && this.ws.def.id === 'axe' ? AXE : SPECS[this.ws.def.id] || SPECS.sword; }
+  get mocap() { const s = this.specs; return s === MOCAP || s === AXE; }
   get busy() { return !!this.atk; }
   /** 0..1 while holding at the top of the wind-up */
   get charge() { return this.atk && this.atk.charging ? clamp((this.atk.chargeT || 0) / CHARGE_FULL, 0, 1) : 0; }
@@ -549,7 +557,7 @@ export class Melee {
     const rip = pl.riposteT > 0 ? 1.8 : 1;
     const dmg = S.dmg * ws.mods.dmg * (S.heavy ? ws.mods.heavy * (a.chargeK !== undefined ? 0.75 + 0.5 * a.chargeK : 1) : 1) * (pl.dmgMul || 1) * rip * (head ? 1.25 : 1);
     const foc = this.focusT > 0;
-    const res = ws.ctx.applyDamage(e, dmg * (foc ? 1.5 : 1), point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy || foc, breaks: !!S.heavy || foc, riposte: rip > 1, contact, aoe: !!S.aoe });
+    const res = ws.ctx.applyDamage(e, dmg * (foc ? 1.5 : 1), point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy || foc, breaks: !!S.heavy || !!S.breaks || foc, riposte: rip > 1, contact, aoe: !!S.aoe });
     if (foc && e.alive && ws.ctx.stagger) ws.ctx.stagger(e, 0.7);
     if (res === 'blocked' || res === 'clash') {
       if (res === 'blocked' && contact !== 'shield' && e.view && e.view.shield) e.view.shield.getWorldPosition(point);
