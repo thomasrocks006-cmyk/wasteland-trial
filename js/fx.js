@@ -115,7 +115,7 @@ export class FX {
       this.flashes.push({ sprite: s, life: 0, max: 1, size: 1 });
     }
     this.flashLight = new THREE.PointLight(0xffa040, 0, 12, 2);
-    this.flashLight.visible = false;
+    this.flashLight.visible = true;      // always counted (intensity 0 when idle): a light that appears recompiles every material
     scene.add(this.flashLight);
 
     // 3D muzzle cone so the flash reads from behind the shoulder too
@@ -579,7 +579,7 @@ export class FX {
     if (this.flashLightLife > 0) {
       this.flashLightLife -= dt;
       this.flashLight.intensity *= Math.exp(-22 * dt);
-      if (this.flashLightLife <= 0) { this.flashLight.visible = false; this.flashLight.intensity = 0; }
+      if (this.flashLightLife <= 0) { this.flashLight.intensity = 0; }
     }
     if (this.coneLife > 0) {
       this.coneLife -= dt;

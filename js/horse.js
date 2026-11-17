@@ -72,7 +72,7 @@ export class Horse {
     m.traverse((o) => {
       if (!o.isMesh) return;
       const uv = o.geometry.attributes.uv, idx = uv ? Math.min(7, Math.floor(uv.getX(0) * 8)) : 0;
-      o.material = partMaterial(idx); o.castShadow = true; o.frustumCulled = false;
+      o.material = partMaterial(idx); o.castShadow = idx === 0 || idx === 4;      // the small parts add a shadow pass each for nothing o.frustumCulled = false;
       // the model is flat-shaded: weld it and let the normals run smooth over the body
       if (idx === 0 || idx === 4) { const g = o.geometry; g.deleteAttribute('normal'); const w = mergeVertices(g, 1e-4); w.computeVertexNormals(); o.geometry = w; }
     });

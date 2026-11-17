@@ -295,6 +295,7 @@ function wallDist(from, dir, range, minT = 0) {
 
 /* the Storm: hold to throw lightning from the open hand */
 const storm = new Storm(scene, camera, {
+  light: fx.flashLight,
   enemies: () => enemies.list,
   applyDamage: (e, dmg, point, dir, head, def, info) => enemies.hit(e, dmg, point, dir, head, def, info),
   stun: (e, d) => enemies.stun(e, d),
@@ -347,6 +348,12 @@ const weapons = new WeaponSystem(scene, player, fx, audio, {
   onExecPrompt: (kind, e) => { execPromptShow(kind, e); },
   onExecPromptEnd: (result) => { execPromptEnd(result); },
   onRiposte: () => { showCallout('RIPOSTE'); audio.streak(3); },
+  // FOCUS: the world slows (enemies run on a slowed clock, see the frame loop), the screen goes gold, the hero glows
+  onFocus: (on) => {
+    document.body.classList.toggle('focus', on);
+    player.auraLight.color.setHex(0xffc860); player.auraLight.intensity = on ? 5 : (player.modeT > 0 ? player.auraLight.intensity : 0);
+    if (on) { showCallout('FOCUS'); audio.streak(5); audio.duck(); player.shake = Math.min(2, player.shake + 0.4); }
+  },
   haptic: (ms) => haptic(ms),
   onCounterRed: () => { showCallout('RED: ROLL AWAY'); audio.click(0, 0.16, 220); },
   onCounterStart: (e, n) => { audio.impact('whoosh', 0.8); if (n > 1) showCallout('COUNTER x' + n); },
@@ -563,11 +570,15 @@ function bindZone(el, handlers) {
     lastActivity = performance.now(); xl = x; yl = y;
     handlers.move(x, y);
   };
-  const up = (pid, m) => {
-    if (id === null || (pid !== null && (id !== pid || mode !== m))) return;
+  // the one way a gesture ends, so a quick still touch is a tap whichever event stream (pointer or touch) ended it
+  const release = () => {
     id = null; mode = null;
     handlers.up();
-    if (performance.now() - t0 < 280 && Math.hypot(xl - x0, yl - y0) < 14) worldTap(x0, y0);
+    if (performance.now() - t0 < 300 && Math.hypot(xl - x0, yl - y0) < 16) worldTap(x0, y0);
+  };
+  const up = (pid, m) => {
+    if (id === null || (pid !== null && (id !== pid || mode !== m))) return;
+    release();
   };
 
   // safety net: a gesture that somehow never receives its release must not
@@ -613,7 +624,7 @@ function bindZone(el, handlers) {
     // clear if our finger ended, or if no fingers are left at all — a gesture that
     // began on the pointer path must also release when the touch stream ends
     if (t || !e.touches || e.touches.length === 0) {
-      if (id !== null) { id = null; mode = null; handlers.up(); }
+      if (id !== null) release();      // phones send touch and pointer both: the touch path must count taps too
     }
   };
   el.addEventListener('touchend', tUp);
@@ -725,6 +736,7 @@ onPress($('btnReload'), () => weapons.tryReload());
 onPress($('btnAim'), () => setAim(!input.aim));
 bindHold($('btnGuard'), () => { input.guard = true; }, () => { input.guard = false; });
 onPress($('btnCall'), () => whistle());
+onPress($('btnFocus'), () => { if (GAME.state === 'playing' && weapons.melee) weapons.melee.startFocus(); });
 bindHold($('btnStorm'), () => { input.storm = true; }, () => { input.storm = false; });
 onPress($('btnLock'), () => toggleLock());
 onPress($('btnUse'), () => useNear());
@@ -751,6 +763,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') input.guard = true;
   if (e.code === 'KeyE') { if (player.mount) player.dismount(); else useNear(); }
   if (e.code === 'KeyH') whistle();
+  if (e.code === 'KeyX' && GAME.state === 'playing' && weapons.melee) weapons.melee.startFocus();
   if (e.code === 'KeyT') toggleLock();
   if (e.code === 'KeyG' && GAME.state === 'playing' && weapons.melee) weapons.melee.execute();
 });
@@ -905,6 +918,16 @@ let lastFleeCall = -99;
 enemies.onFlee = () => { if (GAME.time - lastFleeCall > 8) { lastFleeCall = GAME.time; showCallout && showCallout('THEY BREAK'); } };
 enemies.onKill = (e) => {
   addKillScore(e);
+  // the payoff: the last man of a band falls in slow motion, and the band's spoils are yours
+  if (GAME.mode === 'wander' && e.group && (patrolSize[e.group] || 0) >= 2 && !enemies.list.some((o) => o.alive && o !== e && o.group === e.group)) {
+    const n = patrolSize[e.group]; delete patrolSize[e.group];
+    setTimeout(() => { timeWarp(0.22, 1.1); player.camCue = { dist: 0.7, shoulder: 0.8, height: -0.15, fov: 0.85, t: 1.4 }; }, 0);
+    adv.addXp(25 * n, 'clear');
+    showBanner('BAND BROKEN', '+' + 25 * n + ' XP · SPOILS');
+    audio.waveClear();
+    pickups.spawn(e.pos.x, e.pos.z, 'health', true); if (n >= 3) pickups.spawn(e.pos.x + 1, e.pos.z, 'health', true);
+    player.focus = Math.min(100, (player.focus || 0) + 15);
+  }
   if (GAME.mode === 'wander') adv.onKill(e);
   if (e.type.boss || e.vaultBoss) timeWarp(0.22, 1.6);
   else timeWarp(0.06, 0.05);
@@ -1244,6 +1267,7 @@ weapons.onWinded = () => { if (performance.now() - windedAt > 900) { windedAt = 
 const PATROL_TARGET = 4;
 const PATROLS = [['footman', 'swordsman'], ['shooter', 'footman'], ['footman', 'footman', 'shooter'], ['captain'], ['swordsman', 'swordsman'], ['spearman', 'spearman', 'shooter'], ['footman', 'spearman']];
 let patrolTimer = 0, patrolId = 0, calmT = 0;
+const patrolSize = {};
 function spawnPatrol() {
   const inLow = terrainHeight(player.pos.x, player.pos.z) < -14;
   for (let k = 0; k < 50; k++) {
@@ -1264,7 +1288,7 @@ function spawnPatrol() {
     patrolId++;
     for (const kind of adv.patrolFor(x, z, PATROLS)) {
       const e = enemies.spawn(kind, x + rnd(-3, 3), z + rnd(-3, 3), { hpScale: 1 + L * 0.05, dmgScale: 1 + L * 0.025 });
-      e.passive = true; e.aggro = false; e.home = { x, z }; e.group = patrolId;
+      e.passive = true; e.aggro = false; e.home = { x, z }; e.group = patrolId; patrolSize[patrolId] = (patrolSize[patrolId] || 0) + 1;
     }
     return true;
   }
@@ -1299,6 +1323,8 @@ function updateWander(dt) {
   if (victoryDue && performance.now() > victoryDue) { victoryDue = 0; openReading('victory'); return; }
   autosaveT += dt; if (autosaveT > 20) { autosaveT = 0; persist(); }
   adv.update(dt, GAME.time, player);
+  enemies.baseTokens = adv.level >= 4 ? 3 : 2;      // past level 4 three men press you at once
+  hintUse();
   // the horse: it grazes or comes when called; beside it, USE says RIDE
   if (horse) {
     if (player.mount && (adv.inVault || !player.alive)) player.dismount();
@@ -1314,6 +1340,13 @@ function updateWander(dt) {
   const o = adv.objective(player);
   ui.objective.textContent = hunting ? 'SOLDIERS HUNT YOU' : o.text;
   objectivePoi = o.poi;
+}
+/* the first time something usable is close, say how to use it (Tom could not tell a tap from a button) */
+let useHinted = false;
+function hintUse() {
+  if (useHinted || !adv.near || !adv.near.enabled) return;
+  useHinted = true;
+  showToast('TAP THE GLOWING RING ON SCREEN, OR THE ORANGE ' + adv.near.label + ' BUTTON');
 }
 function horseNear() { return { poi: { at: [horse.pos.x, horse.pos.z], y: horse.pos.y + 0.4, reach: 3 }, label: 'RIDE', enabled: true, why: '', horse: true }; }
 let victoryDue = 0, objectivePoi = null, autosaveT = 0, freeCam = null, draftLaterUntil = 0;
@@ -1365,10 +1398,11 @@ function resetRun(mode = GAME.mode || 'wander') {
   setTod(wander ? adv.adv.tod : START_TOD, true); lastPhase = '';
   player.staminaOn = true; player.maxStam = 100;      // both modes have a body to tire and a guard to raise (counter, block)
   player.stam = 100; player.exhausted = false; player.stamDelay = 0;
-  player.mana = MANA_MAX; player.manaWait = 0; player.casting = false; storm.coolDown();
+  player.mana = MANA_MAX; player.manaWait = 0; player.casting = false; storm.coolDown(); player.focus = 0; document.body.classList.remove('focus');
   player.speed = 5.5; player.armorMul = 1; player.parryWindow = 0.32; player.guardDmgTaken = 0.2; player.guardCostMul = 1; player.parryRefund = 14; player.sprintCostMul = 1; player.lockTarget = null;
   player.model.cloak.material.color.setHex(0x35503d);
   enemies.windupMul = wander ? 1.8 : 1;
+  enemies.hardHp = 1.25; enemies.hardDmg = 1.3; enemies.hardTell = 0.85;      // harder all round (Tom, 17 Nov)
 
   applyProgress(true);
   player.alive = true;
@@ -1671,7 +1705,7 @@ const perfOn = location.search.includes('perf=1');
 /* ================================================================ loop */
 let last = performance.now();
 let kbMoving = false;
-let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, adapted = false, lowFps2 = 0, shadowsCut = false, lowFps3 = 0, natureThinned = false;
+let fpsAcc = 0, fpsN = 0, lowFpsTime = 0, prStep = 0, highFpsTime = 0, adapted = false, lowFps2 = 0, shadowsCut = false, lowFps3 = 0, natureThinned = false;
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -1688,9 +1722,12 @@ function frame(now) {
     if (GAME.state === 'playing') {
       if (fps < 42 && !adapted && QUALITY !== 'fast') {
         lowFpsTime += 1.5;
-        if (lowFpsTime > 3) { adapted = true; renderer.setPixelRatio(pixelRatioFor('fast')); resize(); }
+        // step down gently (1.6 -> 1.3, then 1.0): the old single drop to 1.0 made everything soft for the rest of the session
+        if (lowFpsTime > 4.5) { lowFpsTime = 0; prStep++; renderer.setPixelRatio(Math.min(pixelRatioFor(QUALITY), prStep === 1 ? 1.3 : 1.0)); resize(); if (prStep >= 2) adapted = true; }
       } else {
         lowFpsTime = 0;
+        // and back up when the frame rate has room again
+        if (prStep > 0 && !adapted && fps > 56) { highFpsTime += 1.5; if (highFpsTime > 9) { highFpsTime = 0; prStep = 0; renderer.setPixelRatio(pixelRatioFor(QUALITY)); resize(); } } else highFpsTime = 0;
         // already at the lowest resolution and still slow: the shadow pass is the next biggest cost, so drop it
         if (adapted && !shadowsCut && fps < 30 && !navigator.webdriver) {
           lowFps2 += 1.5;
@@ -1749,7 +1786,7 @@ function frame(now) {
     if (GAME.mode === 'trial') updateWaves(dt); else { updateWander(dt); tickDay(dt); }
 
     // ---------- enemies
-    enemies.update(dt, GAME.time);
+    enemies.update(dt * (weapons.melee && weapons.melee.focusT > 0 ? 0.3 : 1), GAME.time);
     updateGrenades(dt);
     pickups.update(dt, GAME.time, player);
 
@@ -1861,6 +1898,9 @@ function updateHud() {
   ui.healthNum.textContent = Math.ceil(player.hp);
   ui.bloodEdge.style.opacity = String(clamp(1 - hpPct / 0.55, 0, 0.95) * 0.85);
 
+  // FOCUS: the button fills as you fight, glows when ready, burns down while it runs
+  { const fb3 = document.getElementById('btnFocus'), m = weapons.melee, k = m && m.focusT > 0 ? m.focusT / 6 : clamp((player.focus || 0) / 100, 0, 1);
+    fb3.style.setProperty('--f', k.toFixed(2)); fb3.classList.toggle('ready', !!(m && m.focusReady)); fb3.classList.toggle('on', !!(m && m.focusT > 0)); }
   // the Storm's spirit and its button
   { const mf = document.getElementById('manaFill'), mp = Math.round(clamp(player.mana / MANA_MAX, 0, 1) * 100);
     if (mf._p !== mp) { mf._p = mp; mf.style.width = mp + '%'; }
@@ -2206,7 +2246,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
-window.__worldTap = worldTap;
+window.__worldTap = worldTap; window.__patrolSet = (g, n) => { patrolSize[g] = n; };
 window.__dbg = { horse, whistle, trample, storm, updateStorm, startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, ROAD, ROAD_LEN, roadNearest, roadDist, LOW_R, GAP_A, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)

@@ -375,7 +375,8 @@ export class Enemies {
 
   spawn(typeKey, x, z, opts = {}) {
     const t = ENEMY_TYPES[typeKey];
-    const hpScale = opts.hpScale || 1;
+    // harder all round (b37b, Tom: 'the enemies need to be a bit harder'): tougher, hit harder, read faster
+    const hpScale = (opts.hpScale || 1) * (this.hardHp || 1);
     const e = {
       type: t, key: typeKey,
       pos: new THREE.Vector3(x, terrainHeight(x, z), z),
@@ -387,7 +388,7 @@ export class Enemies {
       flash: 0, limbL: 0, limbR: 0, scale: 0.01,
       dying: 0, hurtT: 0, dead: false,
       speed: t.speed * (opts.speedScale || 1),
-      dmg: t.dmg * (opts.dmgScale || 1),
+      dmg: t.dmg * (opts.dmgScale || 1) * (this.hardDmg || 1), tellScale: this.hardTell || 1,
       spawnT: 0,
       strafeDir: rng() > 0.5 ? 1 : -1,
       lungeT: 0, lungeCd: rnd(1, 2),

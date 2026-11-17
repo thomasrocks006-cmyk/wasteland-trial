@@ -56,7 +56,7 @@ export function observe(mgr, dt) {
   I.swingEdge = sw && !I.wasSwing;
   I.swing = I.swing * k + (I.swingEdge ? 1 : 0);
   I.wasDodge = dg; I.wasSwing = sw;
-  mgr.tokens.maxMelee = pl.exhausted || (pl.hero && pl.hero.overlay && pl.hero.overlay.hit > 0.5) ? 3 : 2;
+  mgr.tokens.maxMelee = (mgr.baseTokens || 2) + (pl.exhausted || (pl.hero && pl.hero.overlay && pl.hero.overlay.hit > 0.5) ? 1 : 0);
   // the ring turns slowly with him, so the slots do not whip round every time he looks about
   I.slotYaw = dampAngleTo(I.slotYaw, pl.yaw, 0.8, dt);
   let n = 0;
@@ -85,7 +85,7 @@ export function newAI(e) {
 }
 
 /** an attack is over (or was broken): give back the token and cool down */
-export function endAttack(mgr, e, cool = rnd(1.1, 2.4)) {
+export function endAttack(mgr, e, cool = rnd(0.8, 1.9)) {
   const ai = e.ai; ai.mode = 'circle'; ai.t = 0; ai.cd = cool; ai.tell = null; ai.kind = null; ai.resolved = false; ai.token = false; ai.countered = false; ai.rebound = false;
   mgr.tokens.release(e);
   if (e.view) { e.view.setLayer(null); e.view.bash = 0; }

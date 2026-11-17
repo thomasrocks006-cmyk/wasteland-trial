@@ -382,9 +382,9 @@ export class Hero {
         [this.upperL, this.foreL, 0.08], [this.upperR, this.foreR, 0.08],
         [this.upperL, null, 0.11], [this.upperR, null, 0.11],
       ],
-      backstop: { hips: this.hips, spine: this.spine3, side: 1, offset: 0.07 },
+      backstop: { hips: this.hips, spine: this.spine3, side: 1, offset: 0.14, left: this.upperL, right: this.upperR },     // behind the back plate, not 7 cm off the spine (the cape's edges sank into the armour)
       // heavy wool: less drag (it streams rather than flies), and it never rises past the collar line (ceiling, metres at the hem)
-      worldScale: 0.5, air: 0, drag: 0.99, ceiling: 0.35,
+      worldScale: 0.5, air: 0, drag: 0.99, ceiling: 0.35, steps: 3,
     });
     this.cloak = this.cloth.mesh;
   }
@@ -547,7 +547,7 @@ export class Hero {
      rig: { horse, lean (forward, 0..1), bank (radians) } or null. Over whatever the clips did: the hips are set on the
      saddle, the legs reach the stirrups (knees forward and out), the hands hold the reins unless a blow, a cast or the
      guard needs them, and the chest leans into the gallop and the turn. */
-  setRide(rig) { this.rideRig = rig; }
+  setRide(rig) { this.rideRig = rig; if (!rig && this.cloth) this.cloth.extra = null; }
   applyRide() {
     const R = this.rideRig; if (!R) return;
     const H = R.horse, up = V(0, 1, 0);
@@ -577,6 +577,8 @@ export class Hero {
       if (!this.sw.path && !(this.ik.pw > 0.1)) this.solveArm(this.upperR, this.foreR, this.handR, H.reinHold(-1, V()), fwd, this.reinW, 1);
     }
     H.drawReins(this.P(this.handL), this.P(this.handR));
+    // the cape lies over the horse's back and rump instead of falling through them
+    if (this.cloth) { const ex = this.cloth.extra || (this.cloth.extra = [{ a: V(), b: V(), r: 0.3 }]); H.tackG.localToWorld(ex[0].a.set(0, 0.2, 0.1)); H.tackG.localToWorld(ex[0].b.set(0, 0.25, -1.6)); }
   }
 
   /** the charge's coil 0..1: he sinks and winds his chest back over the raised blade, trembling at full */

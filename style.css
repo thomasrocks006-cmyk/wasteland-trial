@@ -563,3 +563,16 @@ body:not(.wander) #flow,body:not(.wander) #btnFinish{display:none !important;}
 /* whistle for the horse (shown in the Wander when it is out of reach) */
 #btnCall{position:absolute;left:calc(50% + 34px);top:calc(env(safe-area-inset-top,0px) + 12px);padding:7px 10px;font-size:8px;letter-spacing:.16em;font-weight:900;}
 body:not(.wander) #btnCall{display:none !important;}
+
+/* FOCUS (b37b): a ring that fills as you fight; gold when ready; the screen goes warm and close while it runs */
+#btnFocus{display:none;grid-column:3;grid-row:1;justify-self:center;border-color:rgba(255,206,110,.55);color:#ffe6b0;
+  background:conic-gradient(rgba(255,196,90,.75) calc(var(--f,0)*360deg),rgba(20,14,4,.6) 0);}
+body.wander #btnFocus{display:flex;}
+#btnFocus.ready{box-shadow:0 0 18px rgba(255,200,90,.9);animation:cntPulse .5s ease-in-out infinite alternate;color:#1a1204;}
+#btnFocus.on{color:#1a1204;}
+#focusFx{position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .35s;
+  background:radial-gradient(ellipse at center,rgba(255,200,110,0) 45%,rgba(120,70,10,.55) 100%);mix-blend-mode:multiply;}
+body.focus #focusFx{opacity:1;}
+
+/* the context buttons sit above the look-drag area (they were under it, so a thumb on them only turned the camera) */
+#btnUse,#btnFinish{z-index:6;}

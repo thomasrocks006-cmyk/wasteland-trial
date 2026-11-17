@@ -93,13 +93,15 @@ export class Cloth {
     // the backstop: a plane along the spine (it leans when he leans) that the cloth may not cross; pushed out level
     let bsx = 0, bsy = 0, bsz = 0, bsd = 0, fhx = 0, fhz = 0, fdn = 1, bs = this.backstop && !off.back ? this.backstop : null;
     if (bs) {
-      const rq = this.root.getWorldQuaternion(_q), side = new THREE.Vector3(-1, 0, 0).applyQuaternion(rq), hp = bs.hips.getWorldPosition(new THREE.Vector3());
+      const rq = this.root.getWorldQuaternion(_q), hp = bs.hips.getWorldPosition(new THREE.Vector3());
+      // across the shoulders when the wearer gives them (so a twisted chest carries the plane round with it), else the root's right
+      const side = bs.right && bs.left ? bs.right.getWorldPosition(new THREE.Vector3()).sub(bs.left.getWorldPosition(new THREE.Vector3())).normalize() : new THREE.Vector3(-1, 0, 0).applyQuaternion(rq);
       const ax = bs.spine.getWorldPosition(new THREE.Vector3()).sub(hp).normalize();
       const bn = new THREE.Vector3().crossVectors(side, ax).normalize(), fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(rq);
       if (bn.dot(fwd) < 0) bn.negate();
       if (bs.side < 0) bn.negate();                                  // a front panel keeps in front instead
       bsx = bn.x; bsy = bn.y; bsz = bn.z; bsd = hp.x * bsx + hp.y * bsy + hp.z * bsz - bs.offset;
-      const fh = fwd.setY(0).normalize().multiplyScalar(bs.side < 0 ? -1 : 1);
+      const fh = (bs.right ? fwd.copy(bn) : fwd.multiplyScalar(bs.side < 0 ? -1 : 1)).setY(0).normalize();      // push out level, along the plane's own facing
       fhx = fh.x; fhz = fh.z; fdn = Math.max(0.3, fhx * bsx + fhz * bsz);
     }
     const steps = this.steps, h = Math.min(dt, 0.05) / steps;
@@ -134,6 +136,16 @@ export class Cloth {
             const u = Math.max(0, Math.min(1, (px * abx + py * aby + pz * abz) / l2));
             const qx = px - abx * u, qy = py - aby * u, qz = pz - abz * u, d2 = qx * qx + qy * qy + qz * qz;
             if (d2 < r * r) { const d = Math.sqrt(d2) || 1e-4, push = (r - d) / d; P[o] += qx * push; P[o + 1] += qy * push; P[o + 2] += qz * push; Q[o] += qx * push; Q[o + 1] += qy * push; Q[o + 2] += qz * push; }     // pushed aside, not thrown
+          }
+        }
+        // extra capsules in world space set by the wearer's situation (the horse's back and rump when riding)
+        for (const X of (this.extra || [])) {
+          const A = X.a, Bc = X.b, r = X.r, abx = Bc.x - A.x, aby = Bc.y - A.y, abz = Bc.z - A.z, l2 = abx * abx + aby * aby + abz * abz || 1e-6;
+          for (let i = C; i < this.n; i++) {
+            const o = i * 3, px = P[o] - A.x, py = P[o + 1] - A.y, pz = P[o + 2] - A.z;
+            const u = Math.max(0, Math.min(1, (px * abx + py * aby + pz * abz) / l2));
+            const qx = px - abx * u, qy = py - aby * u, qz = pz - abz * u, d2 = qx * qx + qy * qy + qz * qz;
+            if (d2 < r * r) { const d = Math.sqrt(d2) || 1e-4, push = (r - d) / d; P[o] += qx * push; P[o + 1] += qy * push; P[o + 2] += qz * push; Q[o] += qx * push; Q[o + 1] += qy * push; Q[o + 2] += qz * push; }
           }
         }
         for (let i = C; i < this.n; i++) {

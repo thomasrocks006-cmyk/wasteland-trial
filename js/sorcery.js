@@ -66,7 +66,8 @@ export class Storm {
     this.glare = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }));
     this.glare.visible = false; this.glare.renderOrder = 6; scene.add(this.glare);
     // one light for the whole storm, in the scene from the start (a light added later recompiles every material)
-    this.light = new THREE.PointLight(0x9fb4ff, 0, 16, 2); scene.add(this.light);
+    // it borrows the effects' flash light (always in the scene): a light of its own made every surface pay for it all the time
+    this.light = ctx.light;
     this.bolts = [];        // { pts, w, a }
     this.regrow = 0; this.tick = 0; this.on = 0; this.casting = false; this.hits = []; this.scorch = 0; this.ground = null;
   }
@@ -84,7 +85,7 @@ export class Storm {
     if (this.casting) pl.mana = Math.max(0, pl.mana - DRAIN * dt), pl.manaWait = 1.1;
     else { pl.manaWait = Math.max(0, (pl.manaWait || 0) - dt); if (pl.manaWait <= 0) pl.mana = Math.min(MANA_MAX, pl.mana + REGEN * dt); }
     this.on = clamp(this.on + (this.casting ? dt * 14 : -dt * 9), 0, 1);
-    if (this.on <= 0) { this.geo.setDrawRange(0, 0); this.glare.visible = false; this.light.intensity = 0; this.hits.length = 0; return false; }
+    if (this.on <= 0) { this.geo.setDrawRange(0, 0); this.glare.visible = false; if (this.lit) { this.light.intensity = 0; this.lit = false; } this.hits.length = 0; return false; }
 
     // ---- who it finds
     if (this.casting) {
@@ -100,7 +101,8 @@ export class Storm {
     this.glare.material.opacity = this.on;
     const far = this.hits.length ? this.hits[0].at : (this.ground || hand);
     this.light.position.lerpVectors(hand, far, 0.35);
-    this.light.intensity = 7 * fl * this.on;
+    this.light.color.setHex(0x9fb4ff); this.light.distance = 16;
+    this.light.intensity = 7 * fl * this.on; this.lit = true;
     return this.casting;
   }
 

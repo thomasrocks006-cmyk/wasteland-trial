@@ -87,6 +87,8 @@ const PROMPT_WINDOW = 0.8;
    glowing hotter. Two levels: CHARGE_L1 (a harder overhead) and CHARGE_FULL (a leaping slam that lands with a
    shockwave). */
 const CHARGE_L1 = 0.45, CHARGE_FULL = 1.0, FLOW_INTO_CHARGE = 0.22;
+/* a spinning backhand all round you (stick pulled back + attack): the sweep's path, paid in stamina, not flow */
+const SPIN = Object.assign({}, SPECS.sword.sweep, { dmg: 34, stam: 15, special: false, speed: 1.25, kb: 6, stag: 0.6 });
 const SLAM_R = 3.4;
 const HOT = new THREE.Color(1.0, 0.5, 0.16);
 
@@ -155,12 +157,16 @@ export class Melee {
     const ws = this.ws, pl = this.pl;
     ws.idleT = 0;
     if (this.exec) { this.execInput('attack'); return; }
-    if (pl.guard) return this.shieldBash();
+    if (pl.guard) return (pl.wish && pl.wish.mag > 0.85 && !pl.mount) ? this.shieldCharge() : this.shieldBash();
     // sheathed: draw and cut in one move, so the first press is always a blow
     if (!ws.drawn || ws.drawT > 0) { ws.ready(); ws.drawT = 0; if (ws.audio.shot) ws.audio.shot('draw', 0); }
     if (this.atk) { if (!this.atk.rebound) this.atk.buffered = true; return; }          // chains once the blow has landed
     if (this.recoverT > 0) return;                                 // still checked from bouncing off steel
     this.holdT = 0;
+    // in the air: drive down onto them, blade first, and land with a shockwave
+    if (this.mocap && !pl.grounded && !pl.mount && pl.vy < 6) return this.plunge();
+    // the stick pulled back against the way you face: a spinning backhand round you
+    if (this.mocap && pl.wish && pl.wish.mag > 0.7 && Math.abs(angleTo(pl.yaw, Math.atan2(pl.wish.x, pl.wish.z))) > 2.3 && !pl.mount) { this.combo = 0; if (this.begin(SPIN, false)) this.atk.spin = true; return; }
     // on the run: a lunging thrust
     if (this.specs.thrust && (pl.sprinting || Math.hypot(pl.vel.x, pl.vel.z) > 5.2) && this.clock - this.lastEnd > 0.4) { this.combo = 0; this.begin(this.specs.thrust, false); return; }
     // the captured set cuts the moment you press (no wait to see if it is a hold); keep holding and the cut flows into the charge
@@ -285,6 +291,7 @@ export class Melee {
     if (this.exec) { this.runExec(dt); return; }
     if (this.flow > 0) { this.flowT -= dt; if (this.flowT <= 0) this.breakFlow(); }
     this.bashCd = Math.max(0, this.bashCd - dt);
+    this.chargeUpdate(dt); this.focusUpdate(dt);
     if (this.bashT > 0) { this.bashT -= dt; if (this.bashT <= 0) this.bashHit(); }
     if (this.counter) this.counterUpdate(dt);
     if (this.riposteQ) { this.riposteQ.t -= dt; if (this.riposteQ.t <= 0) { const q = this.riposteQ; this.riposteQ = null; if (!this.atk && q.e.alive) { this.combo = 1; this.pl.riposteT = Math.max(this.pl.riposteT, 0.6); this.begin(this.specs.light[1], false, q.e); } } }
@@ -353,6 +360,47 @@ export class Melee {
     for (const g of m.userData.glowMats) g.m.emissive.copy(g.base).lerp(HOT, clamp(k, 0, 1) * 0.85);
   }
 
+  /** attack in the air: the heavy's raised blade, then straight down; the landing is the slam (a little smaller) */
+  plunge() {
+    const pl = this.pl;
+    if (!this.begin(this.specs.heavy, false)) return;
+    const a = this.atk; a.leapPhase = 'air'; a.slamK = 0.75; a.plunge = true;
+    this.hero.A[this.specs.heavy.clip].time = this.specs.heavy.chargeAt; this.hero.holdLayer(true);
+    pl.vy = Math.min(pl.vy, 1.5); pl.leapT = 0;
+    if (this.ws.audio.impact) this.ws.audio.impact('whoosh', 0.8);
+  }
+
+  /** guard up, stick full, attack: a running shield charge that bowls over whoever is in the way */
+  shieldCharge() {
+    const pl = this.pl;
+    if (this.bashCd > 0 || this.chargeT > 0) return;
+    if (!pl.spend(22)) { if (this.ws.onWinded) this.ws.onWinded(); return; }
+    const yaw = Math.atan2(pl.wish.x, pl.wish.z);
+    if (this.hero.A.Shield_Dash) this.hero.playOnce('Shield_Dash', { from: 0.0, speed: 1.2 });
+    this.hero.shieldBash(0.6);
+    pl.faceOverride = { yaw, t: 0.6 }; pl.faceLock = Math.max(pl.faceLock, 0.6);
+    pl.dashT = 0.42; pl.dashV.set(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(15);
+    this.chargeT = 0.45; this.chargeHit = new Set(); this.bashCd = 1.2;
+    if (this.ws.audio.roar) this.ws.audio.roar(6);
+  }
+  chargeUpdate(dt) {
+    if (!(this.chargeT > 0)) return;
+    this.chargeT -= dt;
+    const pl = this.pl, ws = this.ws, fx = Math.sin(pl.yaw), fz = Math.cos(pl.yaw);
+    for (const e of (ws.ctx.enemies() || [])) {
+      if (!e.alive || e.state === 'spawn' || this.chargeHit.has(e)) continue;
+      const dx = e.pos.x - pl.pos.x, dz = e.pos.z - pl.pos.z, d = Math.hypot(dx, dz);
+      if (d > 1.4 + e.type.radius || dx * fx + dz * fz < -0.2) continue;
+      this.chargeHit.add(e);
+      const dir = new THREE.Vector3(dx / (d || 1) * 0.5 + fx, 0, dz / (d || 1) * 0.5 + fz).normalize();
+      ws.ctx.applyDamage(e, 24 * ws.mods.dmg, new THREE.Vector3(e.pos.x, e.pos.y + e.type.height * 0.55, e.pos.z), dir, false, ws.def, { breaks: true, heavy: true });
+      if (e.alive && ws.ctx.stun) ws.ctx.stun(e, e.type.boss ? 0.6 : 1.8);
+      if (e.alive) { e.vel.addScaledVector(dir, e.type.heavy ? 4 : 11); if (e.view) e.view.playReact('Hit_Knockback', 1.2); }
+      pl.shake = Math.min(2.2, pl.shake + 0.6); if (ws.audio.clang) ws.audio.clang(2, true); if (ws.ctx.onMeleeHit) ws.ctx.onMeleeHit(1, true, true, 0.08);
+      this.addFlow(1);
+    }
+  }
+
   /** full charge: he leaps at them with the blade up and comes down with it */
   leap(a) {
     const pl = this.pl, ws = this.ws;
@@ -383,7 +431,7 @@ export class Melee {
       const dx = e.pos.x - at.x, dz = e.pos.z - at.z, d = Math.hypot(dx, dz);
       if (d > SLAM_R + e.type.radius || Math.abs(e.pos.y - at.y) > 2) continue;
       const k = 1 - clamp(d / SLAM_R, 0, 1) * 0.55, dir = new THREE.Vector3(dx / (d || 1), 0, dz / (d || 1));
-      const dmg = 60 * k * ws.mods.dmg * (ws.mods.heavy || 1) * (this.pl.dmgMul || 1);
+      const dmg = 60 * k * (a.slamK || 1) * ws.mods.dmg * (ws.mods.heavy || 1) * (this.pl.dmgMul || 1);
       if (e.hp - dmg <= 0) e.blast = new THREE.Vector3(dir.x * 7 * k, 5, dir.z * 7 * k);
       a.hit.add(e);
       ws.ctx.applyDamage(e, dmg, new THREE.Vector3(e.pos.x, e.pos.y + 0.8, e.pos.z), dir, false, ws.def, { heavy: true, breaks: true, aoe: true });
@@ -500,7 +548,9 @@ export class Melee {
     const dir = new THREE.Vector3(dx / dl, 0, dz / dl);
     const rip = pl.riposteT > 0 ? 1.8 : 1;
     const dmg = S.dmg * ws.mods.dmg * (S.heavy ? ws.mods.heavy * (a.chargeK !== undefined ? 0.75 + 0.5 * a.chargeK : 1) : 1) * (pl.dmgMul || 1) * rip * (head ? 1.25 : 1);
-    const res = ws.ctx.applyDamage(e, dmg, point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy, breaks: !!S.heavy, riposte: rip > 1, contact, aoe: !!S.aoe });
+    const foc = this.focusT > 0;
+    const res = ws.ctx.applyDamage(e, dmg * (foc ? 1.5 : 1), point.clone(), dir, !!S.finisher || head, ws.def, { heavy: !!S.heavy || foc, breaks: !!S.heavy || foc, riposte: rip > 1, contact, aoe: !!S.aoe });
+    if (foc && e.alive && ws.ctx.stagger) ws.ctx.stagger(e, 0.7);
     if (res === 'blocked' || res === 'clash') {
       if (res === 'blocked' && contact !== 'shield' && e.view && e.view.shield) e.view.shield.getWorldPosition(point);
       return this.rebound(a, e, point, dir, res === 'clash' ? 'blade' : (e.view && e.view.shield ? 'shield' : 'blade'));
@@ -635,7 +685,22 @@ export class Melee {
   }
 
   /* ---------------- flow: unbroken hitting builds toward a finishing move */
-  addFlow(n) { this.flow += n; this.flowT = 4.5; if (this.ws.ctx.onFlow) this.ws.ctx.onFlow(this.flow); }
+  addFlow(n) { this.flow += n; this.flowT = 4.5; if (this.ws.ctx.onFlow) this.ws.ctx.onFlow(this.flow); if (!(this.focusT > 0)) this.pl.focus = Math.min(100, (this.pl.focus || 0) + 7 * n); }
+
+  /* FOCUS (after Ryse): hits, parries and finishers fill it; spent, the world slows to a crawl for six seconds while
+     you move at full speed, every blow lands half again as hard and staggers whoever it meets. */
+  get focusReady() { return (this.pl.focus || 0) >= 100 && !(this.focusT > 0); }
+  startFocus() {
+    if (!this.focusReady || this.pl.mount) return false;
+    this.pl.focus = 0; this.focusT = 6;
+    if (this.ws.ctx.onFocus) this.ws.ctx.onFocus(true);
+    return true;
+  }
+  focusUpdate(dt) {
+    if (!(this.focusT > 0)) return;
+    this.focusT -= dt;
+    if (this.focusT <= 0 && this.ws.ctx.onFocus) this.ws.ctx.onFocus(false);
+  }
   breakFlow() { if (this.flow > 0) { this.flow = 0; if (this.ws.ctx.onFlow) this.ws.ctx.onFlow(0); } }
   get flowReady() { return this.flow >= 6; }
 
@@ -839,6 +904,7 @@ export class Melee {
     const flawless = x.prompts > 0 && x.perfect === x.prompts;
     pl.heal(14 + (flawless ? 12 : 0));
     if (flawless) { pl.stam = pl.maxStam; this.addFlow(1); }
+    pl.focus = Math.min(100, (pl.focus || 0) + (flawless ? 35 : 20));     // a finisher feeds FOCUS
     if (x.usedFlow) { this.flow = 0; if (ws.ctx.onFlow) ws.ctx.onFlow(0); } else this.addFlow(2);
     if (ws.ctx.onExecuted) ws.ctx.onExecuted(e, x.v, { perfect: x.perfect, prompts: x.prompts, flawless });
   }
