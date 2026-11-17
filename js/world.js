@@ -745,8 +745,8 @@ export class World {
 
     // --- central dais
     const daisY = terrainHeight(0, 0);
-    // the dais is solid: without this the player could stand inside it
-    this.obstacles.push({ x: 0, z: 0, r: 9.3, h: 1.4 });
+    // the dais is three tiers you can climb (jump the first, step the rest): one obstacle per tier, tops matching the stone caps
+    for (let ring = 0; ring < 3; ring++) this.obstacles.push({ x: 0, z: 0, r: 9.3 - ring * 1.9, h: 0.72 + ring * 0.34 });
     for (let ring = 0; ring < 3; ring++) {
       const rr = 9 - ring * 1.9;
       b.add(new THREE.CylinderGeometry(rr, rr + 0.5, 0.55, 22, 1, true), ring === 0 ? PAL.ruinDark : PAL.ruin, {
@@ -2132,11 +2132,31 @@ export class World {
     return best || [0, 18];
   }
 
-  /** push a circle out of world obstacles; returns corrected x,z */
-  resolveCollisions(x, z, radius) {
+  /** world height of an obstacle's top (cached: an obstacle list only ever lives over one floor) */
+  obstacleTop(o) { return o._top !== undefined ? o._top : (o._top = terrainHeight(o.x, o.z) + o.h); }
+
+  /** the highest obstacle top under (x,z) that feet at footY can stand on (within step), or -Infinity */
+  supportAt(x, z, radius, footY, step = 0.5) {
+    let best = -Infinity;
+    for (let i = 0; i < this.obstacles.length; i++) {
+      const o = this.obstacles[i];
+      if (o.h === undefined) continue;
+      const dx = x - o.x, dz = z - o.z, rr = o.r + radius * 0.35;
+      if (dx * dx + dz * dz > rr * rr) continue;
+      const top = this.obstacleTop(o);
+      if (top <= footY + step && top > best) best = top;
+    }
+    return best;
+  }
+
+  /** push a circle out of world obstacles; returns corrected x,z.
+      With footY, anything whose top is within step of the feet is not a wall but a ledge to stand on
+      (jump onto a rock, walk up the dais tiers); without it every obstacle is a wall. */
+  resolveCollisions(x, z, radius, footY = -Infinity, step = 0.5) {
     if (this.bounds) [x, z] = this.bounds(x, z, radius);      // underground: the walls of the rooms
     for (let i = 0; i < this.obstacles.length; i++) {
       const o = this.obstacles[i];
+      if (o.h !== undefined && footY > -1e9 && this.obstacleTop(o) <= footY + step) continue;
       const dx = x - o.x, dz = z - o.z;
       const d2 = dx * dx + dz * dz;
       const rr = o.r + radius;

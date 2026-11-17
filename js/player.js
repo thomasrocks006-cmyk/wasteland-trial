@@ -889,11 +889,12 @@ export class Player {
 
     let nx = this.pos.x + this.vel.x * dt;
     let nz = this.pos.z + this.vel.z * dt;
-    [nx, nz] = this.world.resolveCollisions(nx, nz, 0.42);
+    [nx, nz] = this.world.resolveCollisions(nx, nz, 0.42, this.pos.y);
     this.pos.x = nx; this.pos.z = nz;
     this.pos.y += this.vy * dt;
 
-    const gh = terrainHeight(this.pos.x, this.pos.z);
+    // the ground is the terrain or the top of whatever you are standing on (rock, log, dais tier)
+    const gh = Math.max(terrainHeight(this.pos.x, this.pos.z), this.world.supportAt(this.pos.x, this.pos.z, 0.42, this.pos.y - this.vy * dt));
     if (this.pos.y <= gh) {
       this.pos.y = gh;
       if (this.vy < -6 && this.onLand) this.onLand(-this.vy);

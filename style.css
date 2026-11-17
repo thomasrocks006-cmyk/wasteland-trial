@@ -387,7 +387,7 @@ h1 span{display:block;color:transparent;-webkit-text-stroke:1.5px rgba(255,170,9
 
 /* ---------------- adventure pass (b28): Wander's HUD ---------------- */
 /* the guns' controls and the arcade score are not part of wandering */
-body:not(.wander) #btnLock,body:not(.wander) #lvlRow,body:not(.wander) #compass,body:not(.wander) #btnUse,body:not(.wander) #lockMark{display:none !important;}
+body:not(.wander) #btnLock,body:not(.wander) #lvlRow,body:not(.wander) #compass,body:not(.wander) #btnUse,body:not(.wander) #usePin,body:not(.wander) #lockMark{display:none !important;}
 body.wander #topRight,body.wander #ecoWrap,body.wander #btnLight,body.wander #btnDark,body.wander #btnReload,body.wander #comboTrack{display:none !important;}
 body.wander #btnLock{grid-column:1;grid-row:1;}
 body.wander #btnGuard{grid-column:2;grid-row:1;}
@@ -543,3 +543,11 @@ body:not(.wander) #flow,body:not(.wander) #btnFinish{display:none !important;}
 #execPrompt u{position:absolute;left:50%;top:92px;transform:translateX(-50%);white-space:nowrap;text-decoration:none;font-size:11px;font-weight:900;letter-spacing:.2em;color:#fff3da;text-shadow:0 1px 4px #000;}
 #execPrompt.perfect b{animation:epHit .35s ease-out;}#execPrompt.perfect u{color:#ffe07a;}#execPrompt.miss u{color:#ff8a6a;}
 @keyframes epHit{0%{transform:scale(1)}40%{transform:scale(1.35)}100%{transform:scale(1)}}
+
+/* the pin over the thing you can use: tap it, or the button */
+#usePin{position:absolute;left:0;top:0;pointer-events:none;transform:translate(-50%,-100%);text-align:center;color:#ffe2b0;
+  text-shadow:0 1px 3px rgba(0,0,0,.8);font-size:9px;font-weight:900;letter-spacing:.18em;white-space:nowrap;}
+#usePin b{display:block;width:16px;height:16px;margin:0 auto 4px;border:2px solid #ffb04a;border-radius:50%;box-shadow:0 0 12px rgba(255,160,60,.8);animation:pinPulse 1.4s ease-in-out infinite;}
+#usePin.off{opacity:.55;}
+#usePin.off b{animation:none;border-color:#c9b9a0;box-shadow:none;}
+@keyframes pinPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.35)}}

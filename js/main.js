@@ -488,21 +488,24 @@ function bindZone(el, handlers) {
   let id = null;
   let mode = null;             // 'pointer' | 'touch'
   let lastActivity = 0;
+  // a short, still touch is a tap on the world (light the fire you are looking at), not a drag
+  let t0 = 0, x0 = 0, y0 = 0, xl = 0, yl = 0;
 
   const down = (pid, x, y, m) => {
     if (id !== null) return;
-    id = pid; mode = m; lastActivity = performance.now();
+    id = pid; mode = m; lastActivity = t0 = performance.now(); x0 = xl = x; y0 = yl = y;
     handlers.down(x, y);
   };
   const move = (pid, x, y, m) => {
     if (id === null || id !== pid || mode !== m) return;
-    lastActivity = performance.now();
+    lastActivity = performance.now(); xl = x; yl = y;
     handlers.move(x, y);
   };
   const up = (pid, m) => {
     if (id === null || (pid !== null && (id !== pid || mode !== m))) return;
     id = null; mode = null;
     handlers.up();
+    if (performance.now() - t0 < 280 && Math.hypot(xl - x0, yl - y0) < 14) worldTap(x0, y0);
   };
 
   // safety net: a gesture that somehow never receives its release must not
@@ -1078,6 +1081,23 @@ function applyProgress(heal) {
 function useNear() {
   if (GAME.state !== 'playing' || GAME.mode !== 'wander') return;
   adv.use(player);
+}
+
+/* tap a fire, a door, the hermit on screen: within reach it is used, further off it says how far */
+function worldTap(x, y) {
+  if (GAME.state !== 'playing' || GAME.mode !== 'wander') return;
+  let best = null, bs = 120;
+  for (const p of adv.zonePlaces) {
+    const d = Math.hypot(player.pos.x - p.at[0], player.pos.z - p.at[1]);
+    if (d > 45) continue;
+    _tp.set(p.at[0], p.y + 1, p.at[1]).project(camera);
+    if (_tp.z > 1) continue;
+    const sd = Math.hypot((_tp.x * 0.5 + 0.5) * window.innerWidth - x, (-_tp.y * 0.5 + 0.5) * window.innerHeight - y);
+    if (sd < bs) { bs = sd; best = { p, d }; }
+  }
+  if (!best) return;
+  if (best.d <= best.p.reach) { adv.near = adv.describe(best.p); adv.use(player); }
+  else showToast(adv.describe(best.p).label + ' · WALK CLOSER ' + Math.ceil(best.d - best.p.reach) + 'M');
 }
 
 /* lock-on: pull the view to the nearest threat in front; tap again to let go */
@@ -1921,6 +1941,12 @@ function updateWanderHud() {
     const key = 'ap|' + ap.label + '|' + Math.ceil(ap.d);
     if (key !== lastUse) { lastUse = key; btn.querySelector('i').textContent = ap.label; wEl('useWhy').textContent = 'WALK CLOSER · ' + Math.max(1, Math.ceil(ap.d)) + 'M'; btn.classList.add('off'); }
   } else lastUse = '';
+  // ...and a pin over the thing itself, so you can see what the button means and tap it there
+  const pin = wEl('usePin'), pp = n ? n.poi : null;
+  let pinVis = false;
+  if (pp) { _tp.set(pp.at[0], pp.y + 1.6, pp.at[1]).project(camera); pinVis = _tp.z < 1 && Math.abs(_tp.x) < 1 && Math.abs(_tp.y) < 1; }
+  wClass(pin, 'hidden', !pinVis);
+  if (pinVis) { pin.style.transform = `translate(${((_tp.x * 0.5 + 0.5) * window.innerWidth).toFixed(0)}px,${((-_tp.y * 0.5 + 0.5) * window.innerHeight).toFixed(0)}px) translate(-50%,-100%)`; wClass(pin, 'off', !n.enabled); wSet(pin.lastChild, 'text', n.enabled ? 'TAP · ' + n.label : n.label); }
 
   // the lock-on mark follows the target on screen
   const lt = player.lockTarget, mark = wEl('lockMark');
@@ -2052,6 +2078,7 @@ window.addEventListener('unhandledrejection', (e) => {
 document.getElementById('crashReload').addEventListener('click', () => location.reload());
 
 /* ================================================================ debug hook (harmless in prod) */
+window.__worldTap = worldTap;
 window.__dbg = { startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)

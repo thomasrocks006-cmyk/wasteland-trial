@@ -897,7 +897,9 @@ export class Enemies {
     let nx = e.pos.x + e.vel.x * dt;
     let nz = e.pos.z + e.vel.z * dt;
     const wantX = nx, wantZ = nz;
-    [nx, nz] = this.world.resolveCollisions(nx, nz, t.radius);
+    // men climb what a man can climb (the dais tiers, low rocks), so a ledge is not a refuge
+    const climb = t.flying ? -Infinity : e.pos.y;
+    [nx, nz] = this.world.resolveCollisions(nx, nz, t.radius, climb, 0.8);
     // a charging brute that rams a wall stuns itself: your opening
     if (e.state === 'charge' && Math.hypot(nx - wantX, nz - wantZ) > 0.04) {
       e.state = 'stagger'; e.stateT = 0; e.staggerDur = 1.1; e.chargeCd = rnd(5, 8);
@@ -913,7 +915,7 @@ export class Enemies {
     e.pos.x = nx; e.pos.z = nz;
     if (e.segs) this.updateSegments(e, dt);
 
-    const gh = terrainHeight(nx, nz);
+    const gh = t.flying ? terrainHeight(nx, nz) : Math.max(terrainHeight(nx, nz), this.world.supportAt(nx, nz, t.radius, e.pos.y, 0.8));
     if (t.flying) {
       // stingers dive to head height when they strike, so a blade can reach them
       const targetY = gh + (e.lungeT > 0 ? 1.4 : t.flyH) + Math.sin(time * 2.2 + e.phase) * 0.35;
