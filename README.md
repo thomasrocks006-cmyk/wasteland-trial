@@ -245,6 +245,23 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b42: the enemy sculpts (film-design models, assets only)
+
+Ten GLB sculpts of the film's orcs, Uruks and trolls are in `assets/enemies/`, with provenance in
+`assets/enemies/CREDITS.txt`. They were found as 3D-print models (archive.org `lotr-stls` and
+Thingiverse `thing:4892705`), plinths and backdrop cards stripped, stood up, scaled to metres
+(orc 1.85, uruk ~2.0, trolls 3.6-4.6, ringwraith 2.1), decimated to 3k-20k tris and
+vertex-coloured. `tools/enemy_models.html` is the check sheet: all ten at true height, one row.
+
+- orc (sword and shield), uruk bare / berserker / crossbow, troll, cave troll, war troll,
+  ringwraith, plus `ram_crew` (a spiked battering ram carried by four Uruks) and `ram_head`.
+- **Not wired into the game yet.** These are static sculpts with no skeleton. `js/soldiers.js`
+  clones one captured rig and drives it with clips, so putting these in a fight means rigging them
+  to that skeleton (or weighting them to it) — that is the next slice, not this one.
+- **Licence:** every model is a fan sculpt of a Weta/New Line design, so the shapes are close to
+  the films and the licence is not clean. Fine for this game, check before a commercial release.
+- Left out: `Uruck_Hai_1.stl`, a hollow partial shell (one leg, no arms).
+
 ## b40-b41: real weapons, the horse button, the Ashen Horde, the black land
 
 - **Horse**: one button above the stick: CALL HORSE (how far it is), RIDE beside it, DISMOUNT on it.

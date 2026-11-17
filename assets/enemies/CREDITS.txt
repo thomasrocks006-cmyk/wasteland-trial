@@ -1,0 +1,36 @@
+enemy sculpts — where they came from
+====================================
+
+These are Lord of the Rings film-design sculpts (New Line / Weta's designs), found as
+3D-print models and reduced for the web. They are fan-sourced assets: fine for this game,
+not licensed for commercial release without checking with the rights holders.
+
+source — archives
+  orc.glb          OrcMesh.obj          archive.org/details/lotr-stls
+  troll.glb        TrollMesh.obj        archive.org/details/lotr-stls
+  cave_troll.glb   Troll1.stl           archive.org/details/lotr-stls
+  war_troll.glb    Troll2.stl           archive.org/details/lotr-stls
+  ringwraith.glb   Nazgul-9.stl         archive.org/details/lotr-stls
+  ram_crew.glb     battering_uruks.stl  archive.org/details/lotr-stls
+  ram_head.glb     battering_uruks.stl  archive.org/details/lotr-stls
+                   (the spiked iron cap of the same ram; the crew is ram_crew.glb)
+
+source — Thingiverse
+  uruk_berserker.glb Uruck_Hai_Beserker.stl  thingiverse.com/thing:4892705
+  uruk_archer.glb    Uruck_Hai_Crossbow.stl  thingiverse.com/thing:4892705
+  uruk_bare.glb      Uruck_Hai_No_Mask.stl   thingiverse.com/thing:4892705
+                     "Uruk Hai Army" by hugolours, licensed CC on Thingiverse.
+
+(Uruck_Hai_1.stl is left out: the file is a hollow partial shell, one leg and no arms.)
+
+what was done to them
+  Loaded, print plinths and backdrop cards stripped, stood up and scaled to metres
+  (orc 1.85, uruk ~2.0, trolls 3.6-4.6, ringwraith 2.1), decimated to 2.8k-20k tris,
+  and vertex-coloured (skin ramp darkened into creases). No textures, no skeleton: they
+  are static sculpts. The conversion script is in the round's scratch dir, not here.
+
+licence reality check
+  PJ's orcs, Uruks and trolls are Weta designs. Every model here is either a fan sculpt of
+  that design or a print-model derived from it, so the shape is close to the films and the
+  licence is not clean. If this ever ships commercially, treat these as placeholders with
+  a paper trail, not as cleared assets.

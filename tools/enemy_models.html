@@ -1,0 +1,63 @@
+<!doctype html><meta charset="utf-8"><title>enemy models — check sheet</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
+<style>
+  html,body{margin:0;background:#1c1f23;color:#cfd3d8;font:12px/1.4 system-ui,sans-serif}
+  #bar{padding:6px 10px;border-bottom:1px solid #2c3137}
+  canvas{display:block}
+</style>
+<div id="bar">enemy sculpts, 1.9-4.6 m, decimated + vertex-coloured · click a name to isolate</div>
+<canvas id="c"></canvas>
+<script type="module">
+/* Check sheet for the enemy sculpts in assets/enemies. Each model is drawn at its
+   true height, front and side, so proportions and facing can be judged side by side. */
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const MODELS = ['orc', 'uruk_bare', 'uruk_berserker', 'uruk_archer', 'ringwraith',
+  'troll', 'cave_troll', 'war_troll', 'ram_crew', 'ram_head'];
+const COLS = 10, GAP = 3.4;
+
+const W = window.innerWidth, H = window.innerHeight;
+const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
+r.setSize(W, H, false);
+r.setPixelRatio(Math.min(devicePixelRatio, 2));
+r.outputColorSpace = THREE.SRGBColorSpace;
+r.toneMapping = THREE.ACESFilmicToneMapping;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x23272c);
+scene.add(new THREE.HemisphereLight(0xaecbe8, 0x37312a, 1.4));
+const key = new THREE.DirectionalLight(0xfff0d6, 2.2); key.position.set(4, 8, 6); scene.add(key);
+const rim = new THREE.DirectionalLight(0x8ab0ff, 1.0); key.position.set(4, 8, 6); rim.position.set(-6, 4, -6); scene.add(rim);
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 20), new THREE.MeshStandardMaterial({ color: 0x36332e, roughness: 1 }));
+floor.rotation.x = -Math.PI / 2; scene.add(floor);
+
+const cam = new THREE.PerspectiveCamera(32, W / H, 0.1, 120);
+const loader = new GLTFLoader();
+let slot = 0;
+
+async function place(name) {
+  const g = await loader.loadAsync(`../assets/enemies/${name}.glb`);
+  const m = g.scene;
+  const box = new THREE.Box3().setFromObject(m);
+  const h = box.max.y - box.min.y;
+  const col = slot % COLS;
+  const x = col * GAP - (COLS - 1) * GAP / 2;
+  const z = 0;
+  m.position.set(x, 0, z);
+  m.traverse(o => { if (o.isMesh && o.material) { o.material.vertexColors = true; o.material.roughness = 0.9; o.material.metalness = 0.04; } });
+  scene.add(m);
+  slot++;
+  return h;
+}
+
+const heights = [];
+for (const n of MODELS) heights.push(await place(n));
+const tallest = Math.max(...heights);
+
+cam.position.set(0, tallest * 0.8, 44);
+cam.lookAt(0, tallest * 0.45, 0);
+r.render(scene, cam);
+window.__sheet = { count: MODELS.length, heights };
+</script>
