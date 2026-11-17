@@ -859,6 +859,9 @@ function timeWarp(scale, dur) {
 const STREAKS = { 2: 'DOUBLE KILL', 3: 'TRIPLE KILL', 5: 'RAMPAGE', 8: 'UNSTOPPABLE', 12: 'UNTOUCHABLE' };
 let streak = 0, lastKillT = -9;
 
+// a man breaks and runs: say so once in a while, so it reads as their nerve going, not a bug
+let lastFleeCall = -99;
+enemies.onFlee = () => { if (GAME.time - lastFleeCall > 8) { lastFleeCall = GAME.time; showCallout && showCallout('THEY BREAK'); } };
 enemies.onKill = (e) => {
   addKillScore(e);
   if (GAME.mode === 'wander') adv.onKill(e);

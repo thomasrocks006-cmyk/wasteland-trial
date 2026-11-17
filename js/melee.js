@@ -164,6 +164,7 @@ export class Melee {
     // on the run: a lunging thrust
     if (this.specs.thrust && (pl.sprinting || Math.hypot(pl.vel.x, pl.vel.z) > 5.2) && this.clock - this.lastEnd > 0.4) { this.combo = 0; this.begin(this.specs.thrust, false); return; }
     // the captured set cuts the moment you press (no wait to see if it is a hold); keep holding and the cut flows into the charge
+    this.chargeTried = false;
     if (this.mocap) { if (this.begin(this.nextLight(), false)) this.atk.flowsToCharge = true; return; }
     this.begin(this.nextLight(), true);
   }
@@ -175,6 +176,10 @@ export class Melee {
       if (c && c.flowsToCharge && this.holdT >= FLOW_INTO_CHARGE && (c.inRec || this.hero.layerTime > c.spec.s1)) {
         this.atk = null; this.combo = 0; this.pl.stam += this.specs.heavy.stam * 0.35;      // the cut already paid part of it
         if (this.begin(this.specs.heavy, true)) this.atk.fromCut = true;
+      }
+      // the cut bounced off steel and is over, but the button is still down: wind up the heavy that breaks a guard
+      else if (!c && this.mocap && this.holdT >= FLOW_INTO_CHARGE && this.recoverT <= 0 && !this.pl.guard && !this.chargeTried) {
+        this.chargeTried = true; this.combo = 0; this.begin(this.specs.heavy, true);
       }
     }
     const a = this.atk;
@@ -276,6 +281,7 @@ export class Melee {
     this.blood = Math.max(0, this.blood - dt * 0.012);            // it dries and flakes off over a minute or so
     const bm = this.ws.models[this.ws.index] && this.ws.models[this.ws.index].userData.blood;
     if (bm) bm.material.opacity = Math.min(0.85, this.blood * 0.9);
+    { const c = this.atk; this.pl.threat = c ? (c.charging ? 'charge' : 'swing') : null; this.pl.threatTarget = c ? c.target : null; }    // the soldiers read this (soldier_ai observe)
     if (this.exec) { this.runExec(dt); return; }
     if (this.flow > 0) { this.flowT -= dt; if (this.flowT <= 0) this.breakFlow(); }
     this.bashCd = Math.max(0, this.bashCd - dt);

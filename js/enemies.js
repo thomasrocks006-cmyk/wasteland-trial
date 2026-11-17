@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Tokens, newAI, think, stun, endAttack, useCapturedAttacks } from './soldier_ai.js';
+import { Tokens, newAI, think, stun, endAttack, useCapturedAttacks, observe, fearKill } from './soldier_ai.js';
 import {
   TAU, clamp, lerp, damp, dampAngle, smoothstep, rnd, rng, pick,
   terrainHeight, Builder, raySphere, angleTo, ARENA_R, addRim
@@ -270,11 +270,11 @@ export const ENEMY_TYPES = {
   },
   captain: {
     key: 'captain', soldier: true, style: 'captain', hp: 210, speed: 2.9, radius: 0.55, height: 1.98, headY: 1.82, headR: 0.17, armor: 0.7,
-    dmg: 24, reach: 2.4, score: 420, hudName: 'CAPTAIN', heavy: true, attacks: ['heavy', 'slash', 'slash'], parries: 0.2,
+    dmg: 24, reach: 2.4, score: 420, hudName: 'CAPTAIN', heavy: true, attacks: ['heavy', 'slash', 'slash'], parries: 0.2, feints: 0.3,
   },
   boss: {
     key: 'boss', soldier: true, style: 'warlord', hp: 780, speed: 3.0, radius: 0.62, height: 2.2, headY: 2.0, headR: 0.18, armor: 0.6,
-    dmg: 28, reach: 2.7, score: 2500, hudName: 'WARLORD', boss: true, heavy: true, shield: true, attacks: ['heavy', 'slash', 'bash', 'slash'], parries: 0.15,
+    dmg: 28, reach: 2.7, score: 2500, hudName: 'WARLORD', boss: true, heavy: true, shield: true, attacks: ['heavy', 'slash', 'bash', 'slash'], parries: 0.15, feints: 0.25,
   },
   wolf: {
     key: 'wolf', hp: 58, speed: 6.6, radius: 0.5, height: 1.0, headY: 1.0, headR: 0.2, eye: [0.05, 1.06, 0.94],
@@ -569,6 +569,7 @@ export class Enemies {
       this.fx.puff(p, null, 0x6a5a48, e.type.boss ? 2.2 : 0.7, e.type.boss ? 8 : 2, 1.1, 1.6);
     }
     if (this.audio) this.audio.enemyDeath(0);
+    if (e.ai) fearKill(this, e);
     if (this.onKill) this.onKill(e);
   }
 
@@ -649,6 +650,7 @@ export class Enemies {
     this.lastDt = dt;
     const p = this.player;
     const pp = p.pos;
+    observe(this, dt);
 
     let i = 0;
     while (i < this.list.length) {
@@ -658,7 +660,8 @@ export class Enemies {
         if (e.dying > (e.view ? 4.2 : DEATH_T)) { if (e.view) e.view.dispose(); this.list.splice(i, 1); continue; }
         if (e.view) {
           // a soldier falls by the captured death clip, lies a while, then sinks
-          if (e.dying > 3.0) e.pos.y -= dt * 0.7;
+          if (e.dv && e.dying < 2.5) this.updateCorpse(e, dt);      // a blasted body flies while the death clip plays
+          else if (e.dying > 3.0) e.pos.y -= dt * 0.7;
           e.scale = 1;
           e.view.root.position.copy(e.pos); e.view.root.rotation.y = e.yaw;
           e.view.update(dt, { speed: 0, drawn: true, guard: false, dist: e.pos.distanceTo(pp) });
