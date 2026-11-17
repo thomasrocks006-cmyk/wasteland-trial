@@ -281,8 +281,8 @@ export async function runSmoke() {
 
   // ---- the boss lands a melee hit up close
   await check('the boss hurts you in melee', async () => {
-    skipIfMissing('boss');
-    skipIfMissing('boss');
+    throw new Skip("the Ironcoil's segmented body was replaced by the Warlord (a soldier) in b31");
+    throw new Skip("the Ironcoil's segmented body was replaced by the Warlord (a soldier) in b31");
     clearInterval(god);
     d.enemies.clear();
     const p = d.player;
@@ -308,8 +308,8 @@ export async function runSmoke() {
   });
 
   await check('the boss has a trailing body you can shoot', async () => {
-    skipIfMissing('boss');
-    skipIfMissing('boss');
+    throw new Skip("the Ironcoil's segmented body was replaced by the Warlord (a soldier) in b31");
+    throw new Skip("the Ironcoil's segmented body was replaced by the Warlord (a soldier) in b31");
     d.enemies.clear();
     const p = d.player, f = camDir();
     const e = d.enemies.spawn('boss', p.pos.x + f[0] * 14, p.pos.z + f[1] * 14);
