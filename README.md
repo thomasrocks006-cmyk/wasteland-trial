@@ -252,6 +252,8 @@ Ten GLB sculpts of the film's orcs, Uruks and trolls are in `assets/enemies/`, w
 Thingiverse `thing:4892705`), plinths and backdrop cards stripped, stood up, scaled to metres
 (orc 1.85, uruk ~2.0, trolls 3.6-4.6, ringwraith 2.1), decimated to 3k-20k tris and
 vertex-coloured. `tools/enemy_models.html` is the check sheet: all ten at true height, one row.
+The conversion is `tools/enemy_sculpts.py` (needs trimesh, fast-simplification, scipy; the raw
+STL/OBJ files go in a `raw/` dir beside it).
 
 - orc (sword and shield), uruk bare / berserker / crossbow, troll, cave troll, war troll,
   ringwraith, plus `ram_crew` (a spiked battering ram carried by four Uruks) and `ram_head`.
