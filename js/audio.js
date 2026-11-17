@@ -899,19 +899,17 @@ export class Audio {
     if (this.useTracks && this.musicGain && this.curTrack !== m) this.playTrack(m);
   }
 
-  /* Recorded score. If music/explore.mp3, combat.mp3 and boss.mp3 are all there,
-     they replace the synthesised score; each loops, and moods crossfade. If any is
-     missing, the synth score plays as before. */
+  /* Recorded score. Each mood can hold several tracks: music/explore.mp3, explore2.mp3, explore3.mp3 ...
+     (the same for combat and boss). When one ends the next is another of the same mood, never the one
+     just heard, so a long wander does not loop one piece. If a mood has no track at all, the synth score plays. */
   async loadTracks() {
     if (this._tracksTried || !this.ctx) return;
     this._tracksTried = true;
     const names = ['explore', 'combat', 'boss'], bufs = {};
+    const get = async (f) => { try { const r = await fetch(`music/${f}.mp3`); if (!r.ok) return null; return await this.ctx.decodeAudioData(await r.arrayBuffer()); } catch { return null; } };
     await Promise.all(names.map(async (n) => {
-      try {
-        const r = await fetch(`music/${n}.mp3`);
-        if (!r.ok) return;
-        bufs[n] = await this.ctx.decodeAudioData(await r.arrayBuffer());
-      } catch { /* missing or undecodable: keep the synth score */ }
+      const list = (await Promise.all(['', '2', '3', '4', '5'].map((k) => get(n + k)))).filter(Boolean);
+      if (list.length) bufs[n] = list;
     }));
     if (names.every((n) => bufs[n])) {
       this.trackBuf = bufs;
@@ -921,22 +919,30 @@ export class Audio {
   }
 
   playTrack(m) {
-    const buf = this.trackBuf && this.trackBuf[m];
-    if (!buf) return;
+    const list = this.trackBuf && this.trackBuf[m];
+    if (!list || !list.length) return;
+    // a different piece from the last one of this mood, when there is a choice
+    this.lastIdx = this.lastIdx || {};
+    let i = Math.floor(Math.random() * list.length);
+    if (list.length > 1 && i === this.lastIdx[m]) i = (i + 1) % list.length;
+    this.lastIdx[m] = i;
     const t = this.t;
     if (this.trackNode) {
       const old = this.trackNode;
+      old.src.onended = null;
       old.g.gain.setTargetAtTime(0.0001, t, 0.6);
       old.src.stop(t + 3);
     }
     const src = this.ctx.createBufferSource();
-    src.buffer = buf; src.loop = true;
+    src.buffer = list[i]; src.loop = list.length === 1;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.setTargetAtTime(1.0, t, 0.8);
     src.connect(g); g.connect(this.musicGain);
     src.start(t);
-    this.trackNode = { src, g };
+    const node = { src, g };
+    src.onended = () => { if (this.trackNode === node && this.curTrack === m) this.playTrack(m); };
+    this.trackNode = node;
     this.curTrack = m;
   }
 
