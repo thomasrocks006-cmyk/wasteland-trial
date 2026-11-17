@@ -657,7 +657,7 @@ export class Player {
         if (this.onParry) this.onParry(fromX, fromZ, src);
         return;
       }
-      const cost = amount * 1.1 * (kind === 'heavy' ? 1.7 : 1) * this.guardCostMul;
+      const cost = amount * 1.1 * (kind === 'heavy' ? 1.25 : 1) * this.guardCostMul;      // a captain's red blow nearly empties you; a troll's breaks through
       if (this.stam < cost) {                       // guard broken: it holds, but costs you
         this.stam = 0; this.exhausted = true; this.guard = false; this.stamDelay = 1.2;
         this.hp = Math.max(0, this.hp - amount * 0.6 * this.dmgTakenMul);

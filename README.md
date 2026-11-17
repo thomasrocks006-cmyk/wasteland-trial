@@ -245,6 +245,21 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b40-b41: real weapons, the horse button, the Ashen Horde, the black land
+
+- **Horse**: one button above the stick: CALL HORSE (how far it is), RIDE beside it, DISMOUNT on it.
+- **Weapons** (js/ranged.js): the spear is a real missile (gravity, swept against each man's legs/chest/head, sticks in
+  him or the ground); tap throws at the nearest man in front, hold aims over the shoulder and throws along the
+  crosshair; it knocks a man down and breaks a guard. The **bow** replaces the fire pot: held out in the left hand, the
+  right draws to the cheek (IK), a full draw flies flat and hard, heads take 2.4x, a raised shield turns an arrow. The
+  **axe** fights on the captured cuts, slower and 75% heavier, and hooks shields aside.
+- **The Ashen Horde** (js/soldiers.js RACE): the soldiers are orcs now (grey-green hide, low brow, tusks, pointed ears,
+  glowing eyes, a stoop, black iron), with goblins (small, quick, in packs; goblin snipers with crossbows) and trolls
+  (huge, every blow red, a spiked club). Wolves are wargs. Same rig and captured clips, so every move still works.
+- **The black land**: through the pass the range turns to ash and basalt with ember in the creases, and a fire mountain
+  stands over it with a lit crater, runs of fire and a smoke column.
+- Original world and names (no Tolkien places or races by name): orcs, goblins, trolls and wargs are common fantasy.
+
 ## b39: taps that work, FOCUS, harder fights, Tom's score back
 
 - **Using things on a phone.** Walk up to anything usable (a fire, a door, a stone, the hermit, the horse): a pulsing ring with

@@ -254,31 +254,41 @@ export const ENEMY_TYPES = {
   /* the vale's armed men. They are skinned soldiers (soldiers.js) fought by soldier_ai.js. */
   footman: {
     key: 'footman', soldier: true, style: 'footman', hp: 85, speed: 3.1, radius: 0.5, height: 1.78, headY: 1.62, headR: 0.15,
-    dmg: 12, reach: 2.1, score: 110, hudName: 'FOOTMAN', shield: true, attacks: ['slash', 'slash', 'bash'], parries: 0,
+    dmg: 12, reach: 2.1, score: 110, hudName: 'ORC SHIELDBEARER', shield: true, attacks: ['slash', 'slash', 'bash'], parries: 0,
   },
   swordsman: {
     key: 'swordsman', soldier: true, style: 'swordsman', hp: 65, speed: 3.9, radius: 0.48, height: 1.78, headY: 1.62, headR: 0.15,
-    dmg: 11, reach: 2.1, score: 100, hudName: 'SWORDSMAN', attacks: ['slash', 'slash'], parries: 0.3,
+    dmg: 11, reach: 2.1, score: 100, hudName: 'ORC CUTTHROAT', attacks: ['slash', 'slash'], parries: 0.3,
   },
   spearman: {
     key: 'spearman', soldier: true, style: 'spearman', hp: 75, speed: 3.0, radius: 0.5, height: 1.82, headY: 1.66, headR: 0.15,
-    dmg: 13, reach: 3.1, score: 130, hudName: 'SPEARMAN', shield: true, attacks: ['thrust', 'thrust', 'slash'], parries: 0,
+    dmg: 13, reach: 3.1, score: 130, hudName: 'ORC SPEAR', shield: true, attacks: ['thrust', 'thrust', 'slash'], parries: 0,
   },
   shooter: {
-    key: 'shooter', soldier: true, style: 'crossbow', hp: 55, speed: 2.9, radius: 0.46, height: 1.75, headY: 1.6, headR: 0.15,
-    dmg: 14, reach: 22, score: 140, hudName: 'CROSSBOWMAN', ranged: true, attacks: ['shoot'],
+    key: 'shooter', soldier: true, style: 'crossbow', hp: 45, speed: 3.3, radius: 0.38, height: 1.3, headY: 1.18, headR: 0.13,
+    dmg: 13, reach: 22, score: 140, hudName: 'GOBLIN SNIPER', ranged: true, attacks: ['shoot'],
   },
   captain: {
     key: 'captain', soldier: true, style: 'captain', hp: 210, speed: 2.9, radius: 0.55, height: 1.98, headY: 1.82, headR: 0.17, armor: 0.7,
-    dmg: 24, reach: 2.4, score: 420, hudName: 'CAPTAIN', heavy: true, attacks: ['heavy', 'slash', 'slash'], parries: 0.2, feints: 0.3,
+    dmg: 24, reach: 2.4, score: 420, hudName: 'ORC CAPTAIN', heavy: true, attacks: ['heavy', 'slash', 'slash'], parries: 0.2, feints: 0.3,
   },
   boss: {
     key: 'boss', soldier: true, style: 'warlord', hp: 780, speed: 3.0, radius: 0.62, height: 2.2, headY: 2.0, headR: 0.18, armor: 0.6,
-    dmg: 28, reach: 2.7, score: 2500, hudName: 'WARLORD', boss: true, heavy: true, shield: true, attacks: ['heavy', 'slash', 'bash', 'slash'], parries: 0.15, feints: 0.25,
+    dmg: 28, reach: 2.7, score: 2500, hudName: 'WARCHIEF', boss: true, heavy: true, shield: true, attacks: ['heavy', 'slash', 'bash', 'slash'], parries: 0.15, feints: 0.25,
+  },
+  // small, quick and weak: they come in numbers and run in under your guard
+  goblin: {
+    key: 'goblin', soldier: true, style: 'goblin', hp: 38, speed: 4.6, radius: 0.36, height: 1.28, headY: 1.16, headR: 0.13,
+    dmg: 8, reach: 1.7, score: 70, hudName: 'GOBLIN', attacks: ['slash', 'thrust', 'slash'], parries: 0.15,
+  },
+  // huge and slow: every swing is red (dodge it), a shield is no use, and it shrugs off a light cut
+  troll: {
+    key: 'troll', soldier: true, style: 'troll', hp: 560, speed: 2.5, radius: 0.95, height: 3.1, headY: 2.75, headR: 0.3, armor: 0.75,
+    dmg: 34, reach: 3.3, score: 900, hudName: 'TROLL', heavy: true, attacks: ['heavy', 'heavy', 'bash'], parries: 0,
   },
   wolf: {
     key: 'wolf', hp: 58, speed: 6.6, radius: 0.5, height: 1.0, headY: 1.0, headR: 0.2, eye: [0.05, 1.06, 0.94],
-    dmg: 9, attackRange: 1.7, attackCd: 1.25, score: 110, hudName: 'WOLF', windup: 0.3, matte: true,
+    dmg: 9, attackRange: 1.7, attackCd: 1.25, score: 110, hudName: 'WARG', windup: 0.3, matte: true,
     parts: wolfParts, partList: ['body', 'legL', 'legR', 'legL2', 'legR2'],
     legPivots: { legL: [-0.15, 0.66, 0.42], legR: [0.15, 0.66, 0.42], legL2: [-0.15, 0.66, -0.4], legR2: [0.15, 0.66, -0.4] },
   },

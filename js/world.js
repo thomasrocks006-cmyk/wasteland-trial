@@ -393,6 +393,7 @@ export class World {
     // ---- mountains ringing the world: a ring of terrain shaped by ridged noise (sharp crests, cut valleys), coloured by
     //      slope and height: dark rock on the steep faces, snow only where it can lie (high and flatter), scree, then forest
     this.buildRange();
+    this.buildFireMountain();
     // ---- forest across the lowland, in stands
     for (let k = 0; k < 2600 && far.pos.length < 0.55e6; k++) {     // capped: far trees are cheap only in number
       const a = rnd(0, TAU), rr = rnd(125, 760);
@@ -515,8 +516,15 @@ export class World {
       // rock by slope, warmer scree low, forest at the feet, snow where it can lie
       c1.setHex(0x59606a).lerp(c2.setHex(0x7a776e), clamp((up - 0.55) * 2.5, 0, 1) * 0.6);
       if (y < 150) c1.lerp(c2.setHex(0x2d4626), clamp((150 - y) / 120, 0, 1) * clamp((up - 0.6) * 3, 0, 1));
-      const snow = clamp((y - 250 - jitter * 80) / 50, 0, 1) * clamp((up - 0.45) * 3.5, 0, 1);
+      // beyond the pass the range is the black land: ash and basalt, no snow, ember in the creases
+      const px = pos[v * 3], pz = pos[v * 3 + 2], da = Math.abs(Math.atan2(Math.sin(Math.atan2(pz, px) - GAP_A), Math.cos(Math.atan2(pz, px) - GAP_A)));
+      const ash = 1 - smoothstep(0.5, 1.05, da);
+      const snow = clamp((y - 250 - jitter * 80) / 50, 0, 1) * clamp((up - 0.45) * 3.5, 0, 1) * (1 - ash);
       c1.lerp(c2.setHex(0xf2f5f8), snow);
+      if (ash > 0) {
+        c1.lerp(c2.setHex(up > 0.7 ? 0x4a4440 : 0x221e1c), ash * 0.9);
+        if (up < 0.62 && jitter > 0.55) c1.lerp(c2.setHex(0x6a1e0c), ash * clamp((jitter - 0.55) * 4, 0, 0.7));
+      }
       c1.offsetHSL(0, 0, (jitter - 0.5) * 0.06);
       col[v * 3] = c1.r; col[v * 3 + 1] = c1.g; col[v * 3 + 2] = c1.b;
     }
@@ -2122,7 +2130,51 @@ export class World {
   }
 
   /* -------------------------------------------------- per frame */
+  /* the fire mountain: far out through the pass, over the black land; a lit crater and a column of smoke */
+  buildFireMountain() {
+    const a = GAP_A - 0.08, d = 920, cx = Math.cos(a) * d, cz = Math.sin(a) * d, base = LOWLAND_Y - 20, H = 540;
+    const b = new Builder();
+    const prof = [[260, 0], [220, 60], [170, 170], [120, 300], [80, 420], [58, H - 40], [64, H - 8], [44, H - 4], [36, H - 30]];
+    b.add(new THREE.LatheGeometry(prof.map(([r, y]) => new THREE.Vector2(r, y)), 28), 0x1c1918, { pos: [cx, base, cz] });     // no jitter: it would draw on the shared random stream and move every rock and tree built after it
+    // the lava's runs down the flanks
+    const glow = new Builder();
+    for (let k = 0; k < 14; k++) {          // thin runs of fire down the flanks, broken into bends
+      let ang = k * 0.46 + 0.2, y = base + H - 30, r = 52;
+      for (let s2 = 0; s2 < 4; s2++) {
+        const len = 50 + ((k * 7 + s2 * 3) % 5) * 14, r2 = r + len * 0.42, ang2 = ang + ((k + s2) % 3 - 1) * 0.06;
+        const x0 = cx + Math.cos(ang) * r, z0 = cz + Math.sin(ang) * r, x1 = cx + Math.cos(ang2) * r2, z1 = cz + Math.sin(ang2) * r2, y1 = y - len * 0.88;
+        const L = Math.hypot(x1 - x0, y1 - y, z1 - z0), g = new THREE.BoxGeometry(2.2 + (s2 === 0 ? 1.5 : 0), L, 1.2);
+        g.lookAt(new THREE.Vector3(x1 - x0, y1 - y, z1 - z0)); g.rotateX(Math.PI / 2);
+        glow.add(g, s2 < 2 ? 0xff6a20 : 0xc8320c, { pos: [(x0 + x1) / 2, (y + y1) / 2, (z0 + z1) / 2] });
+        ang = ang2; r = r2; y = y1;
+      }
+    }
+    glow.add(new THREE.CylinderGeometry(42, 40, 6, 20), 0xffa040, { pos: [cx, base + H - 22, cz] });       // the crater's light
+    const m = new THREE.Mesh(b.build(), new THREE.MeshLambertMaterial({ vertexColors: true, fog: true }));
+    const gm = new THREE.Mesh(glow.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false, fog: false }));      // the fire burns through the haze
+    m.frustumCulled = gm.frustumCulled = false; this.scene.add(m, gm);
+    // smoke: a slow column of dark billboards that rise, spread and fade, lit red from below
+    const tex = smokeTexture(), puffs = [];
+    for (let k = 0; k < 22; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0x2a2220, transparent: true, depthWrite: false, opacity: 0.0, fog: false }));
+      sp.userData.t = k / 16; this.scene.add(sp); puffs.push(sp);
+    }
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: radialSprite('rgba(255,120,40,0.9)', 'rgba(255,60,10,0)', 64), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false }));
+    halo.position.set(cx, base + H + 10, cz); halo.scale.setScalar(260); this.scene.add(halo);
+    this.fireMountain = { puffs, cx, cz, top: base + H, halo };
+  }
+
   update(dt, t, playerPos, camera) {
+    if (this.fireMountain) {      // the smoke column rises and leans with the wind
+      const F = this.fireMountain;
+      for (const sp of F.puffs) {
+        const u = sp.userData.t = (sp.userData.t + dt * 0.012) % 1;
+        sp.position.set(F.cx + u * 300, F.top + 10 + u * 600, F.cz - u * 110);
+        sp.scale.setScalar(140 + u * 520); sp.material.opacity = Math.min(1, Math.sin(u * Math.PI) * 1.4) * 0.85;
+        sp.material.color.setRGB(0.16 + (1 - u) * 0.35 * Math.max(0, 1 - u * 3), 0.13, 0.12);
+      }
+      F.halo.material.opacity = 0.55 + 0.15 * Math.sin(t * 0.7);
+    }
     if (this.treeField && playerPos) this.treeField.update(dt, playerPos);
     if (this.grass && playerPos) this.grass.update(playerPos, !!this.cave);
     this.time.value = t;

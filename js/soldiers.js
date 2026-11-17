@@ -25,19 +25,30 @@ const WOUND_MAT = new THREE.MeshStandardMaterial({ color: 0x4e0505, roughness: 0
 const WOUND_BONES = [['DEF-spine001', 'DEF-spine002', 0.15], ['DEF-spine002', 'DEF-spine003', 0.16], ['DEF-spine003', 'DEF-neck', 0.16], ['DEF-head', null, 0.12],
   ['DEF-upper_armL', 'DEF-forearmL', 0.07], ['DEF-upper_armR', 'DEF-forearmR', 0.07], ['DEF-forearmR', 'DEF-handR', 0.055], ['DEF-thighL', 'DEF-shinL', 0.09], ['DEF-thighR', 'DEF-shinR', 0.09]];
 
+/* b41: the vale's enemy is a horde, not men: orcs (hunched, broad, tusked, grey-green), goblins (small, quick, sallow)
+   and trolls (huge, stone-grey, a club). Same rig and captured clips as before; race sets skin, face, build and hunch. */
+export const RACE = {
+  orc: { skin: 0x3f4a2e, eye: 0xffb020, build: [1.12, 1.0, 1.1], hunch: 0.26, face: 'orc' },
+  goblin: { skin: 0x5e6038, eye: 0xffe040, build: [0.95, 1.0, 0.95], hunch: 0.34, face: 'goblin' },
+  troll: { skin: 0x55544a, eye: 0xff6a20, build: [1.25, 1.0, 1.2], hunch: 0.3, face: 'troll' },
+};
 export const SOLDIER_STYLES = {
-  footman: { scale: 1.0, tunic: 0x5a2b2b, helm: 'kettle', chest: 'brigandine', arms: true, shield: 'round', weapon: 'sword', shieldColor: 0x6a3030 },
-  swordsman: { scale: 1.0, tunic: 0x3b4a33, helm: 'sallet', chest: 'jerkin', arms: false, shield: null, weapon: 'sword' },
-  spearman: { scale: 1.02, tunic: 0x4a3f2e, helm: 'nasal', chest: 'brigandine', arms: false, shield: 'buckler', weapon: 'spear', shieldColor: 0x7a6a3a },
-  crossbow: { scale: 0.98, tunic: 0x3a3226, helm: 'hood', chest: 'jerkin', arms: false, shield: null, weapon: 'crossbow' },
-  captain: { scale: 1.12, tunic: 0x26262c, helm: 'great', chest: 'plate', arms: true, shield: null, weapon: 'greatsword', legs: true },
-  warlord: { scale: 1.24, tunic: 0x4a1a1a, helm: 'great', chest: 'plate', arms: true, shield: 'kite', weapon: 'greatsword', legs: true, shieldColor: 0x3a1414, plume: 0xb02a2a },
+  footman: { race: 'orc', scale: 1.0, tunic: 0x3a2a20, helm: 'kettle', chest: 'brigandine', arms: true, shield: 'round', weapon: 'cleaver', shieldColor: 0x3a2418 },
+  swordsman: { race: 'orc', scale: 1.0, tunic: 0x2b2420, helm: null, chest: 'jerkin', arms: false, shield: null, weapon: 'cleaver' },
+  spearman: { race: 'orc', scale: 1.02, tunic: 0x40301e, helm: 'nasal', chest: 'brigandine', arms: false, shield: 'buckler', weapon: 'spear', shieldColor: 0x4a3420 },
+  crossbow: { race: 'goblin', scale: 0.74, tunic: 0x2e2a1e, helm: 'hood', chest: 'jerkin', arms: false, shield: null, weapon: 'crossbow' },
+  goblin: { race: 'goblin', scale: 0.72, tunic: 0x33291c, helm: null, chest: 'jerkin', arms: false, shield: null, weapon: 'dagger', tabard: false },
+  captain: { race: 'orc', scale: 1.14, tunic: 0x1c1c20, helm: 'great', chest: 'plate', arms: true, shield: null, weapon: 'greatsword', legs: true },
+  warlord: { race: 'orc', scale: 1.26, tunic: 0x3a1010, helm: 'great', chest: 'plate', arms: true, shield: 'kite', weapon: 'greatsword', legs: true, shieldColor: 0x2a0c0c, plume: 0x8a1a1a },
+  troll: { race: 'troll', scale: 1.75, tunic: 0x3a2e22, helm: null, chest: 'jerkin', arms: false, shield: null, weapon: 'club', tabard: false },
 };
 
 /* shared materials: every soldier of every style uses these */
 export const SOLDIER_MATS = {
-  metal: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.8, roughness: 0.46, envMapIntensity: 1.0 }),
+  metal: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.75, roughness: 0.62, envMapIntensity: 0.8 }),
   cloth: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.0, roughness: 0.9 }),
+  skin: new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.0, roughness: 0.72 }),
+  eyes: new THREE.MeshBasicMaterial({ vertexColors: true }),
 };
 
 /* ------------------------------------------------ geometry helpers */
@@ -89,6 +100,9 @@ export function weaponGeometry(kind) {
   if (kind === 'spear') return spearGeometry();
   if (kind === 'crossbow') return crossbowGeometry();
   if (kind === 'greatsword') return swordGeometry(1.35, 0.07);
+  if (kind === 'cleaver') return swordGeometry(0.8, 0.11);           // a broad, heavy, chopping blade
+  if (kind === 'dagger') return swordGeometry(0.42, 0.04);
+  if (kind === 'club') { const L = []; part(L, new THREE.CylinderGeometry(0.05, 0.13, 1.5, 9), 0x4a3524, [0, -0.75, 0]); for (let k = 0; k < 5; k++) part(L, new THREE.ConeGeometry(0.035, 0.12, 5), 0x3a3a3c, [Math.cos(k * 1.26) * 0.12, -1.2 - (k % 2) * 0.15, Math.sin(k * 1.26) * 0.12], [Math.PI / 2, 0, -k * 1.26 + Math.PI / 2]); return merged(L); }
   return swordGeometry(0.95, 0.05);
 }
 function shieldGeometry(kind, hex) {
@@ -131,6 +145,7 @@ export class SoldierFactory {
     if (this.styles[style]) return this.styles[style];
     const st = SOLDIER_STYLES[style], metal = [], cloth = [];
     const skel = this.refSkinned.skeleton, bones = skel.bones, bindInv = this.refSkinned.bindMatrixInverse;
+    const skin = [], eyes = [];
     const add = (bone, geo, hex, isMetal, pos, rot = [0, 0, 0], scale = [1, 1, 1]) => {
       const b = this.refBones[bone], bi = bones.indexOf(b); if (bi < 0) return;
       const g = plain(geo);
@@ -141,10 +156,10 @@ export class SoldierFactory {
       const n = g.attributes.position.count, si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
       for (let i = 0; i < n; i++) { si[i * 4] = bi; sw[i * 4] = 1; }
       g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
-      paint(g, hex); (isMetal ? metal : cloth).push(g);
+      paint(g, hex); (isMetal === 'skin' ? skin : isMetal === 'eyes' ? eyes : isMetal ? metal : cloth).push(g);
     };
     const pH = this.P('DEF-head'), pN = this.P('DEF-neck'), pS3 = this.P('DEF-spine003'), pS2 = this.P('DEF-spine002'), pS1 = this.P('DEF-spine001'), pHip = this.P('DEF-hips');
-    const STEEL = 0x8a9099, DARK = 0x3a4048, LEATHER = 0x4a3322, BRASS = 0xb08a3c;
+    const STEEL = 0x4c4e50, DARK = 0x232527, LEATHER = 0x3a281a, BRASS = 0x6a4a22;      // black iron and old leather: horde gear
     const c = (x, y, z) => [x, y, z];
     // ---- helm
     const hs = 0.115;
@@ -158,6 +173,18 @@ export class SoldierFactory {
       add('DEF-head', new THREE.BoxGeometry(0.16, 0.014, 0.02), 0x0c0c10, true, c(pH.x, pH.y + 0.09, pH.z + 0.152));
       add('DEF-head', new THREE.BoxGeometry(0.02, 0.18, 0.02), DARK, true, c(pH.x, pH.y + 0.05, pH.z + 0.155));
       add('DEF-head', new THREE.CapsuleGeometry(0.02, 0.26, 4, 8), st.plume || 0x8a1f1f, false, c(pH.x, pH.y + 0.25, pH.z - 0.02), [Math.PI / 2, 0, 0]);
+    }
+    // ---- the face of the race: brow, jaw, tusks, ears (skin goes in 'skin', eyes in 'eyes')
+    const R = RACE[st.race] || RACE.orc, SK = R.skin;
+    add('DEF-head', new THREE.SphereGeometry(0.1, 14, 10), SK, 'skin', c(pH.x, pH.y + 0.065, pH.z + 0.005), [0, 0, 0], [1.0, 0.86, 1.08]);             // the skull: low and flat-topped
+    add('DEF-head', new THREE.BoxGeometry(0.18, 0.045, 0.07), SK, 'skin', c(pH.x, pH.y + 0.1, pH.z + 0.095), [-0.35, 0, 0]);                          // heavy brow, low over the eyes
+    add('DEF-head', new THREE.BoxGeometry(R.face === 'goblin' ? 0.1 : 0.15, 0.06, 0.1), SK, 'skin', c(pH.x, pH.y - 0.005, pH.z + 0.08), [0.15, 0, 0]);  // jutting jaw
+    add('DEF-head', new THREE.SphereGeometry(0.035, 8, 6), SK, 'skin', c(pH.x, pH.y + 0.06, pH.z + 0.135), [0, 0, 0], [1, 0.8, 1.1]);                  // a broad flat nose
+    for (const sx of [-1, 1]) {
+      if (R.face !== 'goblin') add('DEF-head', new THREE.ConeGeometry(0.012, 0.055, 6), 0xd8cfa8, 'skin', c(pH.x + sx * 0.045, pH.y + 0.035, pH.z + 0.12), [0.25, 0, sx * 0.15]);   // tusks
+      const ear = R.face === 'goblin' ? [0.035, 0.16] : [0.028, 0.08];
+      add('DEF-head', new THREE.ConeGeometry(ear[0], ear[1], 6), SK, 'skin', c(pH.x + sx * 0.12, pH.y + 0.08, pH.z - 0.01), [0, 0, -sx * 1.25], [1, 1, 0.45]);     // pointed ears
+      add('DEF-head', new THREE.SphereGeometry(0.014, 6, 4), R.eye, 'eyes', c(pH.x + sx * 0.04, pH.y + 0.075, pH.z + 0.118));                          // eyes that catch the light
     }
     // ---- torso
     const lathe = (pts) => new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, y)), 22);
@@ -182,7 +209,7 @@ export class SoldierFactory {
       if (st.legs) add(sh, new THREE.SphereGeometry(0.072, 12, 8), STEEL, true, [pS.x, pS.y, pS.z], [0, 0, 0], [1, 0.9, 1.1]);
       add(ft, new THREE.BoxGeometry(0.1, 0.07, 0.26), LEATHER, false, [pF.x, pF.y - 0.01, pF.z + 0.05]);
     }
-    const out = { metal: metal.length ? merged(metal) : null, cloth: cloth.length ? merged(cloth) : null };
+    const out = { metal: metal.length ? merged(metal) : null, cloth: cloth.length ? merged(cloth) : null, skin: skin.length ? merged(skin) : null, eyes: eyes.length ? merged(eyes) : null };
     this.styles[style] = out;
     return out;
   }
@@ -224,19 +251,21 @@ export class Soldier {
   constructor(factory, style) {
     this.f = factory; this.style = style; const st = this.st = SOLDIER_STYLES[style];
     this.root = new THREE.Group(); this.body = new THREE.Group(); this.root.add(this.body);
-    this.rig = SkeletonUtils.clone(factory.gltf.scene); this.rig.scale.setScalar(S0 * st.scale); this.body.add(this.rig);
+    this.rig = SkeletonUtils.clone(factory.gltf.scene); this.race = RACE[st.race] || RACE.orc;
+    const bd = this.race.build; this.rig.scale.set(S0 * st.scale * bd[0], S0 * st.scale * bd[1], S0 * st.scale * bd[2]); this.body.add(this.rig);
     this.bones = {}; this.skinned = [];
     this.rig.traverse((o) => { if (o.isBone) this.bones[o.name] = o; if (o.isSkinnedMesh) { this.skinned.push(o); o.frustumCulled = false; o.castShadow = true; } });
     const B = (n) => this.bones[n];
     Object.assign(this, { handR: B('DEF-handR'), handL: B('DEF-handL'), foreL: B('DEF-forearmL'), upperL: B('DEF-upper_armL'), spine3: B('DEF-spine003'), headBone: B('DEF-head') });
     // the mannequin's own surface becomes the clothing under the armour
-    const cloth = new THREE.MeshStandardMaterial({ color: st.tunic, roughness: 0.92 }), joints = new THREE.MeshStandardMaterial({ color: 0x3a2a1e, roughness: 0.85 });
+    // the mannequin's surface is his hide now (arms, legs and neck show between the armour); joints are the darker creases
+    const cloth = new THREE.MeshStandardMaterial({ color: this.race.skin, roughness: 0.74 }), joints = new THREE.MeshStandardMaterial({ color: new THREE.Color(this.race.skin).multiplyScalar(0.55), roughness: 0.8 });
     this.ownMats = [cloth, joints];
     for (const m of this.skinned) m.material = m.material && m.material.name === 'M_Joints' ? joints : cloth;
     // armour
     const arm = factory.armour(style), base = this.skinned[0];
     this.armourMeshes = [];
-    for (const [key, mat] of [['metal', SOLDIER_MATS.metal], ['cloth', SOLDIER_MATS.cloth]]) {
+    for (const [key, mat] of [['metal', SOLDIER_MATS.metal], ['cloth', SOLDIER_MATS.cloth], ['skin', SOLDIER_MATS.skin], ['eyes', SOLDIER_MATS.eyes]]) {
       if (!arm[key]) continue;
       const sm = new THREE.SkinnedMesh(arm[key], mat); sm.bind(base.skeleton, base.bindMatrix); sm.frustumCulled = false; sm.castShadow = true;
       sm.position.copy(base.position); sm.quaternion.copy(base.quaternion); sm.scale.copy(base.scale);
@@ -248,7 +277,7 @@ export class Soldier {
     this.handR.add(this.hand);
     this.weapon = new THREE.Mesh(factory.weaponGeo(st.weapon), SOLDIER_MATS.metal); this.weapon.castShadow = true; this.hand.add(this.weapon);
     this.muzzle = new THREE.Object3D();
-    this.muzzle.position.set(0, st.weapon === 'greatsword' ? -1.5 : st.weapon === 'spear' ? -1.9 : st.weapon === 'crossbow' ? -0.45 : -1.07, 0);
+    this.muzzle.position.set(0, st.weapon === 'greatsword' ? -1.5 : st.weapon === 'spear' ? -1.9 : st.weapon === 'crossbow' ? -0.45 : st.weapon === 'club' ? -1.45 : st.weapon === 'dagger' ? -0.5 : st.weapon === 'cleaver' ? -0.9 : -1.07, 0);
     this.hand.add(this.muzzle);
     this.thrustRot = Math.PI;                         // blade along the forearm for a thrust
     this.bladeRot = this.hand.rotation.z;
@@ -381,6 +410,12 @@ export class Soldier {
     if (sum < 1) { const base = this.dead ? 'Death01' : o.drawn ? 'Sword_Idle' : 'Idle_Loop'; w[base] += 1 - sum; }
     for (const k in A) A[k].setEffectiveWeight(w[k]);
     this.mixer.update(dt);
+    // the horde's stoop: the back bowed forward, the head pulled up to look at you
+    if (!this.dead && this.race.hunch) {
+      const hq = this.hunchQ || (this.hunchQ = [new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), this.race.hunch), new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -this.race.hunch * 0.8)]);
+      const b1 = this.bones['DEF-spine002'], b2 = this.bones['DEF-neck'];
+      if (b1) b1.quaternion.multiply(hq[0]); if (b2) b2.quaternion.multiply(hq[1]);
+    }
     // hurt: a hunch, and a hitch in the step on the wounded side
     this.phase += dt * Math.max(1, sp * 2.2);
     const hk = this.dead ? 0 : clamp((this.hurt - 0.35) / 0.5, 0, 1);

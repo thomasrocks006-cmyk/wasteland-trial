@@ -799,7 +799,7 @@ document.addEventListener('pointerlockchange', () => {
 
 /* ================================================================ waves */
 function budgetFor(w) { return 110 + w * 52 + Math.pow(w, 1.6) * 8; }
-const COST = { footman: 26, swordsman: 30, spearman: 34, shooter: 40, captain: 95 };
+const COST = { footman: 26, swordsman: 30, spearman: 34, shooter: 40, captain: 95, goblin: 16, troll: 150 };
 
 function buildWave(w) {
   const q = [];
@@ -810,10 +810,11 @@ function buildWave(w) {
     return q;
   }
   let budget = budgetFor(w);
-  const pool = ['footman', 'swordsman'];
-  if (w >= 2) pool.push('shooter');
+  const pool = ['footman', 'swordsman', 'goblin'];
+  if (w >= 2) pool.push('shooter', 'goblin');
   if (w >= 3) pool.push('spearman');
   if (w >= 4) pool.push('captain');
+  if (w >= 6) pool.push('troll');
   let guard = 0;
   while (budget > 18 && guard++ < 90) {
     const t = pick(pool);
@@ -1272,7 +1273,8 @@ weapons.onWinded = () => { if (performance.now() - windedAt > 900) { windedAt = 
    you be until you come close or strike one; new patrols appear out of sight.
    Health returns while nothing hunts you, and an upgrade is offered every six kills. */
 const PATROL_TARGET = 4;
-const PATROLS = [['footman', 'swordsman'], ['shooter', 'footman'], ['footman', 'footman', 'shooter'], ['captain'], ['swordsman', 'swordsman'], ['spearman', 'spearman', 'shooter'], ['footman', 'spearman']];
+// the horde's bands: orcs with goblin skirmishers; now and then a troll with its handlers
+const PATROLS = [['footman', 'swordsman', 'goblin'], ['shooter', 'footman', 'goblin'], ['footman', 'footman', 'shooter'], ['captain', 'goblin', 'goblin'], ['swordsman', 'swordsman'], ['spearman', 'spearman', 'shooter'], ['goblin', 'goblin', 'goblin', 'goblin'], ['troll', 'goblin', 'goblin']];
 let patrolTimer = 0, patrolId = 0, calmT = 0;
 const patrolSize = {};
 function spawnPatrol() {

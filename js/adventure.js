@@ -38,9 +38,9 @@ export const LORE = {
   colossi: { title: 'THE KNIGHTS OF THE VALE', text: 'Two stone knights stand where the river enters the vale. Cut at their feet: WE HOLD THE WATER. THE WATER HOLDS THE VALLEY. NEITHER MAY BE LEFT UNWATCHED.' },
   cascade: { title: 'THE CASCADE', text: 'Scratched into a smooth stone beside the falls: FIVE FIRES CALL THE RELIEF. ONE AT THE WATCH-FIRE. THREE ON THE TOWERS. ONE AT THE WAR CAMP.' },
   overlook: { title: 'THE OVERLOOK', text: 'Below the parapet the lowland runs green to the far mountains. A line is cut into the rail: THE WARLORD HOLDS THE GATE UNTIL FIVE FIRES ANSWER. THEN IT IS YOURS TO WALK.' },
-  sentinels: { title: 'A SOLDIER\'S SCRATCHINGS', text: 'The Ashen Company walks in bands and keeps its own watch. Strike one man and the rest march. Cut into the wall: THE SHIELD MEN HOLD THE FRONT. GO ROUND, OR BREAK THEM.' },
-  lowroad: { title: 'THE LOW ROAD', text: 'A stone at the foot of the serpentine, cut by the men who built it: ELEVEN TURNS FROM THE GATE TO THE FLOOR. THE KEEP BELOW KEPT THE ROAD, AND THE ROAD KEPT THE VALE. NO ONE HAS KEPT IT SINCE THE COMPANY CAME.' },
-  keep: { title: 'THE KEEPER\'S LAST WORD', text: 'Scratched deep into the keep\'s gatepost: WE HELD THE ROAD FORTY YEARS AND THE COMPANY CAME AT NIGHT. IF YOU READ THIS, THE PASS IS OPEN AND WE ARE NOT. TAKE WHAT IS LEFT AND KEEP THE ROAD BETTER THAN WE DID.' },
+  sentinels: { title: 'A SLAVE\'S SCRATCHINGS', text: 'The Ashen Horde walks in bands and keeps its own watch. Strike one orc and the rest come. Cut into the wall: THE SHIELD-ORCS HOLD THE FRONT. GO ROUND, OR BREAK THEM. WHERE THE TROLL WALKS, RUN.' },
+  lowroad: { title: 'THE LOW ROAD', text: 'A stone at the foot of the serpentine, cut by the men who built it: ELEVEN TURNS FROM THE GATE TO THE FLOOR. THE KEEP BELOW KEPT THE ROAD, AND THE ROAD KEPT THE VALE. NO ONE HAS KEPT IT SINCE THE HORDE CAME.' },
+  keep: { title: 'THE KEEPER\'S LAST WORD', text: 'Scratched deep into the keep\'s gatepost: WE HELD THE ROAD FORTY YEARS AND THE HORDE CAME AT NIGHT. IF YOU READ THIS, THE PASS IS OPEN AND WE ARE NOT. TAKE WHAT IS LEFT AND KEEP THE ROAD BETTER THAN WE DID.' },
 };
 
 /* the hermit's bounties: counted from the day you first speak to him */
@@ -67,9 +67,9 @@ export const VAULT_GROUPS = {
 
 /* what walks where: the nearer a place of power, the more its own kind */
 /* after dark the vale hunts: wolves in packs, and the stone walks */
-export const NIGHT_MIX = [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf'], ['swordsman', 'swordsman', 'shooter'], ['footman', 'spearman', 'swordsman']];
+export const NIGHT_MIX = [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf'], ['goblin', 'goblin', 'goblin', 'shooter'], ['footman', 'spearman', 'swordsman'], ['troll', 'goblin']];
 export const REGION_MIX = {
-  altar: [['footman', 'spearman'], ['footman', 'footman', 'swordsman'], ['spearman', 'shooter']],
+  altar: [['footman', 'spearman', 'goblin'], ['footman', 'footman', 'swordsman'], ['spearman', 'shooter', 'goblin']],
   lair: [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf']],
   gate: [['captain', 'swordsman', 'swordsman'], ['shooter', 'shooter', 'footman'], ['captain', 'shooter']],
 };
@@ -176,7 +176,7 @@ function buildPlaces(world) {
     { id: 'hermit', name: "THE HERMIT'S FIRE", kind: 'talk', at: hermitAt, reach: 4.4, discover: 30, color: 0xffc070, ring: 2.2, xp: 0, glyph: 'talk' },
     { id: 'gate', name: 'THE PASS GATE', kind: 'gate', at: gate, reach: 9, req: true, discover: 48, relic: 'cloak', color: 0xffe08a, ring: 3.4, xp: 400, glyph: 'gate' },
     { id: 'lowroad', name: 'THE LOW ROAD', kind: 'lore', at: lowStone, reach: 3.6, discover: 42, lore: 'lowroad', color: 0xb8d8ff, ring: 1.3, xp: 50, glyph: 'lore' },
-    { id: 'lowkeep', name: 'THE OLD KEEP', kind: 'cache', at: keepAt, reach: 4.2, discover: 48, guard: { kinds: ['captain', 'swordsman', 'shooter'], r: 13, homeR: 5 }, guardWhy: 'THE COMPANY HOLDS THE KEEP', color: 0xffd060, ring: 2.2, xp: 320, glyph: 'cache', text: 'The keep\'s strongbox: coin, a dry cloak, and the last of the garrison\'s store.' },
+    { id: 'lowkeep', name: 'THE OLD KEEP', kind: 'cache', at: keepAt, reach: 4.2, discover: 48, guard: { kinds: ['captain', 'swordsman', 'shooter'], r: 13, homeR: 5 }, guardWhy: 'THE HORDE HOLDS THE KEEP', color: 0xffd060, ring: 2.2, xp: 320, glyph: 'cache', text: 'The keep\'s strongbox: coin, a dry cloak, and the last of the garrison\'s store.' },
     { id: 'keepLore', name: 'THE KEEPER\'S GATE', kind: 'lore', at: [KEEP.x - Math.cos(KEEP.a) * 13.2 + Math.sin(KEEP.a) * 3.4, KEEP.z - Math.sin(KEEP.a) * 13.2 - Math.cos(KEEP.a) * 3.4], reach: 4.0, discover: 40, lore: 'keep', color: 0xb8d8ff, ring: 1.3, xp: 50, glyph: 'lore' },
   ];
 }
@@ -713,7 +713,7 @@ export class Adventure {
           paid.push(b.name);
         }
         let text;
-        if (first) text = 'Mind the fire. I was a warden once, before the vale forgot its wardens. The Ashen Company holds it now; the wolves come when the fires burn low. Do me a service, and I will pay: ' + QUESTS.map((b) => b.desc.toLowerCase()).join('; ') + '. I will count from now.';
+        if (first) text = 'Mind the fire. I was a warden once, before the vale forgot its wardens. The Ashen Horde holds it now, orc and goblin, out of the burning land past the pass; the wargs come when the fires burn low. Do me a service, and I will pay: ' + QUESTS.map((b) => b.desc.toLowerCase()).join('; ') + '. I will count from now.';
         else if (paid.length) text = 'Well struck. That is ' + paid.join(' and ') + ' settled, and what I promised is yours. ' + (QUESTS.every((b) => q.claimed[b.id]) ? 'There is nothing more I can give you but my thanks. Keep the fire in mind when the vale gets dark.' : 'The rest still stands: ' + this.questLines().filter((l) => !l.startsWith('✓')).join(', ') + '.');
         else text = QUESTS.every((b) => q.claimed[b.id]) ? 'You have cleared every debt I knew of. Sit if you like. The nights are long and the fire is warm.' : 'Still counting. ' + this.questLines().join(', ') + '.';
         this.ctx.lore("THE HERMIT'S FIRE", text);
