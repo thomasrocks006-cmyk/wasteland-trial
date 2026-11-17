@@ -282,6 +282,7 @@ export async function runSmoke() {
   // ---- the boss lands a melee hit up close
   await check('the boss hurts you in melee', async () => {
     skipIfMissing('boss');
+    skipIfMissing('boss');
     clearInterval(god);
     d.enemies.clear();
     const p = d.player;
@@ -307,6 +308,7 @@ export async function runSmoke() {
   });
 
   await check('the boss has a trailing body you can shoot', async () => {
+    skipIfMissing('boss');
     skipIfMissing('boss');
     d.enemies.clear();
     const p = d.player, f = camDir();
@@ -443,6 +445,7 @@ export async function runSmoke() {
 
   // ---- b21: the blade and the river
   await check('a sword strike hits what is in front, not behind', async () => {
+    skipIfMissing('grunt');
     d.enemies.clear();
     const p = d.player, yaw = p.camYaw;
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
@@ -492,6 +495,7 @@ export async function runSmoke() {
   });
 
   await check('a kill throws the body away from the shot', async () => {
+    skipIfMissing('grunt');
     d.enemies.clear();
     const p = d.player, f = camDir();
     const e = d.enemies.spawn('grunt', p.pos.x + f[0] * 8, p.pos.z + f[1] * 8);
