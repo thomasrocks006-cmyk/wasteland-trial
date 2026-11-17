@@ -262,6 +262,8 @@ Until now the gate opened onto a view. The land beyond it is real: you can walk 
   SHOOTER) until they are dead. Two readings there: THE LOW ROAD at the road's foot, THE KEEPER'S GATE at the keep.
 - **A bigger field**: the terrain grid went from ±118 m / 140 to ±186 m / 200 (80 k triangles for the ground, ~18 MB of
   attributes). The walkable edge is a brink at r 181; past the basin the old visual plain and the mountain ring carry the eye on.
+  Scene geometry 1.11 M → 1.16 M triangles. Boot on the test box went 3.8 s → ~6 s; `window.__boot` now records the phases
+  (grid, terrain, landmarks, props, forest, grass) so the next round can see what costs what.
 - **The map** covers the lowland and the road; the compass and the objective follow you down; patrols come out of the basin
   once you are below the pass.
 - Not done: no water in the basin, wildlife stay in the vale, the far plain beyond the brink is still scenery, and the keep has

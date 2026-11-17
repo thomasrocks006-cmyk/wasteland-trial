@@ -72,12 +72,15 @@ export class World {
 
   build() {
     const scene = this.scene;
+    const T = (k, t0) => { try { (window.__boot = window.__boot || {})[k] = Math.round(performance.now() - t0); } catch (e) { } };
+    let _t = performance.now();
     // linear haze reads as depth; exponential just greys everything out
     scene.fog = new THREE.Fog(0xc9d5d6, 70, 1150);  // haze matched to the horizon: distance reads as distance
 
     this.buildSky();
     this.buildLights();
     this.buildTerrain();
+    T('terrain', _t); _t = performance.now();
     this.buildDistantRidges();
     this.buildRocks();
     this.buildRuins();
@@ -85,17 +88,22 @@ export class World {
     this.buildLandmarks();
     this.buildLowlandKeep();
     this.buildLowRoad();
+    T('landmarks', _t); _t = performance.now();
     this.buildOrnaments();
     this.buildTowers();
     this.buildColossi();
     this.buildWater();
     this.buildVegetation();
+    T('props', _t); _t = performance.now();
     this.buildForest();
+    T('forest', _t); _t = performance.now();
     this.buildScans();
     this.buildIvy();
     this.buildGroundDetail();
     this.buildDust();
+    T('detail', _t); _t = performance.now();
     try { this.grass = new GrassField(this.scene, this, this.quality); } catch (e) { console.warn('grass field off:', e && e.message); }
+    T('grass', _t);
   }
 
   /* -------------------------------------------------- sky */

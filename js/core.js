@@ -513,6 +513,7 @@ export function waterLevel(x, z) {
 let HEIGHTS = null, WD = null, TD = null, RD = null;
 function heightTable() {
   if (HEIGHTS) return HEIGHTS;
+  const T0 = performance.now();
   const n = GRID_SEG + 1;
   HEIGHTS = new Float32Array(n * n);
   WD = new Float32Array(n * n);
@@ -529,6 +530,7 @@ function heightTable() {
       RD[j * n + i] = LAST_RD;
     }
   }
+  try { (window.__boot = window.__boot || {}).grid = Math.round(performance.now() - T0); } catch (e) { }
   return HEIGHTS;
 }
 /** height of grid corner (i,j) — the mesh uses these exact numbers */
