@@ -1,63 +1,92 @@
-<!doctype html><meta charset="utf-8"><title>enemy models — check sheet</title>
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>enemy models — check sheet</title>
 <script type="importmap">{ "imports": { "three": "../vendor/three.module.js", "three/addons/": "../vendor/addons/" } }</script>
 <style>
-  html,body{margin:0;background:#1c1f23;color:#cfd3d8;font:12px/1.4 system-ui,sans-serif}
-  #bar{padding:6px 10px;border-bottom:1px solid #2c3137}
-  canvas{display:block}
+  html,body{margin:0;height:100%;background:#1c1f23;color:#d7dbe0;font:12px/1.4 system-ui,sans-serif}
+  body{display:flex;flex-direction:column}
+  #bar{padding:8px 10px;border-bottom:1px solid #2c3137}
+  #stage{position:relative;flex:1;overflow:hidden}
+  #c{position:absolute;inset:0;display:block}
+  .tag{position:absolute;font:11px system-ui;color:#eef2f7;text-shadow:0 1px 3px #000;pointer-events:none}
 </style>
-<div id="bar">enemy sculpts, 1.9-4.6 m, decimated + vertex-coloured · click a name to isolate</div>
-<canvas id="c"></canvas>
+<div id="bar">enemy sculpts — each fills its own cell, the real height is under it · <b>?m=orc</b> for one alone</div>
+<div id="stage"><canvas id="c"></canvas></div>
 <script type="module">
-/* Check sheet for the enemy sculpts in assets/enemies. Each model is drawn at its
-   true height, front and side, so proportions and facing can be judged side by side. */
+/* Each model is framed to its own cell, so a 1.9 m orc reads as big as a 4.6 m troll.
+   The printed height is the real one; the framing is not to scale between cells. */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const MODELS = ['orc', 'uruk_bare', 'uruk_berserker', 'uruk_archer', 'ringwraith',
   'troll', 'cave_troll', 'war_troll', 'ram_crew', 'ram_head'];
-const COLS = 10, GAP = 3.4;
+const only = new URLSearchParams(location.search).get('m');
+const list = only ? [only] : MODELS;
 
-const W = window.innerWidth, H = window.innerHeight;
+const stage = document.getElementById('stage');
 const r = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), antialias: true });
-r.setSize(W, H, false);
-r.setPixelRatio(Math.min(devicePixelRatio, 2));
 r.outputColorSpace = THREE.SRGBColorSpace;
 r.toneMapping = THREE.ACESFilmicToneMapping;
+r.setScissorTest(true);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x23272c);
-scene.add(new THREE.HemisphereLight(0xaecbe8, 0x37312a, 1.4));
-const key = new THREE.DirectionalLight(0xfff0d6, 2.2); key.position.set(4, 8, 6); scene.add(key);
-const rim = new THREE.DirectionalLight(0x8ab0ff, 1.0); key.position.set(4, 8, 6); rim.position.set(-6, 4, -6); scene.add(rim);
-
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 20), new THREE.MeshStandardMaterial({ color: 0x36332e, roughness: 1 }));
+scene.add(new THREE.HemisphereLight(0xb6d2ee, 0x39332b, 1.55));
+const key = new THREE.DirectionalLight(0xfff0d6, 2.3); key.position.set(4, 7, 6); scene.add(key);
+const rim = new THREE.DirectionalLight(0x8ab0ff, 1.1); rim.position.set(-6, 4, -5); scene.add(rim);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshStandardMaterial({ color: 0x36332e, roughness: 1 }));
 floor.rotation.x = -Math.PI / 2; scene.add(floor);
 
-const cam = new THREE.PerspectiveCamera(32, W / H, 0.1, 120);
 const loader = new GLTFLoader();
-let slot = 0;
+const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 200);
+const stamp = Date.now();
 
-async function place(name) {
-  const g = await loader.loadAsync(`../assets/enemies/${name}.glb`);
+async function load(name) {
+  const g = await loader.loadAsync(`../assets/enemies/${name}.glb?t=${stamp}`);
   const m = g.scene;
-  const box = new THREE.Box3().setFromObject(m);
-  const h = box.max.y - box.min.y;
-  const col = slot % COLS;
-  const x = col * GAP - (COLS - 1) * GAP / 2;
-  const z = 0;
-  m.position.set(x, 0, z);
-  m.traverse(o => { if (o.isMesh && o.material) { o.material.vertexColors = true; o.material.roughness = 0.9; o.material.metalness = 0.04; } });
-  scene.add(m);
-  slot++;
-  return h;
+  m.traverse(o => { if (o.isMesh && o.material) { o.material.vertexColors = true; o.material.roughness = 0.9; o.material.metalness = 0.04; o.material.side = 2; } });
+  const b = new THREE.Box3().setFromObject(m);
+  // the row is shot from a 3/4 angle, so fit the horizontal diagonal, not one axis
+  const wide = Math.hypot(b.max.x - b.min.x, b.max.z - b.min.z);
+  return { m, h: Math.max(b.max.y - b.min.y, 0.1), wide, label: name.replace(/_/g, ' ') };
 }
 
-const heights = [];
-for (const n of MODELS) heights.push(await place(n));
-const tallest = Math.max(...heights);
+const items = [];
+for (const n of list) items.push(await load(n).catch(() => null));
 
-cam.position.set(0, tallest * 0.8, 44);
-cam.lookAt(0, tallest * 0.45, 0);
-r.render(scene, cam);
-window.__sheet = { count: MODELS.length, heights };
+function layout() {
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const cols = only ? 1 : (W > H ? 5 : 2);
+  const rows = Math.ceil(items.length / cols);
+  const cw = W / cols, ch = H / rows;
+  r.setSize(W, H, false);
+  r.setPixelRatio(Math.min(devicePixelRatio, 2));
+  r.clear();
+  items.forEach((it, i) => {
+    if (!it) return;
+    const cx = (i % cols) * cw, row = Math.floor(i / cols);
+    const y = H - (row + 1) * ch;          // gl viewport is bottom-up
+    r.setViewport(cx, y, cw, ch);
+    r.setScissor(cx, y, cw, ch);
+    it.m.position.set(0, 0, 0);
+    scene.add(it.m);
+    cam.aspect = cw / ch;
+    // fit both the height and the widest horizontal extent, so a long prop is not clipped
+    const halfFov = Math.tan((cam.fov * Math.PI / 180) / 2);
+    const d = Math.max(it.h / (2 * halfFov), it.wide / (2 * halfFov * cam.aspect)) * 1.4;
+    cam.position.set(Math.sin(0.45) * d, it.h * 0.58, Math.cos(0.45) * d);
+    cam.lookAt(0, it.h * 0.5, 0);
+    cam.updateProjectionMatrix();
+    r.render(scene, cam);
+    scene.remove(it.m);
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = `${it.label} — ${it.h.toFixed(2)} m`;
+    tag.style.left = `${cx + 5}px`;
+    tag.style.top = `${H - y - ch + 3}px`;  // css top of the same cell
+    stage.appendChild(tag);
+  });
+}
+
+layout();
+window.__sheet = { count: items.filter(Boolean).length, heights: items.filter(Boolean).map(i => +i.h.toFixed(2)) };
 </script>
