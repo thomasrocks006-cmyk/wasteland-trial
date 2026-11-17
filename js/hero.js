@@ -494,6 +494,7 @@ export class Hero {
     for (const k in A) A[k].setEffectiveWeight(w[k]);
     this.mixer.update(dt);
     this.applyCoil(dt);
+    if (this.rideRig) { this.rideRig.dt = dt; this.applyRide(); }
     this.thrust = damp(this.thrust || 0, this.thrustTarget || 0, 26, dt);
     this.hand.rotation.z = THREE.MathUtils.lerp(Math.PI / 2, Math.PI, this.thrust);
     // ---- over the clips: the shield arm and the parrying blade
@@ -542,6 +543,42 @@ export class Hero {
     }
     this.placeShield(fwd, wBlend);
   }
+  /* ------------------------------------------------ riding (js/horse.js)
+     rig: { horse, lean (forward, 0..1), bank (radians) } or null. Over whatever the clips did: the hips are set on the
+     saddle, the legs reach the stirrups (knees forward and out), the hands hold the reins unless a blow, a cast or the
+     guard needs them, and the chest leans into the gallop and the turn. */
+  setRide(rig) { this.rideRig = rig; }
+  applyRide() {
+    const R = this.rideRig; if (!R) return;
+    const H = R.horse, up = V(0, 1, 0);
+    this.rig.updateMatrixWorld(true);
+    // sit: move the whole body so the hips are on the seat
+    const seat = H.seat(V()), hp = this.P(this.hips);
+    this.root.position.add(seat.add(V(0, 0.06, 0)).sub(hp));
+    this.root.updateMatrixWorld(true);
+    const bw = this.root.getWorldQuaternion(new THREE.Quaternion()), fwd = V(0, 0, 1).applyQuaternion(bw), left = V(1, 0, 0).applyQuaternion(bw);
+    // lean: forward over the withers at speed, into the turn
+    for (const [b, k] of [[this.spine1, 0.5], [this.spine2, 0.5]]) {
+      const pw = b.parent.getWorldQuaternion(new THREE.Quaternion()).invert();
+      b.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(left.clone().applyQuaternion(pw), R.lean * 0.38 * k));
+      b.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(fwd.clone().applyQuaternion(pw), -R.bank * 0.8 * k));
+    }
+    this.rig.updateMatrixWorld(true);
+    // legs into the irons
+    for (const [side, th, sh, ft] of [[1, this.thighL, this.shinL, this.footL], [-1, this.thighR, this.shinR, this.footR]]) {
+      const T = H.stirrup(side, V()).add(V(0, 0.07, 0));
+      this.solveArm(th, sh, ft, T, fwd, 1, side, V().copy(fwd).multiplyScalar(0.9).addScaledVector(left, side * 0.45).normalize());
+    }
+    // hands on the reins when they are free
+    const free = !this.layer && !this.castOn && !(this.ik && this.ik.w > 0.3);
+    this.reinW = damp(this.reinW || 0, free ? 1 : 0, free ? 6 : 16, R.dt || 0.016);
+    if (this.reinW > 0.02) {
+      this.solveArm(this.upperL, this.foreL, this.handL, H.reinHold(1, V()), fwd, this.reinW, -1);
+      if (!this.sw.path && !(this.ik.pw > 0.1)) this.solveArm(this.upperR, this.foreR, this.handR, H.reinHold(-1, V()), fwd, this.reinW, 1);
+    }
+    H.drawReins(this.P(this.handL), this.P(this.handR));
+  }
+
   /** the charge's coil 0..1: he sinks and winds his chest back over the raised blade, trembling at full */
   setCoil(k) { this.coilK = k; }
   applyCoil(dt) {
@@ -577,12 +614,12 @@ export class Hero {
     this.shield.scale.setScalar(0.9 * (1 + this.ik.flare * 0.04));
   }
 
-  solveArm(ub, fb, hb, T, fwd, weight, outSign = 1) {
+  solveArm(ub, fb, hb, T, fwd, weight, outSign = 1, poleDir = null) {
     const A = this.P(ub), B = this.P(fb), C = this.P(hb);
     const l1 = A.distanceTo(B), l2 = B.distanceTo(C);
     const toT = _v.copy(T).sub(A); let d = clamp(toT.length(), 0.12, (l1 + l2) * 0.995); toT.normalize();
-    // the elbow: out to the side and down
-    const pole = _v2.set(0, -0.6, 0).addScaledVector(_v3.set(-1, 0, 0).applyQuaternion(this.root.getWorldQuaternion(_q)), 0.7 * outSign).addScaledVector(fwd, -0.2).normalize();
+    // the elbow: out to the side and down (a knee passes its own pole: forward and out)
+    const pole = poleDir ? _v2.copy(poleDir) : _v2.set(0, -0.6, 0).addScaledVector(_v3.set(-1, 0, 0).applyQuaternion(this.root.getWorldQuaternion(_q)), 0.7 * outSign).addScaledVector(fwd, -0.2).normalize();
     const cosA = clamp((l1 * l1 + d * d - l2 * l2) / (2 * l1 * d), -1, 1), ang = Math.acos(cosA);
     const perp = V().copy(pole).addScaledVector(toT, -pole.dot(toT)).normalize();
     const E = V().copy(A).addScaledVector(toT, Math.cos(ang) * l1).addScaledVector(perp, Math.sin(ang) * l1);

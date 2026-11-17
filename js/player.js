@@ -812,6 +812,8 @@ export class Player {
       if (this.modeT <= 0) this.endMode();
     }
 
+    if (this.mount) { this.rideUpdate(dt, input); return; }
+
     // ---- movement in camera space
     const mx = input.mx, my = input.my;
     const mag = Math.min(1, Math.hypot(mx, my));
@@ -921,6 +923,52 @@ export class Player {
     this.yaw = dampAngle(this.yaw, targetYaw, this.aim ? 22 : 16, dt);
 
     if (this.hero) this.poseHero(dt, mag, wishX, wishZ); else this.poseOld(dt);
+    this.updateCamera(dt);
+  }
+
+  /* ---------------- on horseback (js/horse.js does the riding; this keeps the rider in the saddle) */
+  mountHorse(horse) {
+    this.mount = horse; horse.rider = this; horse.mode = 'ridden';
+    this.mountT = 0; this.mountFrom = this.pos.clone();
+    this.dodging = 0; this.dashT = 0; this.knock.set(0, 0, 0); this.vel.set(0, 0, 0); this.lockTarget = null;
+    if (this.hero) this.hero.setRide({ horse, lean: 0, bank: 0 });
+  }
+  dismount() {
+    const H = this.mount; if (!H) return;
+    this.mount = null; H.rider = null; H.mode = 'graze'; H.grazeT = 6; H.reins.visible = false;
+    if (this.hero) { this.hero.setRide(null); this.hero.root.position.copy(this.pos); }
+    // step down on the near (left) side, onto open ground
+    const sx = Math.cos(H.yaw) * 1.25, sz = -Math.sin(H.yaw) * 1.25;
+    let [x, z] = this.world.resolveCollisions(H.pos.x + sx, H.pos.z + sz, 0.42);
+    this.pos.set(x, terrainHeight(x, z), z); this.vy = 0; this.grounded = true;
+    this.vel.set(Math.sin(H.yaw) * H.speed * 0.5, 0, Math.cos(H.yaw) * H.speed * 0.5);
+  }
+  rideUpdate(dt, input) {
+    const H = this.mount, mx = input.mx, my = input.my, mag = Math.min(1, Math.hypot(mx, my));
+    const cy = this.camYaw, fx = Math.sin(cy), fz = Math.cos(cy), rx = -Math.cos(cy), rz = Math.sin(cy);
+    const want = (this._rideWant || (this._rideWant = new THREE.Vector3())).set(rx * mx + fx * my, 0, rz * mx + fz * my);
+    if (mag > 0.06) want.normalize();
+    this.wish = { x: want.x, z: want.z, mag };
+    H.update(dt, { want, mag, spur: !!input.spur, jump: input.jump }, performance.now() * 0.001);
+    this.yaw = H.yaw; this.sprinting = false; this.inWater = 0; this.vy = 0; this.grounded = true;
+    this.vel.set(Math.sin(H.yaw) * H.speed, 0, Math.cos(H.yaw) * H.speed);
+    // the camera settles in behind the horse while you ride and leave the view alone
+    if (H.speed > 2.5 && Math.abs(input.lookX) < 1e-4 && Math.abs(this.lookVelX) < 1e-3) this.camYaw = dampAngle(this.camYaw, H.yaw, 0.9 * Math.min(1, H.speed / 8), dt);
+    // a blow or a cast turns the rider in the saddle a little toward it
+    let twist = 0;
+    if (this.faceOverride) twist = clamp(angleTo(H.yaw, this.faceOverride.yaw), -1.1, 1.1);
+    else if (this.casting || this.guard) twist = clamp(angleTo(H.yaw, this.camYaw), -1.1, 1.1);
+    this._twist = damp(this._twist || 0, twist, 8, dt);
+    const seat = H.seat(this._seat || (this._seat = new THREE.Vector3()));
+    this.mountT = Math.min(1, (this.mountT || 0) + dt / 0.35);
+    if (this.hero) {
+      const h = this.hero;
+      h.rideRig.lean = clamp((H.speed - 4) / 9, 0, 1); h.rideRig.bank = H.bank;
+      h.root.position.copy(seat); h.root.rotation.y = H.yaw + this._twist;
+      h.update(dt, performance.now() * 0.001, { speed: 0, sprint: false, grounded: true, vy: 0, drawn: this.weaponKind !== 'none', guard: this.guard, moveRel: 0, turn: 0 });
+      if (this.mountT < 1) { const k = this.mountT * this.mountT * (3 - 2 * this.mountT); h.root.position.lerpVectors(this.mountFrom, h.root.position, k); h.root.position.y += Math.sin(k * Math.PI) * 0.5; }
+      this.pos.copy(h.root.position);
+    } else { this.pos.copy(seat).y -= 0.9; this.model.root.position.copy(this.pos); this.model.root.rotation.y = H.yaw; }
     this.updateCamera(dt);
   }
 
@@ -1119,8 +1167,9 @@ export class Player {
   updateCamera(dt) {
     const aiming = this.aim, cue = this.camCue;
     if (cue) { cue.t -= dt; if (cue.t <= 0) this.camCue = null; }
-    const targetDist = (aiming ? 2.35 : 4.35) * (cue ? cue.dist : 1);
-    const targetHeight = (aiming ? 1.66 : 1.78) - (this.landDip || 0) + (cue ? cue.height : 0);
+    const riding = this.mount ? Math.min(1, 0.6 + this.mount.speed / 20) : 0;
+    const targetDist = (aiming ? 2.35 : 4.35 + riding * 1.8) * (cue ? cue.dist : 1);
+    const targetHeight = (aiming ? 1.66 : 1.78 + riding * 0.7) - (this.landDip || 0) + (cue ? cue.height : 0);
     const shoulder = (aiming ? 0.60 : 0.86) + (cue ? cue.shoulder : 0);
 
     if (this.camDist === undefined) this.camDist = targetDist;

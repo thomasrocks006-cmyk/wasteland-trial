@@ -12,6 +12,7 @@ import { Enemies, ENEMY_TYPES } from './enemies.js';
 import { Wildlife } from './wildlife.js';
 import { loadHeroAsset } from './hero.js';
 import { Storm, MANA_MAX } from './sorcery.js';
+import { Horse, loadHorseAsset } from './horse.js';
 import { SoldierFactory, SOLDIER_MATS } from './soldiers.js';
 import { preloadTextures } from './textures.js';
 import { preloadEnv } from './envassets.js';
@@ -96,6 +97,43 @@ const fx = new FX(scene, camera, QUALITY);
 const enemies = new Enemies(scene, world, fx, audio, player);
 if (heroAsset) enemies.setFactory(new SoldierFactory(heroAsset));
 const wildlife = new Wildlife(scene, world);
+
+/* ---------------- the horse (Wander only): ride with USE, off with DODGE, whistle with H or CALL ---------------- */
+let horse = null;
+try {
+  horse = new Horse(scene, await loadHorseAsset(), world, {
+    onStep: (h, v, water) => { if (audio.hoof) audio.hoof(v, water, Math.hypot(h.pos.x - player.pos.x, h.pos.z - player.pos.z)); if (water > 0.1 && v > 3) fx.puff(new THREE.Vector3(h.pos.x, h.pos.y + 0.3, h.pos.z), null, 0xcfe4ee, 0.5, 2, 0.6, 1.4); else if (v > 8) fx.puff(new THREE.Vector3(h.pos.x, h.pos.y + 0.1, h.pos.z), null, 0x9a8a70, 0.45, 1, 0.8, 1.2); },
+    onCrash: (h, v) => { player.shake = Math.min(2.4, player.shake + v * 0.12); audio.impact && audio.impact('shield', 1.2); if (h.rider && v > 10) { player.iframe = 0; player.damage(Math.round(v * 1.2), h.pos.x + Math.sin(h.yaw) * 2, h.pos.z + Math.cos(h.yaw) * 2); } },
+    onLand: (h, v) => { if (h.rider) player.shake = Math.min(2, player.shake + v * 0.08); audio.land && audio.land(); },
+    onJump: () => { audio.impact && audio.impact('whoosh', 0.6); },
+  });
+} catch (err) { console.warn('horse unavailable:', err && err.message); }
+function whistle() {
+  if (!horse || GAME.mode !== 'wander' || player.mount || adv.inVault) return;
+  const d = Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z);
+  if (d > 140) { horse.place(player.pos.x - Math.sin(player.yaw) * 30, player.pos.z - Math.cos(player.yaw) * 30, player.yaw); }   // too far to hear: it comes in from behind you
+  horse.call(player.pos.x + Math.cos(player.yaw) * 1.6, player.pos.z - Math.sin(player.yaw) * 1.6);
+  if (audio.whistle) audio.whistle();
+}
+/* a galloping horse goes through men: the faster, the harder */
+function trample(dt) {
+  if (!horse || !horse.rider || horse.speed < 5.5) return;
+  const cx = horse.pos.x + Math.sin(horse.yaw) * 1.1, cz = horse.pos.z + Math.cos(horse.yaw) * 1.1;
+  for (const e of enemies.list) {
+    if (!e.alive || e.state === 'spawn' || (e.trampleT || 0) > GAME.time) continue;
+    const dx = e.pos.x - cx, dz = e.pos.z - cz, d = Math.hypot(dx, dz);
+    if (d > 1.05 + e.type.radius) continue;
+    e.trampleT = GAME.time + 0.8;
+    const side = (dx * Math.cos(horse.yaw) - dz * Math.sin(horse.yaw)) > 0 ? 1 : -1;
+    const dir = new THREE.Vector3(Math.sin(horse.yaw) * 0.8 + Math.cos(horse.yaw) * side * 0.6, 0, Math.cos(horse.yaw) * 0.8 - Math.sin(horse.yaw) * side * 0.6).normalize();
+    const dmg = horse.speed * (e.type.heavy ? 3 : 5);
+    if (e.hp - dmg <= 0) e.blast = new THREE.Vector3(dir.x * horse.speed * 0.7, 4.5, dir.z * horse.speed * 0.7);
+    enemies.hit(e, dmg, new THREE.Vector3(e.pos.x, e.pos.y + 1.1, e.pos.z), dir, false, null, { heavy: true, breaks: true, exec: true });
+    if (e.alive) { enemies.stun(e, 1.6); e.vel.addScaledVector(dir, horse.speed * 0.6); }
+    horse.speed *= e.type.heavy ? 0.7 : 0.88;
+    player.shake = Math.min(2.2, player.shake + 0.6); audio.impact && audio.impact('flesh', 1.3); timeWarp(0.08, 0.05);
+  }
+}
 
 /* ---------------- pickups ---------------- */
 class Pickups {
@@ -685,6 +723,7 @@ onPress($('btnDark'), () => tryMode('dark'));
 onPress($('btnReload'), () => weapons.tryReload());
 onPress($('btnAim'), () => setAim(!input.aim));
 bindHold($('btnGuard'), () => { input.guard = true; }, () => { input.guard = false; });
+onPress($('btnCall'), () => whistle());
 bindHold($('btnStorm'), () => { input.storm = true; }, () => { input.storm = false; });
 onPress($('btnLock'), () => toggleLock());
 onPress($('btnUse'), () => useNear());
@@ -709,7 +748,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyK') tryMode('dark');
   if (e.code === 'Escape') { if (closeMap()) return; if (GAME.reading) closeReading(); else togglePause(); }
   if (e.code === 'KeyF') input.guard = true;
-  if (e.code === 'KeyE') useNear();
+  if (e.code === 'KeyE') { if (player.mount) player.dismount(); else useNear(); }
+  if (e.code === 'KeyH') whistle();
   if (e.code === 'KeyT') toggleLock();
   if (e.code === 'KeyG' && GAME.state === 'playing' && weapons.melee) weapons.melee.execute();
 });
@@ -1107,6 +1147,7 @@ function applyProgress(heal) {
 
 function useNear() {
   if (GAME.state !== 'playing' || GAME.mode !== 'wander') return;
+  if (adv.near && adv.near.horse) { player.mountHorse(horse); showToast('PUSH THE STICK FULL TO GALLOP · DODGE TO DISMOUNT'); return; }
   adv.use(player);
 }
 
@@ -1121,6 +1162,12 @@ function worldTap(x, y) {
     if (_tp.z > 1) continue;
     const sd = Math.hypot((_tp.x * 0.5 + 0.5) * window.innerWidth - x, (-_tp.y * 0.5 + 0.5) * window.innerHeight - y);
     if (sd < bs) { bs = sd; best = { p, d }; }
+  }
+  // the horse: tap it to ride it, or to call it over from further off
+  if (horse && !player.mount && horse.root.visible) {
+    _tp.set(horse.pos.x, horse.pos.y + 1.3, horse.pos.z).project(camera);
+    const sd = Math.hypot((_tp.x * 0.5 + 0.5) * window.innerWidth - x, (-_tp.y * 0.5 + 0.5) * window.innerHeight - y), d = Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z);
+    if (_tp.z < 1 && sd < Math.min(bs, 140)) { if (d < 3) { adv.near = horseNear(); useNear(); } else whistle(); return; }
   }
   if (!best) return;
   if (best.d <= best.p.reach) { adv.near = adv.describe(best.p); adv.use(player); }
@@ -1241,12 +1288,23 @@ function updateWander(dt) {
   if (victoryDue && performance.now() > victoryDue) { victoryDue = 0; openReading('victory'); return; }
   autosaveT += dt; if (autosaveT > 20) { autosaveT = 0; persist(); }
   adv.update(dt, GAME.time, player);
+  // the horse: it grazes or comes when called; beside it, USE says RIDE
+  if (horse) {
+    if (player.mount && (adv.inVault || !player.alive)) player.dismount();
+    if (!player.mount) horse.update(dt, null, GAME.time);
+    trample(dt);
+    if (!player.mount && !adv.inVault && Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z) < 3 && (!adv.near || !adv.near.enabled)) adv.near = horseNear();
+    const far = !player.mount && !adv.inVault && Math.hypot(horse.pos.x - player.pos.x, horse.pos.z - player.pos.z) > 14;
+    document.getElementById('btnCall').classList.toggle('hidden', !far);
+    document.getElementById('btnDodge').textContent = player.mount ? 'DISMOUNT' : 'DODGE';
+  }
   // a skill to choose waits for a calm moment
   if (adv.adv.picks > 0 && !GAME.drafting && calmT > 3 && player.alive && performance.now() > draftLaterUntil) openDraft();
   const o = adv.objective(player);
   ui.objective.textContent = hunting ? 'SOLDIERS HUNT YOU' : o.text;
   objectivePoi = o.poi;
 }
+function horseNear() { return { poi: { at: [horse.pos.x, horse.pos.z], y: horse.pos.y + 0.4, reach: 3 }, label: 'RIDE', enabled: true, why: '', horse: true }; }
 let victoryDue = 0, objectivePoi = null, autosaveT = 0, freeCam = null, draftLaterUntil = 0;
 
 /* the valley's sound follows you: river by distance and side, the cascade, wind up high */
@@ -1306,8 +1364,16 @@ function resetRun(mode = GAME.mode || 'wander') {
   player.hp = player.maxHp;
   player.iframe = 0; player.dodging = 0; player.model.body.rotation.set(0, 0, 0); if (player.hero) player.hero.revive();
   if (weapons.melee) weapons.melee.reset();
+  if (player.mount) player.dismount();
   const sp = world.pickSpawn();
   player.pos.set(sp[0], terrainHeight(sp[0], sp[1]), sp[1]);
+  if (horse) {
+    horse.root.visible = mode === 'wander'; horse.reins.visible = false;
+    // waiting a few paces off to the side of where you rise, facing the same way
+    const a = Math.atan2(-sp[0], -sp[1]), hx = sp[0] + Math.cos(a) * 4.5, hz = sp[1] - Math.sin(a) * 4.5;
+    const [cx, cz] = world.resolveCollisions(hx, hz, 1.2);
+    horse.place(cx, cz, a); horse.mode = 'graze';
+  }
   // face the monument from the spawn point
   player.camYaw = Math.atan2(-sp[0], -sp[1]);
   player.yaw = player.camYaw;
@@ -1652,6 +1718,8 @@ function frame(now) {
     input.jumpQueued = false;
     input.dodge = input.dodgeQueued || keys['KeyC'];
     input.dodgeQueued = false;
+    input.spur = !!keys['ShiftLeft'];
+    if (player.mount && input.dodge) { input.dodge = false; player.dismount(); }
     player.aim = input.aim || keys['ShiftLeft'] || false;
 
     player.model.root.updateMatrixWorld(true);
@@ -2128,7 +2196,7 @@ document.getElementById('crashReload').addEventListener('click', () => location.
 
 /* ================================================================ debug hook (harmless in prod) */
 window.__worldTap = worldTap;
-window.__dbg = { storm, updateStorm, startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
+window.__dbg = { horse, whistle, trample, storm, updateStorm, startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {

@@ -687,6 +687,27 @@ export class Audio {
     o.start(t); o.stop(t + 1.05);
   }
 
+  /** a hoof on the ground: a dull thud with a click of horn, softer with distance, a splash in water */
+  hoof(speed, water = 0, dist = 0) {
+    if (!this.ctx || !this.enabled) return;
+    const t = this.t, vol = Math.min(1, 0.35 + speed / 18) / (1 + dist * 0.12);
+    if (vol < 0.03) return;
+    const n = this._noise(0.12, 0), lp = this.ctx.createBiquadFilter(); lp.type = water > 0.1 ? 'bandpass' : 'lowpass'; lp.frequency.value = water > 0.1 ? 900 : 260 + Math.random() * 80;
+    const g = this.ctx.createGain(); g.gain.setValueAtTime(0.5 * vol, t); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.11);
+    n.connect(lp); lp.connect(g); g.connect(this.master);
+    if (water < 0.1) this.click(0.004, 0.05 * vol, 1400 + Math.random() * 500);
+  }
+  /** the rider's whistle: two rising notes */
+  whistle() {
+    if (!this.ctx || !this.enabled) return;
+    const t = this.t;
+    for (const [d, f0, f1] of [[0, 1500, 2300], [0.32, 1700, 2700]]) {
+      const o = this.ctx.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(f0, t + d); o.frequency.exponentialRampToValueAtTime(f1, t + d + 0.22);
+      const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0008, t + d); g.gain.linearRampToValueAtTime(0.16, t + d + 0.04); g.gain.exponentialRampToValueAtTime(0.0008, t + d + 0.26);
+      o.connect(g); g.connect(this.master); o.start(t + d); o.stop(t + d + 0.3);
+    }
+  }
+
   /** a bright two-note tick when a shot kills */
   killTick() {
     this.click(0, 0.16, 1900);

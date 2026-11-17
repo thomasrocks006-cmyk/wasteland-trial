@@ -559,3 +559,7 @@ body:not(.wander) #flow,body:not(.wander) #btnFinish{display:none !important;}
 #btnStorm.low{opacity:.45;}
 #manaWrap{position:relative;height:3px;margin-top:3px;background:rgba(0,0,0,.5);border:1px solid rgba(150,175,255,.22);overflow:hidden;}
 #manaFill{position:absolute;inset:0;width:100%;background:linear-gradient(90deg,#6f7dff,#bfcaff);box-shadow:0 0 8px rgba(150,175,255,.6);}
+
+/* whistle for the horse (shown in the Wander when it is out of reach) */
+#btnCall{position:absolute;left:calc(50% + 34px);top:calc(env(safe-area-inset-top,0px) + 12px);padding:7px 10px;font-size:8px;letter-spacing:.16em;font-weight:900;}
+body:not(.wander) #btnCall{display:none !important;}

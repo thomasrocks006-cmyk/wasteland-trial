@@ -211,7 +211,7 @@ export class Melee {
     if (a.charging && this.mocap) {             // release lets it fall, harder the longer it was held; full charge leaps
       a.charging = false; a.chargeK = clamp((a.chargeT || 0) / CHARGE_FULL, 0, 1);
       if (this.ws.audio.roar && a.chargeK > 0.6) this.ws.audio.roar(8);
-      if ((a.level || 0) >= 2) return this.leap(a);
+      if ((a.level || 0) >= 2 && !this.pl.mount) return this.leap(a);     // from the saddle it is the hard overhead
       this.hero.holdLayer(false);
       return;
     }
@@ -619,7 +619,7 @@ export class Melee {
   }
   canSweep() { return !this.exec && this.openForSpecial && this.specs.sweep && this.flow >= 3 && this.sweepTargets() >= 1; }
   /** what SPECIAL would do now: 'finish', 'sweep' or null */
-  specialKind() { return this.canExecute() ? 'finish' : this.canSweep() ? 'sweep' : null; }
+  specialKind() { if (this.pl.mount) return null; return this.canExecute() ? 'finish' : this.canSweep() ? 'sweep' : null; }   // no finishers from the saddle
   special() {
     const k = this.specialKind();
     if (k === 'finish') return this.execute();
@@ -665,6 +665,7 @@ export class Melee {
   canExecute() { return !this.exec && this.openForSpecial && this.pl.alive ? this.execTarget() : null; }
 
   execute() {
+    if (this.pl.mount) return false;
     const t = this.canExecute();
     if (!t) return false;
     this.startExec(t);
