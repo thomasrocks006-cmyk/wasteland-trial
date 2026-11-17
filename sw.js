@@ -1,4 +1,4 @@
-const CACHE = 'wasteland-trial-v35';
+const CACHE = 'wasteland-trial-v38';
 const ASSETS = [
   './',
   './index.html',
@@ -21,6 +21,8 @@ const ASSETS = [
   './js/melee.js',
   './js/soldiers.js',
   './js/soldier_ai.js',
+  './js/horse.js',
+  './js/sorcery.js',
   './js/cloth.js',
   './js/envassets.js',
   './js/trees.js',
@@ -28,7 +30,7 @@ const ASSETS = [
   './js/textures.js',
   './assets/tex/rock_c.jpg', './assets/tex/rock_n.jpg', './assets/tex/slate_c.jpg', './assets/tex/slate_n.jpg', './assets/tex/ground_c.jpg', './assets/tex/ground_n.jpg',
   './assets/tex/bark_c.jpg', './assets/tex/bark_n.jpg', './assets/tex/birch_c.jpg', './assets/tex/birch_n.jpg',
-  './assets/hero.glb', './assets/ual2.bin',
+  './assets/hero.glb', './assets/ual2.bin', './assets/horse.glb',
   './vendor/addons/loaders/GLTFLoader.js',
   './vendor/addons/utils/BufferGeometryUtils.js',
   './vendor/addons/utils/SkeletonUtils.js',

@@ -245,6 +245,29 @@ grass and foliage cards, the faceted far mountains. Replacing the enemies with s
 animated humanoids needs a level-of-detail scheme first (a skinned enemy costs far more than an
 instanced one).
 
+## b38: the low road and the lowland (the world past the gate)
+
+Until now the gate opened onto a view. The land beyond it is real: you can walk it, and the vale is no longer the whole world.
+- **The pass is a cliff with a road cut into it.** The gate is at 90 m; the ground fell 36 m in twenty. The low road leaves the
+  gate pointing out through the break, doubles three times across the face and runs out onto the basin floor: 160 m of shelf,
+  graded by its own length (22%, a steady walk, a horse can take it), 5.2 m of packed earth between stone kerbs, waymarkers on
+  the turns. `ROAD` in `js/core.js` is the line; `carve()` cuts the bench into the height field; `buildLowRoad()` in
+  `js/world.js` lays the surface on the mesh's own heights, so it can never float over the cut or sink into it.
+- **The gate is shut until the Warden falls** — three posts stand in the opening while the pass is barred (`adventure.buildGate`),
+  and the barrier is no longer only a picture. The victory card now sends you down the road.
+- **The lowland is a place**: a green basin under the cliff, rolling out to old hills, with thickets of fir and birch, boulders,
+  and grass that follows the ground down (the grass map now covers the whole field, not just the vale).
+- **The old keep** stands past the road's foot on a levelled pad: curtain walls broken to different heights, a gate arch facing
+  back up the road, a tower stump, a well, rubble. Its guard of the Ashen Company holds the strongbox (CAPTAIN, SWORDSMAN,
+  SHOOTER) until they are dead. Two readings there: THE LOW ROAD at the road's foot, THE KEEPER'S GATE at the keep.
+- **A bigger field**: the terrain grid went from ±118 m / 140 to ±186 m / 200 (80 k triangles for the ground, ~18 MB of
+  attributes). The walkable edge is a brink at r 181; past the basin the old visual plain and the mountain ring carry the eye on.
+- **The map** covers the lowland and the road; the compass and the objective follow you down; patrols come out of the basin
+  once you are below the pass.
+- Not done: no water in the basin, wildlife stay in the vale, the far plain beyond the brink is still scenery, and the keep has
+  no interior (the yard and the strongbox are the reward). The walk down was checked on foot and on the horse (9/9 lowland
+  checks, `lowland_test.cjs` in scratch).
+
 ## b35: open-source nature (scanned rocks, real trees, grass, a mountain range)
 
 Open, permissively licensed work only (no assets pulled from commercial games). Credits in `assets/env/CREDITS.txt` and

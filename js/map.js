@@ -1,12 +1,12 @@
-import { terrainHeight, waterLevel, trailDist, ARENA_R, GAP_A } from './core.js';
+import { terrainHeight, waterLevel, trailDist, roadDist, ARENA_R, LOW_R, GAP_A } from './core.js';
 
 /* ================================================================ the map
    A top-down chart of the vale drawn once from the real terrain (hillshade, water,
    the forest trail), then marked with what you have found. x runs right and z runs
    down, so what the player faces is (sin yaw, cos yaw) on the page too. */
 
-const SPAN = 124;           // half-width of the chart in metres
-const RES = 248;            // terrain samples across
+const SPAN = 190;           // half-width of the chart in metres
+const RES = 380;            // terrain samples across
 let base = null;            // the terrain, painted once
 
 function paintTerrain() {
@@ -22,11 +22,14 @@ function paintTerrain() {
     const shade = Math.max(0.55, Math.min(1.45, 1 + (-hx - hz) * 0.07));
     const r = Math.hypot(x, z);
     let R, G, B;
-    if (h < -12 || r > ARENA_R + 16) { R = 38; G = 52; B = 46; }                       // the lowland and the outer dark
+    if (r > LOW_R + 8) { R = 38; G = 52; B = 46; }                                     // beyond the lowland's brink
+    else if (h < -40) { R = 30; G = 44; B = 38; }                                      // the far dark
+    else if (h < -12) { R = 64; G = 94; B = 60; }                                      // the lowland basin
     else if (h > 14) { R = 150; G = 146; B = 136; }                                    // the rim: bare stone
     else if (h > 6) { R = 118; G = 126; B = 92; }
     else { R = 82; G = 112; B = 70; }                                                  // the valley floor
     if (waterLevel(x, z) > h) { R = 58; G = 116; B = 138; }
+    else if (roadDist(x, z) < 1.3) { R = 156; G = 132; B = 94; }
     else if (trailDist(x, z) < 1.1 && r < ARENA_R) { R = 150; G = 122; B = 84; }
     const o = (j * RES + i) * 4;
     img.data[o] = Math.min(255, R * shade); img.data[o + 1] = Math.min(255, G * shade); img.data[o + 2] = Math.min(255, B * shade); img.data[o + 3] = 255;
@@ -48,9 +51,11 @@ export function drawMap(canvas, adv, player, objectivePoi) {
   // the rim of the playable vale
   c.strokeStyle = 'rgba(255,220,160,0.22)'; c.lineWidth = 1; c.setLineDash([4, 5]);
   c.beginPath(); c.arc(px(0), pz(0), ARENA_R * S, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
-  // the pass
+  // the pass, and the lowland's own brink
   c.strokeStyle = 'rgba(255,230,160,0.5)'; c.lineWidth = 3;
   c.beginPath(); c.arc(px(0), pz(0), (ARENA_R - 2) * S, GAP_A - 0.36, GAP_A + 0.36); c.stroke();
+  c.strokeStyle = 'rgba(255,230,160,0.18)'; c.lineWidth = 1; c.setLineDash([3, 6]);
+  c.beginPath(); c.arc(px(0), pz(0), LOW_R * S, GAP_A - 0.62, GAP_A + 0.62); c.stroke(); c.setLineDash([]);
 
   c.font = `${Math.max(9, W * 0.026)}px Archivo, sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
   for (const p of adv.places) {

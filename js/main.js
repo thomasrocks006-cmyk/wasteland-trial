@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import {
   clamp, lerp, damp, rnd, rng, pick, terrainHeight, TAU, radialSprite, Builder, waterLevel, RIVER,
-  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R, trailDist, TRAIL, angleTo, setUnderground
+  riverNearest, LAKE, RIVER_W, waterDist, ARENA_R, trailDist, TRAIL, angleTo, setUnderground,
+  ROAD, ROAD_LEN, roadNearest, roadDist, LOW_R, GAP_A
 } from './core.js';
 import { World } from './world.js';
 import { Player } from './player.js';
@@ -1244,9 +1245,19 @@ const PATROL_TARGET = 4;
 const PATROLS = [['footman', 'swordsman'], ['shooter', 'footman'], ['footman', 'footman', 'shooter'], ['captain'], ['swordsman', 'swordsman'], ['spearman', 'spearman', 'shooter'], ['footman', 'spearman']];
 let patrolTimer = 0, patrolId = 0, calmT = 0;
 function spawnPatrol() {
+  const inLow = terrainHeight(player.pos.x, player.pos.z) < -14;
   for (let k = 0; k < 50; k++) {
-    const a = rnd(0, TAU), r = rnd(24, ARENA_R - 10);
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    let x, z;
+    if (inLow) {
+      // below the pass the patrolling bands come out of the basin, not the vale
+      const a = GAP_A + rnd(-0.42, 0.42), r = rnd(120, LOW_R - 6);
+      x = Math.cos(a) * r; z = Math.sin(a) * r;
+      if (terrainHeight(x, z) > -18) continue;
+    } else {
+      const a = rnd(0, TAU), r = rnd(24, ARENA_R - 10);
+      x = Math.cos(a) * r; z = Math.sin(a) * r;
+      if (terrainHeight(x, z) < -10) continue;
+    }
     if (Math.hypot(x - player.pos.x, z - player.pos.z) < 40) continue;   // never in your face
     if (!world.isClear(x, z, 2.2) || waterDist(x, z) < 2) continue;
     const L = adv.level - 1;                                              // the vale stiffens as you grow
@@ -2196,7 +2207,7 @@ document.getElementById('crashReload').addEventListener('click', () => location.
 
 /* ================================================================ debug hook (harmless in prod) */
 window.__worldTap = worldTap;
-window.__dbg = { horse, whistle, trample, storm, updateStorm, startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
+window.__dbg = { horse, whistle, trample, storm, updateStorm, startWave, buildWave, resetRun, gear, tickDay, vault, enterVault, leaveVault, setTod, world, setFreeCam: (p, l) => { freeCam = p ? { pos: new THREE.Vector3(...p), look: new THREE.Vector3(...l) } : null; }, adv, toggleLock, useNear, updateWander, applyProgress, THREE, GAME, player, enemies, weapons, fx, input, camera, scene, renderer, world, audio, pickups, accuracy, PERKS, pickPerk, radarEls, terrainHeight, waterLevel, wildlife, startMode, TRAIL, ROAD, ROAD_LEN, roadNearest, roadDist, LOW_R, GAP_A, riverPoint: RIVER[Math.floor(RIVER.length * 0.55)] };
 
 // ?smoke=1 runs the scripted self-test (see js/smoke.js)
 if (location.search.includes('smoke')) {

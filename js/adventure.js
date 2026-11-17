@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { envPiece } from './envassets.js';
 import {
-  TAU, rnd, pick, angleTo, terrainHeight, terrainNormal, GAP_A, TRAIL, TRAIL_LEN, RIVER, waterDist, Builder, canvasTex
+  TAU, rnd, pick, angleTo, terrainHeight, terrainNormal, GAP_A, TRAIL, TRAIL_LEN, RIVER, waterDist, Builder, canvasTex,
+  ROAD, ROAD_LEN, KEEP
 } from './core.js';
 import { START_TOD } from './daynight.js';
 import { FLOOR_Y } from './vault.js';
@@ -38,6 +39,8 @@ export const LORE = {
   cascade: { title: 'THE CASCADE', text: 'Scratched into a smooth stone beside the falls: FIVE FIRES CALL THE RELIEF. ONE AT THE WATCH-FIRE. THREE ON THE TOWERS. ONE AT THE WAR CAMP.' },
   overlook: { title: 'THE OVERLOOK', text: 'Below the parapet the lowland runs green to the far mountains. A line is cut into the rail: THE WARLORD HOLDS THE GATE UNTIL FIVE FIRES ANSWER. THEN IT IS YOURS TO WALK.' },
   sentinels: { title: 'A SOLDIER\'S SCRATCHINGS', text: 'The Ashen Company walks in bands and keeps its own watch. Strike one man and the rest march. Cut into the wall: THE SHIELD MEN HOLD THE FRONT. GO ROUND, OR BREAK THEM.' },
+  lowroad: { title: 'THE LOW ROAD', text: 'A stone at the foot of the serpentine, cut by the men who built it: ELEVEN TURNS FROM THE GATE TO THE FLOOR. THE KEEP BELOW KEPT THE ROAD, AND THE ROAD KEPT THE VALE. NO ONE HAS KEPT IT SINCE THE COMPANY CAME.' },
+  keep: { title: 'THE KEEPER\'S LAST WORD', text: 'Scratched deep into the keep\'s gatepost: WE HELD THE ROAD FORTY YEARS AND THE COMPANY CAME AT NIGHT. IF YOU READ THIS, THE PASS IS OPEN AND WE ARE NOT. TAKE WHAT IS LEFT AND KEEP THE ROAD BETTER THAN WE DID.' },
 };
 
 /* the hermit's bounties: counted from the day you first speak to him */
@@ -136,6 +139,10 @@ function buildPlaces(world) {
   const tx = gp.x - gi.x, tz = gp.z - gi.z, tl = Math.hypot(tx, tz) || 1;
   const lair = findClear(world, gi.x - (tz / tl) * 13, gi.z + (tx / tl) * 13, 3, 12);
   const gate = [Math.cos(GAP_A) * 90.5, Math.sin(GAP_A) * 90.5];
+  // the lowland: a stone at the foot of the road, and the keep's strongbox in its yard
+  const foot = ROAD[ROAD.length - 1], fa = Math.atan2(foot.z, foot.x);
+  const lowStone = findClear(world, foot.x - Math.sin(fa) * 7.5, foot.z + Math.cos(fa) * 7.5, 1.4, 10, 3);
+  const keepAt = findClear(world, KEEP.x - Math.cos(KEEP.a) * 7.5, KEEP.z - Math.sin(KEEP.a) * 7.5, 1.6, 8, 3);
   const hermitAt = findClear(world, 20, -10, 2.6, 14, 3.5, 0.9);
   const vaultDoor = findClear(world, -56, 6, 2.5, 18, 3.5, 0.85);
   const cl = world.clearing || { x: -40, z: 60 };
@@ -168,6 +175,9 @@ function buildPlaces(world) {
     { id: 'vaultChest', name: "THE GAOLER'S CACHE", kind: 'cache', zone: 'vault', at: [0, -79], reach: 3.6, discover: 22, needs: 'vaultBoss', needsWhy: 'THE GAOLER STILL STANDS', relic: 'heart', color: 0xffd060, ring: 1.6, xp: 150, glyph: 'cache', text: 'The last of the wardens\' keys, and a stone that beats.' },
     { id: 'hermit', name: "THE HERMIT'S FIRE", kind: 'talk', at: hermitAt, reach: 4.4, discover: 30, color: 0xffc070, ring: 2.2, xp: 0, glyph: 'talk' },
     { id: 'gate', name: 'THE PASS GATE', kind: 'gate', at: gate, reach: 9, req: true, discover: 48, relic: 'cloak', color: 0xffe08a, ring: 3.4, xp: 400, glyph: 'gate' },
+    { id: 'lowroad', name: 'THE LOW ROAD', kind: 'lore', at: lowStone, reach: 3.6, discover: 42, lore: 'lowroad', color: 0xb8d8ff, ring: 1.3, xp: 50, glyph: 'lore' },
+    { id: 'lowkeep', name: 'THE OLD KEEP', kind: 'cache', at: keepAt, reach: 4.2, discover: 48, guard: { kinds: ['captain', 'swordsman', 'shooter'], r: 13, homeR: 5 }, guardWhy: 'THE COMPANY HOLDS THE KEEP', color: 0xffd060, ring: 2.2, xp: 320, glyph: 'cache', text: 'The keep\'s strongbox: coin, a dry cloak, and the last of the garrison\'s store.' },
+    { id: 'keepLore', name: 'THE KEEPER\'S GATE', kind: 'lore', at: [KEEP.x - Math.cos(KEEP.a) * 13.2 + Math.sin(KEEP.a) * 3.4, KEEP.z - Math.sin(KEEP.a) * 13.2 - Math.cos(KEEP.a) * 3.4], reach: 4.0, discover: 40, lore: 'keep', color: 0xb8d8ff, ring: 1.3, xp: 50, glyph: 'lore' },
   ];
 }
 
@@ -186,6 +196,9 @@ export class Adventure {
     }
     this.vault = ctx.vault || null;
     this.inVault = false;
+    // while the pass is barred the vale is a closed bowl: the lowland's open boundary only
+    // applies once the Warden has fallen (world.resolveCollisions reads this)
+    this.world.passClosed = !this.adv.passOpen;
     this.zonePlaces = this.places.filter((p) => p.zone === 'valley');
     // way-points that are not places: where a vault objective points before a place does
     this.wp = { hall: { id: 'wpHall', at: [0, -10], glyph: 'rune', name: 'THE HALL', zone: 'vault' }, throne: { id: 'wpThrone', at: [0, -64], glyph: 'rune', name: 'THE THRONE', zone: 'vault' } };
@@ -327,6 +340,14 @@ export class Adventure {
     }
     const ly = Math.max(terrainHeight(x + tx * 5.2, z + tz * 5.2), terrainHeight(x - tx * 5.2, z - tz * 5.2));
     b.add(new THREE.BoxGeometry(13.2, 1.3, 1.7), 0x6d7476, { pos: [x, ly + 10.2, z], rot: [0, yaw + Math.PI / 2, 0], jitter: 0.04 });
+    // while the pass is shut the opening is solid: no walking round the Warden
+    this.gateBlock = [];
+    if (!this.adv.passOpen) {
+      for (const s of [-1, 0, 1]) {
+        const o = { x: x + tx * 3.1 * s, z: z + tz * 3.1 * s, r: 1.9, h: 9.2 };
+        this.world.obstacles.push(o); this.gateBlock.push(o);
+      }
+    }
     const m = new THREE.Mesh(b.build(), mat); m.castShadow = true; m.receiveShadow = true;
     this.scene.add(m);
     const film = canvasTex(128, 128, (ctx, w, h) => {
@@ -542,10 +563,18 @@ export class Adventure {
     const a = this.adv, p = this.byId.gate;
     this.warden = null;
     a.passOpen = true; a.done.gate = true;
+    // the way through opens: the posts in the gateway go
+    if (this.gateBlock) {
+      const gone = new Set(this.gateBlock);
+      this.world.obstacles = this.world.obstacles.filter((o) => !gone.has(o));
+      this.gateBlock = null;
+    }
+    this.world.passClosed = false;
     this.addXp(p.xp, 'warden');
     this.giveRelic(p.relic);
     this.syncVisuals();
     this.ctx.persist();
+    if (this.ctx.banner) this.ctx.banner('THE PASS IS OPEN', 'FOLLOW THE LOW ROAD DOWN');
     if (this.ctx.victory) this.ctx.victory();
   }
 
@@ -612,7 +641,7 @@ export class Adventure {
         break;
       case 'cache':
         o.label = done ? 'EMPTY' : 'OPEN'; o.enabled = !done;
-        if (!done && p.guard && !a.cleared[p.id]) { o.enabled = false; o.why = 'WOLVES HOLD THE DEN'; }
+        if (!done && p.guard && !a.cleared[p.id]) { o.enabled = false; o.why = p.guardWhy || 'WOLVES HOLD THE DEN'; }
         if (!done && p.needs && !a.cleared[p.needs] && !a.done[p.needs]) { o.enabled = false; o.why = p.needsWhy || 'NOT YET'; }
         break;
       case 'lore': o.label = 'READ'; break;
@@ -734,6 +763,9 @@ export class Adventure {
       return a.cleared.altar ? { text: 'RAISE THE BANNER AT THE WAR CAMP', poi: B.altar } : { text: 'TAKE THE WAR CAMP', poi: B.altar };
     }
     if (!a.passOpen) return { text: this.warden && this.warden.alive ? 'DEFEAT THE WARLORD' : 'FORCE THE PASS GATE', poi: B.gate };
+    if (!a.done.lowkeep) return a.done.lowroad
+      ? { text: 'THE OLD KEEP ON THE BASIN FLOOR', poi: B.lowkeep }
+      : { text: 'WALK THE LOW ROAD DOWN', poi: B.lowroad };
     if (!a.done.vaultBoss) return { text: 'THE BARRED DOOR BENEATH THE KNIGHTS', poi: B.vaultDoor };
     return { text: 'THE VALE IS YOURS · WANDER AS YOU LIKE', poi: null };
   }

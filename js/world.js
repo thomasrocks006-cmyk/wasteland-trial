@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {
-  TAU, clamp, lerp, smoothstep, rnd, rng, fbm, pick,
+  TAU, clamp, lerp, smoothstep, rnd, rng, fbm, pick, mulberry32,
   terrainHeight, terrainNormal, Builder, ARENA_R, RIM_R,
-  grassTexture, smokeTexture, radialSprite, groundTexture, stoneTexture, clothTexture,
+  grassTexture, smokeTexture, radialSprite, groundTexture, stoneTexture, clothTexture, roadTexture,
   GRID_SEG, GRID_EXT, gridHeight, RIVER, RIVER_W, LAKE, LAKE_Y, waterDist, needleTexture, meadowTexture,
-  GAP_A, LOWLAND_Y, gapAmount, TRAIL, TRAIL_LEN, trailDist, MeshBuilder, leafTexture, needleSprayTexture, fernTexture, barkTexture, birchTexture
+  GAP_A, LOWLAND_Y, LOW_R, gapAmount, TRAIL, TRAIL_LEN, trailDist, roadDist, ROAD, KEEP, roadNearest, MeshBuilder, leafTexture, needleSprayTexture, fernTexture, barkTexture, birchTexture
 } from './core.js';
 import { sampleTime, sunVector, makeState, START_TOD } from './daynight.js';
 import { pbr } from './textures.js';
@@ -83,6 +83,8 @@ export class World {
     this.buildRuins();
     this.buildMidfield();
     this.buildLandmarks();
+    this.buildLowlandKeep();
+    this.buildLowRoad();
     this.buildOrnaments();
     this.buildTowers();
     this.buildColossi();
@@ -240,7 +242,7 @@ export class World {
   buildTerrain() {
     const SEG = GRID_SEG;
     const EXT = GRID_EXT;
-    const TILES = 30;
+    const TILES = Math.round((EXT * 2) / 7.9);   // ~4 m per texture tile however big the field is
     const step = (EXT * 2) / SEG;
     const pos = new Float32Array(SEG * SEG * 18);
     const col = new Float32Array(SEG * SEG * 18);
@@ -282,6 +284,14 @@ export class World {
       const td = trailDist(x, z);
       _c1.lerp(_c2.setHex(0x3e4a2a).lerp(_c3.setHex(0x5a4a34), clamp(grain * 1.4 - 0.3, 0, 1)), (1 - smoothstep(5, 17, td)) * 0.55 * (1 - rockAmt));
       _c1.lerp(_c2.setHex(0x7a6446).lerp(_c3.setHex(0x8f7a58), drift), 1 - smoothstep(1.1, 2.6, td));
+
+      // the low road down the pass: pale dust and broken stone on the bench
+      const rd = roadDist(x, z);
+      _c1.lerp(_c2.setHex(0x93815f).lerp(_c3.setHex(0x6f6249), grain), (1 - smoothstep(4.2, 6.4, rd)) * 0.92);
+
+      // the lowland under the cliff is deeper and cooler than the vale: old grass, damp hollows
+      _c1.lerp(_c2.setHex(0x2f4a29), smoothstep(-16, -33, h) * 0.5 * (1 - rockAmt));
+      _c1.lerp(_c3.setHex(0x53704a), smoothstep(-16, -33, h) * clamp((drift - 0.45) * 2.2, 0, 1) * 0.35);
 
       // wet dark earth and stone along the water
       const wd = waterDist(x, z);
@@ -353,7 +363,7 @@ export class World {
       for (let j = 0; j < AS; j++) {
         const a = (j / AS) * TAU, x = Math.cos(a) * rr, z = Math.sin(a) * rr;
         const n = fbm(x * 0.004 + 50, z * 0.004, 4), n2 = fbm(x * 0.02, z * 0.02, 2);
-        pos.push(x, LOWLAND_Y + (n - 0.5) * 80 * smoothstep(260, 900, rr) + (n2 - 0.5) * 5, z);
+        pos.push(x, LOWLAND_Y - 10 + (n - 0.5) * 80 * smoothstep(260, 900, rr) + (n2 - 0.5) * 5, z);
         _c1.setHex(0x46703a).lerp(_c2.setHex(0x27441f), clamp((n2 - 0.42) * 3, 0, 1));
         _c1.lerp(_c3.setHex(0x9aa465), clamp((n - 0.6) * 4, 0, 1) * 0.55);
         col.push(_c1.r, _c1.g, _c1.b);
@@ -1131,6 +1141,151 @@ export class World {
     this.scene.add(mesh);
   }
 
+  /* -------------------------------------------------- the old keep (lowland)
+     The payoff for walking the pass: a roofless keep on the basin floor, its front
+     gate facing back up the road, a tower stump at one corner, rubble in the yard.
+     Everything sits on the levelled pad, so the walls stand true. */
+  buildLowlandKeep() {
+    const b = new Builder();
+    const cx = KEEP.x, cz = KEEP.z;
+    const fx = -Math.cos(KEEP.a), fz = -Math.sin(KEEP.a);     // towards the pass (back up the road)
+    const rx = -fz, rz = fx;                                  // across
+    const at = (u, v) => [cx + rx * u + fx * v, cz + rz * u + fz * v];
+    const gy = (x, z) => terrainHeight(x, z);
+
+    const wall = (u1, v1, u2, v2, h, thick = 1.15) => {
+      const [x1, z1] = at(u1, v1), [x2, z2] = at(u2, v2);
+      const len = Math.hypot(x2 - x1, z2 - z1), ang = Math.atan2(z2 - z1, x2 - x1);
+      const y0 = Math.min(gy(x1, z1), gy(x2, z2)) - 0.4;
+      b.add(new THREE.BoxGeometry(len, h, thick), PAL.ruin, { pos: [(x1 + x2) / 2, y0 + h / 2, (z1 + z2) / 2], rot: [0, -ang, 0], jitter: 0.05 });
+      b.add(new THREE.BoxGeometry(len + 0.3, 0.5, thick + 0.35), PAL.ruinDark, { pos: [(x1 + x2) / 2, y0 + h + 0.1, (z1 + z2) / 2], rot: [0, -ang, 0], jitter: 0.05 });
+      // broken merlons
+      const n = Math.max(2, Math.round(len / 3.0));
+      for (let k = 0; k < n; k++) {
+        if (rnd() < 0.42) continue;
+        const t = (k + 0.5) / n, px = x1 + (x2 - x1) * t, pz = z1 + (z2 - z1) * t;
+        b.add(new THREE.BoxGeometry(1.45, 0.85, thick * 0.92), PAL.ruinDark, { pos: [px, y0 + h + 0.75, pz], rot: [0, -ang, 0], jitter: 0.07 });
+      }
+      // collision: a line of posts (the world only knows cylinders)
+      const segs = Math.max(1, Math.round(len / 2.0));
+      for (let k = 0; k < segs; k++) {
+        const t = (k + 0.5) / segs;
+        this.obstacles.push({ x: x1 + (x2 - x1) * t, z: z1 + (z2 - z1) * t, r: thick * 0.78, h });
+      }
+    };
+
+    const R = 15;
+    // back wall and the two sides, all broken to different heights
+    wall(-R, -11, R, -11, 7.0);
+    wall(-R, -11, -R, 9, 4.6);
+    wall(R, -11, R, 9, 5.4);
+    // the front: two stubs and a gate arch facing the road
+    wall(-R, 11, -5.2, 11, 4.2);
+    wall(5.2, 11, R, 11, 3.6);
+    for (const s of [-1, 1]) {
+      const [px, pz] = at(s * 4.4, 11), y0 = gy(px, pz);
+      b.add(new THREE.BoxGeometry(1.9, 9.2, 1.9), PAL.ruin, { pos: [px, y0 + 4.2, pz], rot: [0, Math.atan2(fx, fz), 0], jitter: 0.04 });
+      this.obstacles.push({ x: px, z: pz, r: 1.2, h: 9.2 });
+    }
+    {
+      const [lx, lz] = at(0, 11), y0 = gy(lx, lz);
+      b.add(new THREE.BoxGeometry(11.0, 1.25, 2.1), PAL.ruinDark, { pos: [lx, y0 + 9.4, lz], rot: [0, Math.atan2(fx, fz) + Math.PI / 2, 0], jitter: 0.03 });
+    }
+    // the tower stump at the far corner
+    {
+      const [tx, tz] = at(R - 0.5, -11), y0 = gy(tx, tz);
+      b.add(new THREE.CylinderGeometry(3.0, 3.4, 11.5, 12), PAL.ruin, { pos: [tx, y0 + 5.4, tz], jitter: 0.04 });
+      b.add(new THREE.CylinderGeometry(3.5, 3.2, 0.9, 12), PAL.ruinDark, { pos: [tx, y0 + 11.2, tz], jitter: 0.05 });
+      this.obstacles.push({ x: tx, z: tz, r: 3.3, h: 11.5 });
+    }
+    // the well in the yard, roofed with two leaning slabs
+    {
+      const [wx, wz] = at(-1.5, -2), y0 = gy(wx, wz);
+      b.add(new THREE.CylinderGeometry(1.55, 1.7, 1.3, 12), PAL.ruinDark, { pos: [wx, y0 + 0.5, wz], jitter: 0.02 });
+      b.add(new THREE.TorusGeometry(1.5, 0.18, 6, 16), PAL.ruin, { pos: [wx, y0 + 1.15, wz], rot: [Math.PI / 2, 0, 0], jitter: 0.02 });
+      this.obstacles.push({ x: wx, z: wz, r: 1.7, h: 1.3 });
+    }
+    // rubble: fallen blocks across the yard and outside the gate
+    for (let k = 0; k < 26; k++) {
+      const u = rnd(-R - 4, R + 4), v = rnd(-13, 14);
+      const [x, z] = at(u, v), s = rnd(0.5, 1.5);
+      b.add(new THREE.BoxGeometry(s * rnd(1.0, 2.0), s * rnd(0.4, 0.9), s * rnd(0.8, 1.4)), pick([PAL.ruin, PAL.ruinDark, PAL.rock]), { pos: [x, gy(x, z) + s * 0.25, z], rot: [rnd(-0.3, 0.3), rnd(0, TAU), rnd(-0.3, 0.3)], jitter: 0.07 });
+    }
+    const m = new THREE.Mesh(b.buildUV(0.45), stoneMat());
+    m.castShadow = true; m.receiveShadow = true;
+    this.scene.add(m);
+    this.keep = { x: cx, z: cz, y: gy(cx, cz) };
+  }
+
+  /* -------------------------------------------------- the low road (visual)
+     The terrain is carved to the road's line; this lays the road itself on it: a
+     ribbon of packed earth with a kerb of stone down both sides and waymarkers at
+     the turns, so the shelf reads as something built rather than a crease. */
+  buildLowRoad() {
+    const N = ROAD.length, HW = 2.62;
+    // The surface is laid on the carved bench and follows whatever the mesh actually does
+    // (three vertices across: both edges and a slightly crowned centre), so it can never
+    // float over the cut or sink into it.
+    const pos = [], uv = [], idx = [];
+    const skirt = { pos: [], idx: [] };
+    for (let i = 0; i < N; i++) {
+      const q = ROAD[i];
+      const p0 = ROAD[Math.max(0, i - 1)], p1 = ROAD[Math.min(N - 1, i + 1)];
+      const tx = p1.x - p0.x, tz = p1.z - p0.z, tl = Math.hypot(tx, tz) || 1;
+      const nx = -tz / tl, nz = tx / tl;
+      const yC = terrainHeight(q.x, q.z) + 0.12;
+      const xL = q.x + nx * HW, zL = q.z + nz * HW, xR = q.x - nx * HW, zR = q.z - nz * HW;
+      const yL = terrainHeight(xL, zL) + 0.07, yR = terrainHeight(xR, zR) + 0.07;
+      pos.push(xL, yL, zL, q.x, yC, q.z, xR, yR, zR);
+      const v = q.s / 7;
+      uv.push(0, v, 0.5, v, 1, v);
+      // a shallow stone edge either side, dropped into the ground
+      const oL = HW + 0.55, oR = HW + 0.55;
+      const yLo = terrainHeight(q.x + nx * oL, q.z + nz * oL) - 0.25;
+      const yRo = terrainHeight(q.x - nx * oR, q.z - nz * oR) - 0.25;
+      const b = skirt.pos.length / 3;
+      skirt.pos.push(xL, yL, zL, q.x + nx * oL, yLo, q.z + nz * oL, xR, yR, zR, q.x - nx * oR, yRo, q.z - nz * oR);
+      if (i < N - 1) {
+        const a = i * 3;
+        idx.push(a, a + 1, a + 3, a + 1, a + 4, a + 3, a + 1, a + 2, a + 4, a + 2, a + 5, a + 4);
+        const c = b, d = (i + 1) * 4;
+        skirt.idx.push(c, d, c + 1, c + 1, d, d + 1,           // left kerb
+          c + 2, c + 3, d + 2, c + 3, d + 3, d + 2);           // right kerb
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx); g.computeVertexNormals();
+    const rt = roadTexture(); rt.anisotropy = 8;
+    const road = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: rt }));
+    road.receiveShadow = true; road.castShadow = false;
+    this.scene.add(road);
+
+    const sg = new THREE.BufferGeometry();
+    sg.setAttribute('position', new THREE.Float32BufferAttribute(skirt.pos, 3));
+    sg.setIndex(skirt.idx); sg.computeVertexNormals();
+    const shoulders = new THREE.Mesh(sg, new THREE.MeshLambertMaterial({ color: 0x6d6a60, side: THREE.DoubleSide }));
+    shoulders.receiveShadow = true;
+    this.scene.add(shoulders);
+
+    // waymarkers: a low stone on the outer edge of each bend, and two at the foot
+    const b = new Builder();
+    for (let i = 8; i < N - 4; i += 26) {
+      const q = ROAD[i], q2 = ROAD[i + 1];
+      const tx = q2.x - q.x, tz = q2.z - q.z, tl = Math.hypot(tx, tz) || 1;
+      const nx = -tz / tl, nz = tx / tl;
+      const side = (Math.floor(i / 26) % 2) ? 1 : -1;
+      const x = q.x + nx * (HW + 0.6) * side, z = q.z + nz * (HW + 0.6) * side;
+      const hh = rnd(0.85, 1.25);
+      b.add(new THREE.BoxGeometry(0.42, hh, 0.34), pick([PAL.ruin, PAL.ruinDark, 0x8a8b80]),
+        { pos: [x, terrainHeight(x, z) + hh / 2 - 0.1, z], rot: [rnd(-0.05, 0.05), rnd(0, TAU), rnd(-0.05, 0.05)], jitter: 0.05 });
+    }
+    const m = new THREE.Mesh(b.buildUV(0.4), stoneMat());
+    m.castShadow = true; m.receiveShadow = true;
+    this.scene.add(m);
+  }
+
   /* -------------------------------------------------- vegetation */
   buildVegetation() {
     // ---- grass tufts (instanced crossed quads, wind sway)
@@ -1802,6 +1957,48 @@ export class World {
     }
     // the valley's fir stands go into the valley builders
     C = valley;
+
+    /* the lowland below the pass: a park of old firs and birches on the basin floor,
+       thicketed away from the road and thinning towards the far hills. It has its own
+       seeded RNG so the vale's planting (and the spawn point) stay exactly as they were. */
+    {
+      const lr = mulberry32(20261117);
+      const lrn = (a, b) => a + (b - a) * lr();
+      const cand = [];
+      for (let k = 0; k < 300; k++) {
+        const a = GAP_A + lrn(-0.52, 0.52), rr = 115 + Math.pow(lr(), 0.62) * 63;
+        cand.push([Math.cos(a) * rr, Math.sin(a) * rr, a, rr]);
+      }
+      for (const [x, z, a, rr] of cand) {
+        const y = terrainHeight(x, z);
+        if (y > -13 || y < -46) continue;                                  // the basin floor only
+        if (roadDist(x, z) < 4.2) continue;                                // the road stays open
+        if (Math.hypot(x - KEEP.x, z - KEEP.z) < KEEP.pad + 3) continue;    // and the keep's yard
+        if (terrainNormal(x, z, _v).y < 0.87) continue;                    // not on a bank
+        const band = 0.5 + 0.5 * Math.cos((a - GAP_A) * 11 + rr * 0.06);   // thickets, not an even sprinkle
+        if (lr() > 0.16 + 0.66 * band) continue;
+        const roll = lr();
+        const kind = roll < 0.66 ? 'fir' : roll < 0.94 ? 'birch' : 'giant';
+        const h = kind === 'giant' ? lrn(15, 20) : kind === 'fir' ? lrn(8, 16) : lrn(8, 12);
+        if (TF) {
+          TF.add(kind, x, y, z, h);
+          this.obstacles.push({ x, z, r: kind === 'giant' ? 0.95 : kind === 'fir' ? 0.45 : 0.3, h });
+          this.forestCount[kind === 'giant' ? 'giant' : kind === 'fir' ? 'fir' : 'birch']++;
+        } else if (kind === 'birch') birch(x, y, z, h / 10);
+        else if (kind === 'giant') broadleaf(x, y, z, h / 10, 0, 0);
+        else fir(x, y, z, h / 12);
+      }
+      // boulders and broken slabs on the floor
+      for (let k = 0; k < 40; k++) {
+        const a = GAP_A + lrn(-0.55, 0.55), rr = 117 + lr() * 60;
+        const x = Math.cos(a) * rr, z = Math.sin(a) * rr, y = terrainHeight(x, z);
+        if (y < -45 || roadDist(x, z) < 4) continue;
+        const sz = lrn(0.45, 2.0);
+        stones.add(new THREE.IcosahedronGeometry(sz, 0), [PAL.rock, PAL.rockDark, 0x6d7466][Math.floor(lr() * 3)],
+          { pos: [x, y + sz * 0.34, z], rot: [lr() * 3, lr() * 3, lr() * 3], scale: [1, lrn(0.5, 0.8), lrn(0.8, 1.2)], jitter: 0.06 });
+        this.obstacles.push({ x, z, r: sz * 0.8, h: sz * 1.1 });
+      }
+    }
     for (const [x, y, z, s] of (this.firSpots || [])) fir(x, y, z, s);
 
     /* materials, shared by every chunk */
@@ -2167,10 +2364,14 @@ export class World {
       }
     }
     if (this.bounds) return [x, z];
-    // arena wall
+    // The wall of the vale, with the pass through it. Past the brink (or on the road's
+    // shelf, which is what carries you past it) the lowland runs out much further -- but
+    // only once the pass is actually open: while the Warden holds it, the vale is closed.
     const r = Math.hypot(x, z);
-    const maxR = ARENA_R - radius - 2;
-    if (r > maxR) { x = (x / r) * maxR; z = (z / r) * maxR; }
+    const out = this.passClosed ? false
+      : r > ARENA_R + 0.5 || roadDist(x, z) < 6.5 || terrainHeight(x, z) < -12;
+    const lim = out ? LOW_R - radius : ARENA_R - radius - 2;
+    if (r > lim) { x = (x / r) * lim; z = (z / r) * lim; }
     return [x, z];
   }
 

@@ -54,8 +54,8 @@ export const RIM_R = 104;
 /* One terrain grid, shared by the mesh and by everything that walks on it.
    Sampling the analytic function directly made entities float above the drawn
    triangles on slopes, so physics now interpolates the exact same grid. */
-export const GRID_SEG = 140;
-export const GRID_EXT = 118;
+export const GRID_SEG = 200;
+export const GRID_EXT = 186;      // out past the pass, so the lowland below can be walked
 const GRID_STEP = (GRID_EXT * 2) / GRID_SEG;
 
 /** Wind-blown dunes. These are part of the height field, not props, so the mesh
@@ -166,6 +166,59 @@ export function stoneTexture() {
   return tex;
 }
 
+/** The low road's surface: packed earth with cart ruts, gravel and a worn crown. */
+export function roadTexture() {
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const r = mulberry32(6161);
+  ctx.fillStyle = '#8b7452'; ctx.fillRect(0, 0, S, S);
+  // damp and dry patches
+  for (let i = 0; i < 260; i++) {
+    const x = r() * S, y = r() * S, rad = 8 + r() * 44;
+    ctx.beginPath(); ctx.ellipse(x, y, rad, rad * (0.5 + r() * 0.7), r() * 3.14, 0, 6.283);
+    ctx.fillStyle = r() < 0.5 ? `rgba(96,78,54,${0.10 + r() * 0.16})` : `rgba(168,146,110,${0.08 + r() * 0.12})`;
+    ctx.fill();
+  }
+  // the two wheel ruts, running along the road
+  for (const cx of [S * 0.28, S * 0.72]) {
+    for (let k = 0; k < 3; k++) {
+      ctx.beginPath();
+      const w = 16 + k * 9;
+      for (let y = 0; y <= S; y += 8) {
+        const x = cx + Math.sin(y * 0.012 + k) * 4 + (r() - 0.5) * 2;
+        if (y === 0) ctx.moveTo(x - w / 2, y); else ctx.lineTo(x - w / 2, y);
+      }
+      ctx.strokeStyle = `rgba(74,58,40,${0.16 - k * 0.04})`; ctx.lineWidth = w; ctx.stroke();
+    }
+  }
+  // gravel
+  for (let i = 0; i < 5200; i++) {
+    const x = r() * S, y = r() * S, rad = 0.6 + r() * 2.4;
+    const l = 0.72 + r() * 0.5;
+    ctx.fillStyle = `rgba(${Math.round(150 * l)},${Math.round(136 * l)},${Math.round(112 * l)},${0.45 + r() * 0.45})`;
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, 6.283); ctx.fill();
+  }
+  // cracks and a few flat stones
+  for (let i = 0; i < 90; i++) {
+    let x = r() * S, y = r() * S;
+    ctx.beginPath(); ctx.moveTo(x, y);
+    for (let k = 0; k < 4; k++) { x += (r() - 0.5) * 26; y += (r() - 0.4) * 22; ctx.lineTo(x, y); }
+    ctx.strokeStyle = `rgba(58,46,32,${0.2 + r() * 0.25})`; ctx.lineWidth = 1.4; ctx.stroke();
+  }
+  for (let i = 0; i < 60; i++) {
+    const x = r() * S, y = r() * S, rad = 3 + r() * 9;
+    ctx.beginPath(); ctx.ellipse(x, y, rad, rad * 0.7, r() * 3.14, 0, 6.283);
+    ctx.fillStyle = `rgba(${120 + r() * 30},${116 + r() * 26},${104 + r() * 22},0.75)`; ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 /** Hanging cloth for banners: a woven panel with a sun disc and wear. */
 export function clothTexture() {
   const W = 128, H = 256;
@@ -203,10 +256,24 @@ export function clothTexture() {
    falls away to a vast lowland far below. LOWLAND_Y is that floor. */
 export const GAP_A = -0.55;          // direction of the pass (radians, atan2(z, x))
 export const LOWLAND_Y = -42;
+export const LOW_R = 181;            // how far the lowland floor can be walked
 export function gapAmount(x, z) {
   let d = Math.atan2(z, x) - GAP_A;
   d = Math.atan2(Math.sin(d), Math.cos(d));
   return Math.exp(-(d / 0.42) * (d / 0.42));
+}
+
+/** The floor of the lowland: a green basin under the cliff, rolling further out, with
+ *  old hills along its far side so the edge of the field is a skyline and not a shelf. */
+export function lowlandHeight(x, z, r = Math.hypot(x, z)) {
+  const floor = LOWLAND_Y + 6;                        // -36: what the brink falls to
+  const roll = smoothstep(120, 172, r);
+  let h = floor;
+  h += (fbm(x * 0.0075 + 12, z * 0.0075 - 4, 4) - 0.5) * 17 * roll;
+  h += (fbm(x * 0.031, z * 0.031, 3) - 0.5) * 2.6 * roll;
+  const ring = smoothstep(158, 186, r);
+  h += ring * (6.5 + (fbm(x * 0.012 + 3, z * 0.012 + 9, 3) - 0.42) * 15);
+  return h;
 }
 
 /** The raw noise field — only ever evaluated at grid corners. */
@@ -221,10 +288,11 @@ export function terrainRaw(x, z) {
   const rim = smoothstep(66, RIM_R, r);
   h += rim * (26 + (fbm(x * 0.028, z * 0.028, 3) - 0.5) * 22) * (1 - 0.93 * g);
   h += duneHeight(x, z);
-  // beyond the brink of the pass the ground drops to the lowland
+  // beyond the brink of the pass the ground falls away to the lowland floor
   // (and everywhere, past the outer foot of the rim, so the grid's edge never shows as a shelf;
   //  it starts beyond the cascade's source at r 112 so the river's level is untouched)
-  h = lerp(h, LOWLAND_Y + 6, Math.max(g * smoothstep(97, 117, r), smoothstep(113, 130, r)));
+  const low = lowlandHeight(x, z, r);
+  h = lerp(h, low, Math.max(g * smoothstep(97, 118, r), smoothstep(113, 130, r)));
   return h;
 }
 
@@ -318,7 +386,51 @@ export function trailNearest(x, z) {
   return { d: Math.sqrt(best), i: bi };
 }
 
-let LAST_WD = Infinity, LAST_TD = Infinity;
+let LAST_WD = Infinity, LAST_TD = Infinity, LAST_RD = 99;
+
+/* ---------------- the low road
+   The pass is a cliff, so the way down is a shelf cut into its face: it leaves
+   the gate pointing out through the break, doubles twice across the slope
+   (the serpentine) and runs out onto the lowland floor. The fall is eased at
+   both ends: level at the gate, level where it meets the basin. */
+export const ROAD_W = 5.6;            // half-width of the flat bench (a grid cell is 1.86 m; the bench
+                                      // has to be wide enough that the mesh stays flat under the surface)
+export const ROAD_BANK = 7.0;         // how far the cut/fill blends into the cliff
+export const ROAD_TOP = -0.35;        // height where it leaves the gate
+export const ROAD_BOTTOM = -35.4;     // height where it meets the lowland
+export const ROAD = (() => {
+  const N = 300, pts = [];
+  const R0 = 92.0, R1 = 157.0;
+  for (let k = 0; k <= N; k++) {
+    const t = k / N;
+    const r = R0 + (R1 - R0) * t;
+    const a = GAP_A + 0.215 * Math.sin(t * Math.PI * 3) * (1 - 0.22 * t);
+    pts.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, t, r, a });
+  }
+  let len = 0;
+  for (let i = 0; i < pts.length; i++) { if (i) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z); pts[i].s = len; }
+  // the fall follows the road's own length, so the grade is even: a steady walk down,
+  // not a plunge at each turn
+  for (const q of pts) q.y = ROAD_TOP + (ROAD_BOTTOM - ROAD_TOP) * (q.s / len);
+  return pts;
+})();
+export const ROAD_LEN = ROAD[ROAD.length - 1].s;
+
+/* The old keep: a ruin on the lowland floor, a little off the road's foot. It sits on a
+   levelled pad, so its walls stand true however the basin rolls. */
+export const KEEP = (() => {
+  const a = GAP_A + 0.12, r = 166;      // beyond the road's foot, clear of its bench
+  return { a, r, x: Math.cos(a) * r, z: Math.sin(a) * r, y: -35.0, pad: 17 };
+})();
+export function roadNearest(x, z) {
+  let best = Infinity, bi = 0;
+  for (let i = 0; i < ROAD.length; i++) {
+    const q = ROAD[i], dx = x - q.x, dz = z - q.z, d2 = dx * dx + dz * dz;
+    if (d2 < best) { best = d2; bi = i; }
+  }
+  return { d: Math.sqrt(best), y: ROAD[bi].y, i: bi, t: ROAD[bi].t };
+}
+
 /** carve channel, banks and lake bed into a raw height */
 function carve(x, z, h) {
   const L = Math.hypot(x - LAKE.x, z - LAKE.z);
@@ -329,11 +441,29 @@ function carve(x, z, h) {
   LAST_WD = d - W;
   // where the trail fords the river the bed is shallow: ankle-deep, stepping stones
   const depth = useLake ? 1.7 : 0.9 * (useLake ? 1 : smoothstep(1.5, 5, LAST_TD));
-  if (d > W + 14) return h;
-  const bank = Math.max(h, wy + 0.4);
-  if (d < W) return wy - 0.12 - depth * (1 - (d / W) * (d / W));
-  if (d < W + 5) return lerp(wy - 0.12, bank, smoothstep(W, W + 5, d));
-  return lerp(bank, h, smoothstep(W + 5, W + 14, d));
+  if (d <= W + 14) {
+    const bank = Math.max(h, wy + 0.4);
+    if (d < W) h = wy - 0.12 - depth * (1 - (d / W) * (d / W));
+    else if (d < W + 5) h = lerp(wy - 0.12, bank, smoothstep(W, W + 5, d));
+    else h = lerp(bank, h, smoothstep(W + 5, W + 14, d));
+  }
+  // the keep's yard: level ground under the old walls (laid before the road, so the road's
+  // own surface always wins where the two meet)
+  const kd = Math.hypot(x - KEEP.x, z - KEEP.z);
+  if (kd < KEEP.pad + 7) h = lerp(KEEP.y, h, smoothstep(KEEP.pad, KEEP.pad + 7, kd));
+  // the low road: a flat shelf across the pass, cut into the cliff above it and filled below
+  const r = Math.hypot(x, z);
+  LAST_RD = 99;
+  if (r > 86 && r < 165) {
+    let da = Math.atan2(z, x) - GAP_A;
+    da = Math.atan2(Math.sin(da), Math.cos(da));
+    if (Math.abs(da) < 0.34) {
+      const rd = roadNearest(x, z);
+      LAST_RD = rd.d;
+      if (rd.d < ROAD_W + ROAD_BANK) h = rd.d <= ROAD_W ? rd.y : lerp(rd.y, h, smoothstep(ROAD_W, ROAD_W + ROAD_BANK, rd.d));
+    }
+  }
+  return h;
 }
 
 /* Underground: while the hero is in the Under-Vault every terrain question is answered by the vault's own
@@ -362,6 +492,16 @@ export function trailDist(x, z) {
   return TD[j * n + i];
 }
 
+/** distance from a point to the low road's centre line, from the cached grid */
+export function roadDist(x, z) {
+  if (UNDER) return 99;
+  heightTable();
+  const n = GRID_SEG + 1;
+  const i = clamp(Math.round((x + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
+  const j = clamp(Math.round((z + GRID_EXT) / GRID_STEP), 0, GRID_SEG);
+  return RD[j * n + i];
+}
+
 /** water surface height at a point, or -Infinity on dry land */
 export function waterLevel(x, z) {
   if (UNDER) return -Infinity;
@@ -370,13 +510,14 @@ export function waterLevel(x, z) {
   return rn.d < RIVER_W + 1.2 ? rn.wy : -Infinity;
 }
 
-let HEIGHTS = null, WD = null, TD = null;
+let HEIGHTS = null, WD = null, TD = null, RD = null;
 function heightTable() {
   if (HEIGHTS) return HEIGHTS;
   const n = GRID_SEG + 1;
   HEIGHTS = new Float32Array(n * n);
   WD = new Float32Array(n * n);
   TD = new Float32Array(n * n);
+  RD = new Float32Array(n * n);
   for (let j = 0; j < n; j++) {
     const z = -GRID_EXT + j * GRID_STEP;
     for (let i = 0; i < n; i++) {
@@ -385,6 +526,7 @@ function heightTable() {
       HEIGHTS[j * n + i] = carve(x, z, terrainRaw(x, z));
       WD[j * n + i] = LAST_WD;
       TD[j * n + i] = LAST_TD;
+      RD[j * n + i] = LAST_RD;
     }
   }
   return HEIGHTS;

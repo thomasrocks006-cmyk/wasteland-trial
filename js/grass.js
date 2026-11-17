@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { terrainHeight, terrainNormal, waterDist, trailDist, ARENA_R } from './core.js';
+import { terrainHeight, terrainNormal, waterDist, trailDist, roadDist, ARENA_R, GRID_EXT, LOW_R } from './core.js';
 
 /* ================================================================ grass
    A field of blades drawn on the GPU around the player, after SimonDev's Quick_Grass (MIT): each blade is a few
@@ -8,7 +8,7 @@ import { terrainHeight, terrainNormal, waterDist, trailDist, ARENA_R } from './c
    maps baked once from the terrain (no grass on the trail, in the water, on the dais, on cliffs or under a rock).
    Lit by the scene's lights and fog (a Lambert material, patched), swaying in the wind, fading at the patch edge. */
 
-const MAP = 256;
+const MAP = 384;
 
 export class GrassField {
   constructor(scene, world, quality = 'balanced') {
@@ -16,17 +16,18 @@ export class GrassField {
     const n = quality === 'fast' ? 6000 : quality === 'high' ? 30000 : 14000;          // clumps of three blades
     this.size = quality === 'fast' ? 18 : quality === 'high' ? 32 : 24;
     // ---- the maps: height (R, as metres in a float), growth (G, 0..1)
-    const ext = ARENA_R + 6, data = new Float32Array(MAP * MAP * 4), _n = new THREE.Vector3();
+    const ext = GRID_EXT - 2, data = new Float32Array(MAP * MAP * 4), _n = new THREE.Vector3();
     for (let j = 0; j < MAP; j++) for (let i = 0; i < MAP; i++) {
       const x = -ext + (i + 0.5) / MAP * ext * 2, z = -ext + (j + 0.5) / MAP * ext * 2, k = (j * MAP + i) * 4;
-      const r = Math.hypot(x, z);
-      data[k] = terrainHeight(x, z);
-      let g = r < ARENA_R - 1 && r > 15 ? 1 : 0;
+      const r = Math.hypot(x, z), h = terrainHeight(x, z);
+      data[k] = h;
+      let g = (r < ARENA_R - 1 && r > 15) || (h < -14 && r < LOW_R) ? 1 : 0;
       if (g) {
         if (waterDist(x, z) < 1.2) g = 0;
         else if (trailDist(x, z) < 1.4) g = 0;
+        else if (roadDist(x, z) < 5.2) g = 0;
         else if (terrainNormal(x, z, _n).y < 0.8) g = 0;
-        else g *= Math.min(1, (trailDist(x, z) - 1.4) / 1.5) * Math.min(1, (waterDist(x, z) - 1.2) / 1.5);
+        else g *= Math.min(1, (trailDist(x, z) - 1.4) / 1.5) * Math.min(1, (waterDist(x, z) - 1.2) / 1.5) * Math.min(1, (roadDist(x, z) - 5.2) / 1.5);
       }
       data[k + 1] = g;
     }
